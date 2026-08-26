@@ -1,17 +1,8 @@
-import { loadPluginConfig } from './config/loader';
-import { getUserPresetConfigPath, readUserConfig, updateUserPreset, type UserPresetOptions } from './config/presets';
+import { loadPluginConfig } from '../config/loader';
+import { getUserPresetConfigPath, readUserConfig, updateUserPreset, type UserPresetOptions } from '../config/presets';
+import type { CommandDefinition, CommandInvocation } from './types';
 
 export interface PresetCommandOptions extends UserPresetOptions {}
-
-export interface PresetCommandDefinition {
-  name: string;
-  description?: string;
-  execute: (invocation: {
-    sessionID: string;
-    prompt: { text: string };
-    delivery: 'steer' | 'queue';
-  }) => Promise<void>;
-}
 
 export async function runPresetCommand(
   args: readonly string[] = [],
@@ -57,11 +48,7 @@ export interface PresetCommandHandlers {
    */
   reply: (
     text: string,
-    invocation: {
-      sessionID: string;
-      prompt: { text: string };
-      delivery: 'steer' | 'queue';
-    },
+    invocation: CommandInvocation,
   ) => Promise<void>;
 }
 
@@ -71,7 +58,7 @@ export interface PresetCommandHandlers {
  * - 查询路径 → 仅 `reply(...)`
  * - 未知 / 写入失败 → 仅 `reply(失败消息)`，不 reload、不抛
  */
-export function createPresetCommand(handlers: PresetCommandHandlers): PresetCommandDefinition {
+export function createPresetCommand(handlers: PresetCommandHandlers): CommandDefinition {
   return {
     name: 'preset',
     description: '查看或切换 Oceanus preset',

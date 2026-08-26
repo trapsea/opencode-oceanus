@@ -3,7 +3,7 @@ import { getAgentDefinitions } from './agents';
 import type { AgentOverrideConfig } from './config/schema';
 import { loadPluginConfig } from './config/loader';
 import { SISYPHUS_SKILLS } from './skills';
-import { createPresetCommand, runPresetCommand } from './commands';
+import { createCommands, runPresetCommand } from './commands';
 import { registerOceanusTools } from './tools';
 import { registerOceanusHooks } from './hooks';
 import type { ToolingContext } from './runtime/types';
@@ -112,8 +112,8 @@ export default Plugin.define({
     await ctx.skill.reload();
 
     await ctx.command.transform((draft) => {
-      draft.add(
-        createPresetCommand({
+      const commands = createCommands({
+        preset: {
           runPreset: (args) => runPresetCommand(args),
           reloadAgents: () => ctx.agent.reload(),
           reply: async (text, invocation) => {
@@ -125,8 +125,11 @@ export default Plugin.define({
               delivery: invocation.delivery,
             });
           },
-        }),
-      );
+        },
+      });
+      for (const command of commands) {
+        draft.add(command);
+      }
     });
     await ctx.command.reload();
 
