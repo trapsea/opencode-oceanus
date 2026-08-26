@@ -20,6 +20,7 @@ import type {
   ToolDefinition,
   ToolingContext,
 } from './runtime/types';
+import type { IndexerHandle } from './cbm/indexer';
 
 // ─────────────────────────── 测试辅助 ───────────────────────────
 
@@ -97,7 +98,7 @@ afterEach(() => {
 // ─────────────────────────── Tool 注册 ───────────────────────────
 
 describe('Tool transform 注册', () => {
-  test('默认注册全部 6 个新增工具', async () => {
+  test('默认注册全部 13 个新增工具（6 常规 + 7 CBM 兜底）', async () => {
     const { ctx, addedTools } = createMockCtx();
     await registerOceanusTools(ctx, {});
     const names = addedTools.map((t) => t.name).sort();
@@ -109,6 +110,13 @@ describe('Tool transform 注册', () => {
         'task_cancel',
         'task_result',
         'task_status',
+        'cbm_status',
+        'cbm_index',
+        'cbm_search_graph',
+        'cbm_trace',
+        'cbm_code',
+        'cbm_query',
+        'cbm_detect_changes',
       ].sort(),
     );
   });
@@ -144,14 +152,14 @@ describe('Tool transform 注册', () => {
 // ─────────────────────────── Hook 注册顺序 ───────────────────────────
 
 describe('Hook 注册与固定顺序', () => {
-  test('before 注册 apply-patch 后 loop-guard、再 observer；after 按 json→truncator→loop-guard→observer', async () => {
+  test('before 注册 apply-patch→loop-guard→observer→cbm-guidance；after 按 json→truncator→loop-guard→observer→cbm-guidance', async () => {
     const { ctx, beforeHooks, afterHooks } = createMockCtx();
     await registerOceanusHooks(ctx, {});
-    expect(beforeHooks.length).toBe(3);
-    expect(afterHooks.length).toBe(4);
+    expect(beforeHooks.length).toBe(4);
+    expect(afterHooks.length).toBe(5);
     // 顺序通过行为验证：after[0] 是 json 恢复，after[1] 是截断，after[2] 是 loop-guard，
-    // after[3] 是 task-registry-observer（最后）。
-    expect(afterHooks.length).toBe(4);
+    // after[3] 是 task-registry-observer，after[4] 是 cbm-guidance（最后）。
+    expect(afterHooks.length).toBe(5);
   });
 
   test('disabled_hooks / enabled:false 跳过对应 Hook', async () => {
@@ -161,10 +169,47 @@ describe('Hook 注册与固定顺序', () => {
     };
     const { ctx, beforeHooks, afterHooks } = createMockCtx();
     await registerOceanusHooks(ctx, config);
-    // apply_patch 被禁用 → before 只剩 loop-guard + observer
-    expect(beforeHooks.length).toBe(2);
-    // json 被禁用 + truncator 被禁用 → after 只剩 loop-guard + observer
-    expect(afterHooks.length).toBe(2);
+    // apply_patch 被禁用 → before 只剩 loop-guard + observer + cbm-guidance
+    expect(beforeHooks.length).toBe(3);
+    // json 被禁用 + truncator 被禁用 → after 只剩 loop-guard + observer + cbm-guidance
+    expect(afterHooks.length).toBe(3);
+  });
+
+  test('cbm-guidance 尊重 codebaseMemory.guidance=false：不注册', async () => {
+    const config: PluginConfig = { codebaseMemory: { guidance: false } };
+    const { ctx, beforeHooks, afterHooks } = createMockCtx();
+    await registerOceanusHooks(ctx, config);
+    expect(beforeHooks.length).toBe(3); // apply_patch + loop-guard + observer
+    expect(afterHooks.length).toBe(4); // json + truncator + loop-guard + observer
+  });
+
+  test('cbm-guidance 可经 hooks.cbm_guidance.enabled=false 关闭', async () => {
+    const config: PluginConfig = { hooks: { cbm_guidance: { enabled: false } } };
+    const { ctx, beforeHooks, afterHooks } = createMockCtx();
+    await registerOceanusHooks(ctx, config);
+    expect(beforeHooks.length).toBe(3);
+    expect(afterHooks.length).toBe(4);
+  });
+
+  test('cbm-guidance 注入 indexer 后生效：结构化查询前检查索引（fail-open）', async () => {
+    const ensureIndexedCalls: string[] = [];
+    const indexer: IndexerHandle = {
+      ensureIndexed: async (projectPath, opts) => {
+        ensureIndexedCalls.push(projectPath ?? String(opts.workspaceRoot));
+        return { kind: 'indexed' };
+      },
+      isIndexed: () => true,
+      isIndexing: () => false,
+      getLastOutcome: () => undefined,
+      reset: () => {},
+    };
+    const { ctx, beforeHooks, afterHooks } = createMockCtx({ root: '/ws' });
+    await registerOceanusHooks(ctx, {}, { indexer });
+    // cbm-guidance 是最后一个 before hook。
+    const cbmBefore = beforeHooks[beforeHooks.length - 1];
+    await cbmBefore!({ tool: 'cbm_search_graph', sessionID: 's1' });
+    expect(ensureIndexedCalls).toEqual(['/ws']);
+    expect(afterHooks.length).toBe(5);
   });
 });
 
@@ -564,9 +609,9 @@ describe('task_registry_observer 宿主观察链路', () => {
     });
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
-    // observer 是最后注册的 before/after。
-    const observerBefore = mock.beforeHooks[mock.beforeHooks.length - 1];
-    const observerAfter = mock.afterHooks[mock.afterHooks.length - 1];
+    // observer 是 cbm-guidance 前一个注册的 before/after。
+    const observerBefore = mock.beforeHooks[mock.beforeHooks.length - 2];
+    const observerAfter = mock.afterHooks[mock.afterHooks.length - 2];
 
     // 模拟宿主 task 工具调用（显式 taskId，无手工注入 registry）。
     await observerBefore!({
@@ -600,8 +645,8 @@ describe('task_registry_observer 宿主观察链路', () => {
     const mock = createMockCtx();
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
-    const observerBefore = mock.beforeHooks[mock.beforeHooks.length - 1];
-    const observerAfter = mock.afterHooks[mock.afterHooks.length - 1];
+    const observerBefore = mock.beforeHooks[mock.beforeHooks.length - 2];
+    const observerAfter = mock.afterHooks[mock.afterHooks.length - 2];
     await observerBefore!({
       tool: 'subagent',
       sessionID: 'parent-1',
@@ -627,8 +672,8 @@ describe('task_registry_observer 宿主观察链路', () => {
     const mock = createMockCtx();
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
-    const observerBefore = mock.beforeHooks[mock.beforeHooks.length - 1];
-    const observerAfter = mock.afterHooks[mock.afterHooks.length - 1];
+    const observerBefore = mock.beforeHooks[mock.beforeHooks.length - 2];
+    const observerAfter = mock.afterHooks[mock.afterHooks.length - 2];
     await observerBefore!({
       tool: 'task',
       sessionID: 'parent-1',
@@ -655,9 +700,9 @@ describe('task_registry_observer 宿主观察链路', () => {
     await registerOceanusHooks(mock.ctx, {
       disabled_hooks: ['task_registry_observer'],
     });
-    // observer 被禁用 → 不注册 before/after。
-    expect(mock.beforeHooks).toHaveLength(2); // apply_patch + loop-guard
-    expect(mock.afterHooks).toHaveLength(3); // json + truncator + loop-guard
+    // observer 被禁用 → 不注册 before/after（保留 cbm-guidance）。
+    expect(mock.beforeHooks).toHaveLength(3); // apply_patch + loop-guard + cbm-guidance
+    expect(mock.afterHooks).toHaveLength(4); // json + truncator + loop-guard + cbm-guidance
     const statusTool = findTool(mock.addedTools, 'task_status');
     const st = parsed(await statusTool.execute({ taskId: 'nope' }, { sessionID: 'parent-1' }));
     expect(st.error).toContain('task 不存在');

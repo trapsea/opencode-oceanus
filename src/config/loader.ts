@@ -137,6 +137,12 @@ export function mergePluginConfigs(
       base.hooks as Record<string, unknown> | undefined,
       override.hooks as Record<string, unknown> | undefined,
     ) as PluginConfig['hooks'],
+    // codebaseMemory 与 tools/hooks 一致地按字段深度合并：
+    // 项目显式字段优先，用户未覆盖的顶层与 ui 子字段得以保留。
+    codebaseMemory: deepMerge(
+      base.codebaseMemory as Record<string, unknown> | undefined,
+      override.codebaseMemory as Record<string, unknown> | undefined,
+    ) as PluginConfig['codebaseMemory'],
   };
 }
 

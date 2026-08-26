@@ -1,12 +1,16 @@
 import { Plugin, Skill } from '@opencode-ai/plugin';
 import { getAgentDefinitions } from './agents';
-import type { AgentOverrideConfig } from './config/schema';
+import type { AgentOverrideConfig, PluginConfig } from './config/schema';
 import { loadPluginConfig } from './config/loader';
 import { SISYPHUS_SKILLS } from './skills';
 import { createCommands, runPresetCommand } from './commands';
+import { defaultInstallStatus } from './cbm/commands';
+import { registerCbmMcp, removeCbmMcp } from './cbm/mcp';
+import { getUiStatus, startUi, stopUi } from './cbm/ui';
 import { registerOceanusTools } from './tools';
 import { registerOceanusHooks } from './hooks';
-import type { ToolingContext } from './runtime/types';
+import { buildCbmSharedDeps, type CbmWiringInjections } from './cbm/wiring';
+import type { PluginSetupContext } from './runtime/types';
 
 function toPermissions(
   permission: NonNullable<AgentOverrideConfig['permission']>,
@@ -35,13 +39,213 @@ function toPermissions(
   return result;
 }
 
+const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/**
+ * 应用 agent 定义到宿主（transform + reload）。
+ * 抽出以便 setup 与 /preset 的 reloadAgents 复用：切换 preset 时需基于
+ * 重新加载的配置重建 agent 定义，而仅 ctx.agent.reload() 会沿用旧配置
+ * 构建的定义，导致执行命令的当前窗口不生效。
+ */
+async function applyAgentDefinitions(
+  ctx: PluginSetupContext,
+  config: PluginConfig,
+): Promise<void> {
+  await ctx.agent.transform((draft) => {
+    const definitions = getAgentDefinitions(config);
+    if (draft.get('build')) {
+      draft.remove('build');
+    }
+    if (draft.get('plan')) {
+      draft.remove('plan');
+    }
+    for (const def of definitions) {
+      draft.update(def.name, (agent: any) => {
+        if (def.displayName) {
+          agent.name = def.displayName as unknown as typeof agent.name;
+        }
+        agent.description = def.description;
+        agent.mode = def.mode;
+        if (def.system || def.orchestratorPrompt) {
+          agent.system = [def.system, def.orchestratorPrompt]
+            .filter((value): value is string => Boolean(value))
+            .join('\n\n');
+        }
+        if (def.color) {
+          agent.color = def.color;
+        }
+        if (def.model) {
+          agent.model = def.model as unknown as typeof agent.model;
+        }
+        if (def.temperature !== undefined) {
+          agent.request.settings.temperature = def.temperature;
+        }
+        if (def.options) Object.assign(agent.request.settings, def.options);
+        if (def.permission !== undefined) {
+          agent.permissions = toPermissions(def.permission) as typeof agent.permissions;
+        }
+      });
+    }
+    draft.default('oceanus');
+  });
+  await ctx.agent.reload();
+}
+
+export interface RunSetupOptions {
+  /** 覆盖配置加载（测试注入；缺省 loadPluginConfig）。 */
+  loadConfig?: (opts: { directory: string }) => PluginConfig;
+  /** CBM 接线注入（测试替换网络/进程；缺省走真实实现）。 */
+  cbm?: CbmWiringInjections;
+}
+
+/**
+ * 插件 setup 主体（CBM-13 入口接线）。
+ *
+ * 抽出为可测试函数：smoke 测试用 fake ctx + 注入的 CBM 依赖验证接线顺序、
+ * 后台安装不阻塞、失败降级与共享 indexer/缓存根。生产环境由 {@link runSetup}
+ * 以真实 ctx 调用。
+ *
+ * 接线顺序（CBM 相关）：
+ *   1. 解析 resolved codebaseMemory，计算共享 cacheRoot，构造共享依赖；
+ *   2. `startBackgroundInstall(installOptions)`，**不 await**（后台安装非阻塞）；
+ *   3. 注册 agents / skills（保留 agent-supervision/metis/momus 改动）；
+ *   4. 注册命令（preset + /cbm），cbm handlers 复用共享 cacheRoot/indexer/MCP/UI；
+ *   5. **非阻塞**注册 `codebase-memory-mcp`（占位→安装完成启用，不阻塞插件启动）；
+ *   6. 注册 CLI fallback 工具，传入共享 runDeps / indexer（env 经 config 推导）；
+ *   7. 注册 guidance hooks，复用同一 indexer / runDeps。
+ *
+ * 所有 CBM 接线独立 try/catch/fail-open：任一环节失败不阻塞其余子系统。
+ */
+export async function runSetup(
+  ctx: PluginSetupContext,
+  options: RunSetupOptions = {},
+): Promise<void> {
+  const log = options.cbm?.logger ?? (() => {});
+  const config = (options.loadConfig ?? loadPluginConfig)({ directory: process.cwd() });
+
+  // 1) 共享 CBM 依赖：cacheRoot = 显式 cacheDir ?? 默认；供 provision/MCP/CLI/UI/commands 复用。
+  const shared = buildCbmSharedDeps(config, options.cbm);
+
+  // 2) 后台安装：只触发不 await，绝不阻塞插件启动（fail-open）。
+  //    同步 throw 与异步 rejection 都吞掉，避免未处理 rejection 干扰插件。
+  if (shared.cm.enabled && shared.cm.autoDownload) {
+    try {
+      const bg = shared.startBackground();
+      if (bg && typeof bg.catch === 'function') {
+        bg.catch((e) => log('[oceanus] CBM 后台安装失败(fail-open)', { error: messageOf(e) }));
+      }
+    } catch (e) {
+      log('[oceanus] CBM 后台安装启动失败(fail-open)', { error: messageOf(e) });
+    }
+  }
+
+  // 3) 注册 agents（v2 agent.transform）。
+  await applyAgentDefinitions(ctx, config);
+
+  // 4) 注册 skills（sisyphus 阶段）。
+  await ctx.skill.transform((draft) => {
+    for (const skill of SISYPHUS_SKILLS) {
+      draft.add({
+        id: skill.name as Skill.Info['id'],
+        name: skill.name as Skill.Info['name'],
+        description: skill.description,
+        slash: skill.slash ?? false,
+        autoinvoke: skill.autoinvoke ?? false,
+        location: `opencode-oceanus/${skill.name}/SKILL.md` as Skill.Info['location'],
+        content: skill.content,
+      });
+    }
+  });
+  await ctx.skill.reload();
+
+  // 5) 注册命令（preset + /cbm）：cbm handlers 复用共享 cacheRoot/indexer/MCP/UI。
+  await ctx.command.transform((draft) => {
+    // 仅透传 sessionID / text / delivery，避免在响应消息中
+    // 重复触发 invocation.prompt.skills 等用户原 prompt 字段。
+    const replyToSession = async (
+      text: string,
+      invocation: { sessionID: string; prompt: { text: string }; delivery: 'steer' | 'queue' },
+    ) => {
+      await ctx.session.prompt({
+        sessionID: invocation.sessionID,
+        text,
+        delivery: invocation.delivery,
+      });
+    };
+    const commands = createCommands({
+      preset: {
+        runPreset: (args) => runPresetCommand(args),
+        reloadAgents: async () => {
+          // /preset 切换后必须基于重新加载的配置重建 agent 定义，再 reload；
+          // 仅 ctx.agent.reload() 会沿用 setup 时旧配置构建的定义，导致当前窗口不生效。
+          const fresh = (options.loadConfig ?? loadPluginConfig)({
+            directory: process.cwd(),
+          });
+          await applyAgentDefinitions(ctx, fresh);
+        },
+        reply: replyToSession,
+      },
+      cbm: {
+        getInstallStatus: (cacheRoot) => defaultInstallStatus(cacheRoot),
+        startBackgroundInstall: (opts) => shared.startBackground(opts),
+        ensureInstalled: (opts) => shared.ensureInstalled(opts),
+        repair: (opts) => shared.repair(opts),
+        registerMcp: (opts) => registerCbmMcp(ctx, config, { ...opts, cacheRoot: shared.cacheRoot }),
+        removeMcp: () => removeCbmMcp(ctx),
+        indexer: shared.indexer,
+        startUi: (opts) =>
+          startUi({ cacheRoot: shared.cacheRoot, ...opts, ensureInstalled: shared.uiEnsureInstalled }),
+        stopUi: (opts) => stopUi({ cacheRoot: shared.cacheRoot, ...opts }),
+        getUiStatus: (opts) => getUiStatus({ cacheRoot: shared.cacheRoot, ...opts }),
+        getCacheRoot: () => shared.cacheRoot,
+        getWorkspaceRoot: () => process.cwd(),
+        reply: replyToSession,
+      },
+    });
+    for (const command of commands) {
+      draft.add(command);
+    }
+  });
+  await ctx.command.reload();
+
+  // 6) 非阻塞注册 codebase-memory-mcp（占位→安装完成启用，不阻塞插件启动）。
+  try {
+    registerCbmMcp(ctx, config, { cacheRoot: shared.cacheRoot, logger: log }).catch((e) =>
+      log('[oceanus] CBM MCP 注册失败(fail-open)', { error: messageOf(e) }),
+    );
+  } catch (e) {
+    log('[oceanus] CBM MCP 注册同步失败(fail-open)', { error: messageOf(e) });
+  }
+
+  // 7) 注册 CLI fallback 工具：CBM 工具复用共享 runDeps / indexer
+  //   （env=CBM_CACHE_DIR 由 tools 层经 config.codebaseMemory.cacheDir 推导）。
+  try {
+    await registerOceanusTools(ctx, config, {
+      cbmRunDeps: shared.runDeps,
+      cbmIndexer: shared.indexer,
+    });
+  } catch (e) {
+    log('[oceanus] 注册工具失败(fail-open)', { error: messageOf(e) });
+  }
+
+  // 8) 注册 hooks：cbm-guidance 复用同一 indexer / runDeps（fail-open）。
+  try {
+    await registerOceanusHooks(ctx, config, {
+      runDeps: shared.runDeps,
+      indexer: shared.indexer,
+    });
+  } catch (e) {
+    log('[oceanus] 注册 hooks 失败(fail-open)', { error: messageOf(e) });
+  }
+}
+
 /**
  * Oceanus 插件（opencode v2 入口）。
  *
  * 通过 ctx.agent.transform 注册一组参考 oh-my-opencode-slim 的 agent：
  * - oceanus（主 agent，颜色 #0FFFFF）
  * - sisyphus（主 agent，superpowers 五阶段工作流）
- * - explorer / librarian / oracle / designer / fixer / observer（子 agent，observer 默认禁用）
+ * - explorer / librarian / oracle / designer / fixer / observer / metis / momus（子 agent，observer 默认禁用）
  *
  * 同时通过 ctx.skill.transform 注入 sisyphus 工作流的四个阶段 skill
  * （sisyphus-brainstorm / sisyphus-plan / sisyphus-execute / sisyphus-review），
@@ -55,87 +259,6 @@ export default Plugin.define({
   id: 'opencode-oceanus',
   tui: true,
   async setup(ctx) {
-    // v2 的 setup ctx 不暴露项目目录，用启动目录加载项目级配置；仅加载一次复用。
-    const config = loadPluginConfig({ directory: process.cwd() });
-    await ctx.agent.transform((draft) => {
-      const definitions = getAgentDefinitions(config);
-      if (draft.get('build')) {
-        draft.remove('build');
-      }
-      if (draft.get('plan')) {
-        draft.remove('plan');
-      }
-      for (const def of definitions) {
-        draft.update(def.name, (agent) => {
-          if (def.displayName) {
-            agent.name = def.displayName as unknown as typeof agent.name;
-          }
-          agent.description = def.description;
-          agent.mode = def.mode;
-          if (def.system || def.orchestratorPrompt) {
-            agent.system = [def.system, def.orchestratorPrompt]
-              .filter((value): value is string => Boolean(value))
-              .join('\n\n');
-          }
-          if (def.color) {
-            agent.color = def.color;
-          }
-          if (def.model) {
-            agent.model = def.model as unknown as typeof agent.model;
-          }
-          if (def.temperature !== undefined) {
-            agent.request.settings.temperature = def.temperature;
-          }
-          if (def.options) Object.assign(agent.request.settings, def.options);
-          if (def.permission !== undefined) {
-            agent.permissions = toPermissions(def.permission) as typeof agent.permissions;
-          }
-        });
-      }
-      draft.default('oceanus');
-    });
-    await ctx.agent.reload();
-
-    await ctx.skill.transform((draft) => {
-      for (const skill of SISYPHUS_SKILLS) {
-        draft.add({
-          id: skill.name as Skill.Info['id'],
-          name: skill.name as Skill.Info['name'],
-          description: skill.description,
-          slash: skill.slash ?? false,
-          autoinvoke: skill.autoinvoke ?? false,
-          location: `opencode-oceanus/${skill.name}/SKILL.md` as Skill.Info['location'],
-          content: skill.content,
-        });
-      }
-    });
-    await ctx.skill.reload();
-
-    await ctx.command.transform((draft) => {
-      const commands = createCommands({
-        preset: {
-          runPreset: (args) => runPresetCommand(args),
-          reloadAgents: () => ctx.agent.reload(),
-          reply: async (text, invocation) => {
-            // 仅透传 sessionID / text / delivery，避免在响应消息中
-            // 重复触发 invocation.prompt.skills 等用户原 prompt 字段。
-            await ctx.session.prompt({
-              sessionID: invocation.sessionID,
-              text,
-              delivery: invocation.delivery,
-            });
-          },
-        },
-      });
-      for (const command of commands) {
-        draft.add(command);
-      }
-    });
-    await ctx.command.reload();
-
-    // Wave 2：注册新增 Tool 与 Hook（默认全部启用，按配置过滤；各自独立容错）。
-    const toolingCtx = ctx as unknown as ToolingContext;
-    await registerOceanusTools(toolingCtx, config);
-    await registerOceanusHooks(toolingCtx, config);
+    await runSetup(ctx as unknown as PluginSetupContext);
   },
 });

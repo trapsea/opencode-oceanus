@@ -23,6 +23,14 @@ Implement the plan reliably: parallel where safe, serial where dependent, and fu
 5. **Reconcile and update after each task** — when any task returns, integrate its result, run or verify its declared validation, then immediately update that task row to \`completed\`, \`failed\`, or \`blocked\`, recording evidence, timestamp, and notes. Do this for every task, including parallel tasks, without waiting for the rest of the Wave to finish.
 6. **Sync the todo list** — keep in-memory todo and the ledger consistent: register plan tasks as \`pending\`, mark the current task \`in_progress\` before dispatching, and mark it \`completed\`/\`failed\`/\`blocked\` only after its terminal result and validation evidence are in.
 
+## Plan-Change & Re-plan Gate
+
+Ordinary execution does **not** re-invoke @metis or @momus on every task — 普通执行不重复调用 @metis 或 @momus；仅当 plan 需要变更时才会触发。 They are only touched when the plan itself must change.
+
+1. **Route re-planning according to the kind of change** — if requirements or acceptance criteria change, pause and first re-run @metis to analyze the new requirements, risks, boundaries, counterexamples, and criteria; then return to plan, revise it, and 重新 call @momus. If only the \`Files\` scope, dependencies, task structure, or a failure-driven re-plan changes, return directly to plan, revise it, and re-run @momus without unnecessarily repeating @metis.
+2. **Only @momus OKAY lets execution continue** — after any re-planning, the revised plan must pass @momus review. Only when @momus returns OKAY may execution resume; a REJECT means further revision, not execution.
+3. **Never fake the gate** — do not invent or fabricate a gate result. If @momus was not actually run on the revised plan, record that honestly and do not claim it passed.
+
 ## Failing-First Discipline
 
 Apply this to every code change with a test seam; it turns "write tests first" from an intent into an enforced execution rule.
@@ -45,6 +53,7 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 - [ ] Todo list matches task state
 - [ ] Failing-first applied: RED→GREEN captured per change, existing behavior pinned before changes
 - [ ] Each scenario has two proofs: code proof (RED+GREEN) and a real-surface artifact
+- [ ] Substantive changes (requirements/Files/dependencies/acceptance) or re-planning routed back to plan and re-passed through @momus before continuing
 
 ## Rules
 - Use the real background parameter: \`task(..., run_in_background=true)\` — not \`background: true\`.
@@ -54,6 +63,7 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 - In shared-worktree mode, workers must not run \`git add\`/\`commit\`/\`reset\`, branch or worktree operations, or edit files outside their declared \`Files\`.
 - Follow the Failing-First Discipline above; do not skip RED→GREEN unless the change matches the exemption whitelist and the reason is recorded.
 - Never claim a task complete on passing tests alone; a real-surface artifact is required.
+- Requirement or acceptance changes re-run @metis before plan revision; Files/dependency/task-structure changes and failure re-planning may return directly to plan. Every revised plan must pass an actual @momus OKAY before continuing.
 `,
 };
 

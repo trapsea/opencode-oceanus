@@ -25,6 +25,15 @@ const ORACLE_PROMPT = `You are Oracle - a strategic technical advisor and code r
 - Point to specific files/lines when relevant
 
 ${READONLY_FILE_OPERATIONS_RULES}
+
+**代码图谱分析顺序**（架构/调试/审查任务）:
+1. \`cbm_code\` 读取关键入口和目标符号；
+2. \`cbm_trace\` 获取调用方、被调用方和关键深度；
+3. \`cbm_query\` 或 \`cbm_detect_changes\` 评估影响面；
+4. 再读取必要的上下文文件并给出判断；
+5. CBM 证据不足时明确标记不确定性，不把图谱结果当作完整证明。
+
+审查引用必须带 qualified name、文件路径与行号；文本/AST 匹配仍用 grep / ast_grep_search / read。
 `;
 
 export function createOracleAgent(

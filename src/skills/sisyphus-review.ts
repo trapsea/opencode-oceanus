@@ -21,6 +21,13 @@ Catch defects and design drift with evidence, not vibes, between phases.
 3. **Escalate heavy review to @oracle** — route high-risk architecture decisions, persistent bugs, or security-sensitive review to @oracle.
 4. **Gate, don't skip** — review is a gate between phases, not an optional extra. Do not advance to execute or finish with known-unverified claims.
 
+## Review Ownership
+
+- **Sisyphus** owns the spec/plan/diff review, test verification, and the Completion Audit; verify each finding with evidence before acting on it.
+- **@oracle** owns high-risk architecture review, complex failure diagnosis, and independent code review. Route heavyweight or independent review to @oracle rather than doing it yourself.
+- **Momus is not the default implementation or code-review agent** — Momus reviews the plan (Phase 2), not code, and does not replace @oracle for independent code review.
+- **Advisory findings don't shift ownership** — if a finding merely checks whether the implementation deviates from the plan, record it as advisory and keep the primary review ownership above unchanged.
+
 ## Completion Audit (Coverage Matrix)
 
 Before accepting any task or scenario as truly done, run a completion audit: treat each success criterion as a row and the collected evidence as coverage of those rows.

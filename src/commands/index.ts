@@ -8,12 +8,16 @@
  * 新增 command：新建模块（如 `foo.ts`）导出其 factory，在 {@link CommandsDeps}
  * 声明对应依赖分组，并在 {@link createCommands} 的数组中加入一条即可。
  */
+import { createCbmCommand } from '../cbm/commands';
+import type { CbmCommandHandlers } from '../cbm/commands';
 import { createPresetCommand } from './preset';
 import type { PresetCommandHandlers } from './preset';
 import type { CommandDefinition } from './types';
 
 export type { CommandDefinition, CommandInvocation } from './types';
 export type { PresetCommandHandlers, PresetCommandOptions } from './preset';
+export type { CbmCommandHandlers, CbmInstallStatus } from '../cbm/commands';
+export { createCbmCommand, defaultInstallStatus } from '../cbm/commands';
 // 兼容旧 `./commands`（即 src/commands.ts）的导入面。
 export { createPresetCommand, runPresetCommand } from './preset';
 
@@ -23,9 +27,10 @@ export { createPresetCommand, runPresetCommand } from './preset';
  */
 export interface CommandsDeps {
   preset: PresetCommandHandlers;
+  cbm: CbmCommandHandlers;
 }
 
 /** 聚合工厂：注入一次依赖，返回全部 command 定义。 */
 export function createCommands(deps: CommandsDeps): CommandDefinition[] {
-  return [createPresetCommand(deps.preset)];
+  return [createPresetCommand(deps.preset), createCbmCommand(deps.cbm)];
 }

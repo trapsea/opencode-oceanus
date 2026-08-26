@@ -18,6 +18,9 @@ import {
 } from './hashline-edit';
 import { TaskRegistry } from './task/registry';
 import { isTerminalStatus, type TaskRecord } from './task/types';
+import { buildCbmTools } from './cbm';
+import type { IndexerHandle, IndexerRunCli } from '../cbm/indexer';
+import type { CbmRunDeps } from './cbm/types';
 import { isToolEnabled, getToolConfig } from '../config/utils';
 import type { PluginConfig } from '../config/schema';
 import { resolveWorkspaceRoot } from '../runtime/workspace';
@@ -33,6 +36,12 @@ import type { ToolContextLike, ToolDefinition, ToolResult, ToolingContext } from
 export interface RegisterToolsOptions {
   registry?: TaskRegistry;
   logger?: (message: string, meta?: Record<string, unknown>) => void;
+  /** CBM 注入（测试）：替代 runCbmCli 的 CLI 执行函数。 */
+  cbmRunCli?: IndexerRunCli;
+  /** CBM 注入（测试）：CLI 执行依赖（spawn / resolveBinary / ensureInstalled）。 */
+  cbmRunDeps?: CbmRunDeps;
+  /** CBM 注入（测试）：自定义索引器。 */
+  cbmIndexer?: IndexerHandle;
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -433,12 +442,31 @@ export async function registerOceanusTools(
 ): Promise<unknown> {
   const log = opts.logger ?? (() => {});
   const enabled = TOOL_BUILDERS.filter(({ name }) => isToolEnabled(config, name));
+  // CBM CLI 兜底工具（CBM-09）：尊重 codebaseMemory.enabled / cliFallback 门控，
+  // 构建失败独立容错，不阻断已有工具注册。
+  let cbmTools: ReturnType<typeof buildCbmTools> = [];
+  try {
+    cbmTools = buildCbmTools(ctx, config, {
+      runCli: opts.cbmRunCli,
+      runDeps: opts.cbmRunDeps,
+      indexer: opts.cbmIndexer,
+    });
+  } catch (e) {
+    log('[oceanus] CBM 工具构建失败', { error: messageOf(e) });
+  }
   return ctx.tool.transform((draft) => {
     for (const { name, build } of enabled) {
       try {
         draft.add(build(ctx, config, opts));
       } catch (e) {
         log(`[oceanus] 注册工具失败: ${name}`, { error: messageOf(e) });
+      }
+    }
+    for (const tool of cbmTools) {
+      try {
+        draft.add(tool);
+      } catch (e) {
+        log(`[oceanus] 注册 CBM 工具失败: ${tool.name}`, { error: messageOf(e) });
       }
     }
   });

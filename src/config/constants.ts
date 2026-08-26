@@ -1,3 +1,5 @@
+import type { AgentOverrideConfig } from './schema';
+
 // Agent 名称
 export const AGENT_ALIASES: Record<string, string> = {
   explore: 'explorer',
@@ -12,6 +14,8 @@ export const SUBAGENT_NAMES = [
   'designer',
   'fixer',
   'observer',
+  'metis',
+  'momus',
 ] as const;
 
 export const ALL_AGENT_NAMES = [
@@ -38,6 +42,8 @@ export const DEFAULT_MODELS: Record<AgentName, string | undefined> = {
   designer: undefined,
   fixer: undefined,
   observer: undefined,
+  metis: undefined,
+  momus: undefined,
 };
 
 /** 写权限 agent（designer/fixer）的文件操作规则 */
@@ -57,3 +63,43 @@ export const READONLY_FILE_OPERATIONS_RULES = `**File Operations Rules**:
 
 /** 默认禁用的 agent（observer 需要视觉模型，默认关闭） */
 export const DEFAULT_DISABLED_AGENTS: string[] = ['observer'];
+
+/**
+ * 默认只读 agent 集合。这些 agent 在无显式 agents.<name>.permission 时
+ * 会集中获得 READONLY_DEFAULT_PERMISSION，保证只读不写入、不委派、不执行 task。
+ */
+export const READONLY_AGENTS: ReadonlySet<string> = new Set([
+  'explorer',
+  'librarian',
+  'oracle',
+  'observer',
+  'metis',
+  'momus',
+]);
+
+/**
+ * 只读 agent 的默认 permission：
+ * - allow：read/glob/grep/list/lsp/codesearch/webfetch/websearch
+ * - deny：bash/edit/write/apply_patch/ast_grep_replace/hashline_edit/task/todowrite（写入与执行相关动作）
+ * 显式 agents.<name>.permission 始终覆盖此默认值。
+ */
+export const READONLY_DEFAULT_PERMISSION: NonNullable<
+  AgentOverrideConfig['permission']
+> = {
+  read: 'allow',
+  glob: 'allow',
+  grep: 'allow',
+  list: 'allow',
+  lsp: 'allow',
+  codesearch: 'allow',
+  webfetch: 'allow',
+  websearch: 'allow',
+  bash: 'deny',
+  edit: 'deny',
+  write: 'deny',
+  apply_patch: 'deny',
+  ast_grep_replace: 'deny',
+  hashline_edit: 'deny',
+  task: 'deny',
+  todowrite: 'deny',
+};

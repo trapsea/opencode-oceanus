@@ -1,6 +1,8 @@
 import { DEFAULT_DISABLED_AGENTS, PROTECTED_AGENTS } from './constants';
 import type {
   AgentOverrideConfig,
+  CodebaseMemoryConfig,
+  CodebaseMemoryUiConfig,
   HookConfig,
   PluginConfig,
   ToolConfig,
@@ -81,4 +83,120 @@ export function isHookEnabled(
 ): boolean {
   if (getDisabledHooks(config).has(name)) return false;
   return getHookConfig(config, name)?.enabled ?? true;
+}
+
+/** codebase-memory-mcp 默认固定版本（官方当前受支持基线）。 */
+export const DEFAULT_CODEBASE_MEMORY_VERSION = '0.10.8';
+
+/** 解析后的 codebase-memory UI 配置（缺省字段已补齐）。 */
+export interface CodebaseMemoryResolvedUi {
+  enabled: boolean;
+  autoStart: boolean;
+  host: string;
+  port: number;
+  open: boolean;
+}
+
+/** 解析后的 codebase-memory 集成配置（缺省字段已补齐）。 */
+export interface CodebaseMemoryResolvedConfig {
+  enabled: boolean;
+  autoDownload: boolean;
+  version: string;
+  binaryPath?: string;
+  cacheDir?: string;
+  autoIndex: boolean;
+  indexOnStart: boolean;
+  mcp: boolean;
+  cliFallback: boolean;
+  guidance: boolean;
+  ui: CodebaseMemoryResolvedUi;
+}
+
+/** 返回 codebase-memory 配置的默认值。 */
+export function getDefaultCodebaseMemoryConfig(): CodebaseMemoryResolvedConfig {
+  return {
+    enabled: true,
+    autoDownload: true,
+    version: DEFAULT_CODEBASE_MEMORY_VERSION,
+    autoIndex: true,
+    indexOnStart: false,
+    mcp: true,
+    cliFallback: true,
+    guidance: true,
+    ui: {
+      enabled: true,
+      autoStart: false,
+      host: '127.0.0.1',
+      port: 9749,
+      open: false,
+    },
+  };
+}
+
+/**
+ * 获取解析后的 codebase-memory 配置：显式字段覆盖默认值，缺省字段回落到默认。
+ * 只对 codebaseMemory 顶层及其 ui 子对象做一层补齐（不做深递归合并）。
+ */
+export function getCodebaseMemoryConfig(
+  config?: PluginConfig,
+): CodebaseMemoryResolvedConfig {
+  const defaults = getDefaultCodebaseMemoryConfig();
+  const raw: CodebaseMemoryConfig | undefined = config?.codebaseMemory;
+  if (!raw) return defaults;
+  return {
+    ...defaults,
+    ...raw,
+    ui: {
+      ...defaults.ui,
+      ...(raw.ui as CodebaseMemoryUiConfig | undefined),
+    },
+  };
+}
+
+/** codebase-memory 集成是否启用（默认 true）。 */
+export function isCodebaseMemoryEnabled(config?: PluginConfig): boolean {
+  return getCodebaseMemoryConfig(config).enabled;
+}
+
+/** 是否自动下载/安装 canonical release（默认 true）。 */
+export function isCodebaseMemoryAutoDownloadEnabled(
+  config?: PluginConfig,
+): boolean {
+  return getCodebaseMemoryConfig(config).autoDownload;
+}
+
+/** 首次结构化查询前是否自动建索引（默认 true）。 */
+export function isCodebaseMemoryAutoIndexEnabled(
+  config?: PluginConfig,
+): boolean {
+  return getCodebaseMemoryConfig(config).autoIndex;
+}
+
+/** 插件启动阶段是否立即全量索引（默认 false）。 */
+export function isCodebaseMemoryIndexOnStart(config?: PluginConfig): boolean {
+  return getCodebaseMemoryConfig(config).indexOnStart;
+}
+
+/** MCP 主通道是否启用（默认 true）。 */
+export function isCodebaseMemoryMcpEnabled(config?: PluginConfig): boolean {
+  return getCodebaseMemoryConfig(config).mcp;
+}
+
+/** CLI 兜底工具是否启用（默认 true）。 */
+export function isCodebaseMemoryCliFallbackEnabled(
+  config?: PluginConfig,
+): boolean {
+  return getCodebaseMemoryConfig(config).cliFallback;
+}
+
+/** 调度引导提示是否启用（默认 true）。 */
+export function isCodebaseMemoryGuidanceEnabled(
+  config?: PluginConfig,
+): boolean {
+  return getCodebaseMemoryConfig(config).guidance;
+}
+
+/** UI 是否自动启动（默认 false）。 */
+export function isCodebaseMemoryUiAutoStart(config?: PluginConfig): boolean {
+  return getCodebaseMemoryConfig(config).ui.autoStart;
 }

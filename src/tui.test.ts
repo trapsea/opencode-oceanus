@@ -4,7 +4,9 @@ import {
   normalizeModel,
   shortModelName,
   sortAgentRows,
+  bareModelName,
 } from './tui';
+import { ALL_AGENT_NAMES } from './config/constants';
 
 describe('sidebar 模型展示', () => {
   test('缺省模型跟随会话', () => {
@@ -26,9 +28,27 @@ describe('sidebar 模型展示', () => {
     expect(shortModelName('github-copilot/gpt-4o')).toBe('copilot/gpt-4o');
     expect(shortModelName('custom/model')).toBe('custom/model');
   });
+
+  test('bareModelName 不显示 provider（任意 provider 均剥离）', () => {
+    expect(bareModelName(undefined)).toBe('跟随会话');
+    expect(bareModelName({ providerID: 'openai', id: 'openai/gpt-5', variant: 'high' })).toBe(
+      'gpt-5#high',
+    );
+    expect(bareModelName({ providerID: 'deepseek', id: 'deepseek/deepseek-chat' })).toBe(
+      'deepseek-chat',
+    );
+    expect(bareModelName({ providerID: 'ollama', id: 'ollama/qwen2.5' })).toBe('qwen2.5');
+    expect(bareModelName({ providerID: 'github-copilot', id: 'github-copilot/gpt-4o' })).toBe(
+      'gpt-4o',
+    );
+  });
 });
 
 describe('sidebar agent 排序', () => {
+  test('sidebar 白名单包含 metis 与 momus', () => {
+    expect(ALL_AGENT_NAMES).toEqual(expect.arrayContaining(['metis', 'momus']));
+  });
+
   test('按默认 agent 顺序排序并将未知 agent 放在末尾', () => {
     const agents = [{ id: 'fixer' }, { id: 'unknown' }, { id: 'oceanus' }, { id: 'explorer' }];
 

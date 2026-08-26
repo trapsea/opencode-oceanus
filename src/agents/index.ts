@@ -1,5 +1,9 @@
 import { Model } from '@opencode-ai/plugin';
-import { SUBAGENT_NAMES } from '../config/constants';
+import {
+  READONLY_AGENTS,
+  READONLY_DEFAULT_PERMISSION,
+  SUBAGENT_NAMES,
+} from '../config/constants';
 import type { AgentOverrideConfig, PluginConfig } from '../config/schema';
 import { getAgentOverride, getDisabledAgents } from '../config/utils';
 import { createSisyphusAgent } from './sisyphus';
@@ -7,6 +11,8 @@ import { createDesignerAgent } from './designer';
 import { createExplorerAgent } from './explorer';
 import { createFixerAgent } from './fixer';
 import { createLibrarianAgent } from './librarian';
+import { createMetisAgent } from './metis';
+import { createMomusAgent } from './momus';
 import { createObserverAgent } from './observer';
 import { createOracleAgent } from './oracle';
 import {
@@ -31,6 +37,8 @@ const SUBAGENT_FACTORIES: Record<(typeof SUBAGENT_NAMES)[number], AgentFactory> 
     designer: createDesignerAgent,
     fixer: createFixerAgent,
     observer: createObserverAgent,
+    metis: createMetisAgent,
+    momus: createMomusAgent,
   };
 
 /** 解析配置中的 model 字符串（provider/model#variant）为 v2 ModelRef */
@@ -140,6 +148,12 @@ export function createAgents(
 
       if (override) {
         applyOverrides(agent, override);
+      }
+
+      // 只读 agent 在无显式 permission 时集中应用默认只读权限。
+      // 显式 agents.<name>.permission 已在上方 applyOverrides 中设置，此处分支自动跳过。
+      if (READONLY_AGENTS.has(name) && agent.permission === undefined) {
+        agent.permission = READONLY_DEFAULT_PERMISSION;
       }
       return agent;
     });

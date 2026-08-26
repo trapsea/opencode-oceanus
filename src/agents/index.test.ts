@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { createAgents } from './index';
+import { createAgents, getAgentDefinitions } from './index';
+import type { AgentDefinition } from './oceanus';
 
 describe('agent override 映射', () => {
   test('映射 v2 AgentDefinition 支持的字段', () => {
@@ -107,5 +108,345 @@ describe('agent prompt 工具对齐（tooling-10）', () => {
       'the local task registry is only an index and never a substitute for host fact',
     );
     expect(sys).toContain('`task_result` returns data only for terminal');
+  });
+});
+
+describe('metis/momus 契约：默认注册与 disabled_agents 过滤', () => {
+  const names = (config?: Parameters<typeof createAgents>[0]) =>
+    createAgents(config).map((agent) => agent.name);
+
+  test('默认 createAgents() 同时包含 metis 与 momus', () => {
+    expect(names()).toContain('metis');
+    expect(names()).toContain('momus');
+  });
+
+  test('getAgentDefinitions() 同时生成 metis 与 momus', () => {
+    const definitions = getAgentDefinitions();
+    expect(definitions.map((agent) => agent.name)).toEqual(
+      expect.arrayContaining(['metis', 'momus']),
+    );
+  });
+
+  test('disabled_agents 可单独过滤 metis 而保留 momus', () => {
+    const n = names({ disabled_agents: ['metis'] });
+    expect(n).not.toContain('metis');
+    expect(n).toContain('momus');
+  });
+
+  test('disabled_agents 可单独过滤 momus 而保留 metis', () => {
+    const n = names({ disabled_agents: ['momus'] });
+    expect(n).not.toContain('momus');
+    expect(n).toContain('metis');
+  });
+
+  test('disabled_agents 可同时过滤 metis 与 momus', () => {
+    const n = names({ disabled_agents: ['metis', 'momus'] });
+    expect(n).not.toContain('metis');
+    expect(n).not.toContain('momus');
+  });
+});
+
+describe('metis/momus 契约：subagent 定义与只读门禁', () => {
+  const byName = (name: string) => {
+    const agent = createAgents().find((a) => a.name === name);
+    expect(agent).toBeDefined();
+    return agent!;
+  };
+
+  test('metis 与 momus 均为 subagent', () => {
+    expect(byName('metis').mode).toBe('subagent');
+    expect(byName('momus').mode).toBe('subagent');
+  });
+
+  test('metis 负责方案分析，且只读、不委派、不写入', () => {
+    const sys = byName('metis').system!;
+    expect(sys).toMatch(/plan|analy|方案|分析/i);
+    expect(sys).toMatch(/read-?only/i);
+    expect(sys).toMatch(/do not delegate|no delegation|不委派/i);
+    expect(sys).toMatch(/do not write|never write|不写入/i);
+  });
+
+  test('momus 负责检查/审查，且只读、不委派、不写入', () => {
+    const sys = byName('momus').system!;
+    expect(sys).toMatch(/check|review|inspect|检查|审查/i);
+    expect(sys).toMatch(/read-?only/i);
+    expect(sys).toMatch(/do not delegate|no delegation|不委派/i);
+    expect(sys).toMatch(/do not write|never write|不写入/i);
+  });
+});
+
+describe('只读 agent 默认 permission 契约', () => {
+  const READONLY_NAMES = [
+    'explorer',
+    'librarian',
+    'oracle',
+    'observer',
+    'metis',
+    'momus',
+  ];
+
+  /** 把 permission 规则（string | pattern→action 映射）解析为某工具的最终 action */
+  function action(agent: AgentDefinition, tool: string): string | undefined {
+    const p = agent.permission;
+    if (p === undefined) return undefined;
+    if (typeof p === 'string') return p;
+    const entry = (p as Record<string, unknown>)[tool];
+    if (entry === undefined) return undefined;
+    if (typeof entry === 'string') return entry;
+    if (typeof entry === 'object' && entry !== null) {
+      const vals = Object.values(entry as Record<string, string>);
+      if (vals.includes('allow')) return 'allow';
+      if (vals.includes('deny')) return 'deny';
+      return 'ask';
+    }
+    return undefined;
+  }
+
+  // 显式清空 disabled_agents，确保 observer 参与（否则默认禁用不会出现在 createAgents() 结果中）
+  const allAgents = () => createAgents({ disabled_agents: [] });
+  const byName = (name: string) => {
+    const agent = allAgents().find((a) => a.name === name);
+    expect(agent).toBeDefined();
+    return agent!;
+  };
+
+  test.each(READONLY_NAMES)('%s 默认放行只读工具 read/glob/grep', (name) => {
+    expect(action(byName(name), 'read')).toBe('allow');
+    expect(action(byName(name), 'glob')).toBe('allow');
+    expect(action(byName(name), 'grep')).toBe('allow');
+  });
+
+  test.each(READONLY_NAMES)('%s 默认不授予写入动作 edit/task', (name) => {
+    expect(action(byName(name), 'edit')).not.toBe('allow');
+    expect(action(byName(name), 'task')).not.toBe('allow');
+    expect(action(byName(name), 'write')).toBe('deny');
+    expect(action(byName(name), 'apply_patch')).toBe('deny');
+    expect(action(byName(name), 'ast_grep_replace')).toBe('deny');
+    expect(action(byName(name), 'hashline_edit')).toBe('deny');
+  });
+
+  test('显式只读 agent permission 覆盖默认矩阵', () => {
+    const agent = createAgents({
+      disabled_agents: [],
+      agents: { explorer: { permission: { edit: 'allow' } } },
+    }).find((item) => item.name === 'explorer');
+    expect(action(agent!, 'edit')).toBe('allow');
+    expect(action(agent!, 'write')).toBeUndefined();
+  });
+});
+
+describe('编排门禁：oceanus/sisyphus 路由 metis/momus', () => {
+  const sysOf = (name: string) => {
+    const agent = createAgents().find((a) => a.name === name);
+    expect(agent).toBeDefined();
+    return agent!.system!;
+  };
+
+  test('oceanus prompt 包含 metis/momus 触发语义', () => {
+    const sys = sysOf('oceanus');
+    expect(sys).toContain('@metis');
+    expect(sys).toContain('@momus');
+  });
+
+  test('disabled 的 metis/momus 从 oceanus prompt 中移除对应路由', () => {
+    const sys = createAgents({ disabled_agents: ['metis', 'momus'] }).find(
+      (a) => a.name === 'oceanus',
+    )!.system!;
+    expect(sys).not.toContain('@metis');
+    expect(sys).not.toContain('@momus');
+  });
+
+  test('sisyphus prompt 包含 metis→momus→execute 与 momus REJECT 回 plan 门禁文案', () => {
+    const sys = sysOf('sisyphus');
+    expect(sys).toMatch(/metis/i);
+    expect(sys).toMatch(/momus/i);
+    expect(sys).toMatch(/REJECT/i);
+    expect(sys).toMatch(/back to plan|back to the plan|回.*plan|重新规划|回到计划/i);
+    expect(sys).toMatch(/skip|跳过/i);
+  });
+
+  test('禁用 metis/momus 后 sisyphus 不指向已禁用 Agent', () => {
+    const sys = createAgents({ disabled_agents: ['metis', 'momus'] }).find(
+      (agent) => agent.name === 'sisyphus',
+    )!.system!;
+    expect(sys).not.toContain('@metis');
+    expect(sys).not.toContain('@momus');
+    expect(sys).toContain('已禁用');
+  });
+
+  test('禁用 sisyphus 后 oceanus 不指向已禁用 Agent', () => {
+    const sys = createAgents({ disabled_agents: ['sisyphus'] }).find(
+      (agent) => agent.name === 'oceanus',
+    )!.system!;
+    expect(sys).not.toContain('@sisyphus');
+    expect(sys).toContain('Sisyphus is disabled');
+  });
+});
+
+describe('CBM-04：agent 调度契约（代码知识图谱）', () => {
+  const sysOf = (name: string) => {
+    const agent = createAgents().find((a) => a.name === name);
+    expect(agent).toBeDefined();
+    return agent!.system!;
+  };
+
+  test('oceanus prompt 包含 CBM 调度分类规则', () => {
+    const sys = sysOf('oceanus');
+    // 结构化检索优先 CBM，且要求带 qualified name / 文件 / 行号
+    expect(sys).toMatch(/优先 CBM|CBM/);
+    expect(sys).toMatch(/qualified name/);
+    expect(sys).toMatch(/文件路径/);
+    expect(sys).toMatch(/行号/);
+    // 文本/AST/glob/Web 继续原工具，不被 CBM 取代
+    expect(sys).toMatch(/grep/);
+    expect(sys).toMatch(/ast_grep_search/);
+    expect(sys).toMatch(/glob/);
+    expect(sys).toMatch(/websearch|webfetch/);
+  });
+
+  test('oceanus prompt 委派检索时要求 CBM 证据与降级回退', () => {
+    const sys = sysOf('oceanus');
+    expect(sys).toMatch(/CBM 未索引|cbm_index/);
+    expect(sys).toMatch(/回退 grep|fallback|grep\/read/);
+  });
+
+  test('sisyphus prompt 包含 CBM 四阶段边界且不覆盖既有门禁', () => {
+    const sys = sysOf('sisyphus');
+    // 四阶段各自定义 CBM 动作边界
+    expect(sys).toMatch(/brainstorm/);
+    expect(sys).toMatch(/plan/);
+    expect(sys).toMatch(/execute/);
+    expect(sys).toMatch(/review/);
+    expect(sys).toMatch(/trace|impact|影响/);
+    expect(sys).toMatch(/降级/);
+    // 不覆盖既有 metis/momus 门禁
+    expect(sys).toContain('@metis');
+    expect(sys).toContain('@momus');
+    expect(sys).toMatch(/REJECT/i);
+  });
+
+  test('explorer prompt 包含 CBM search→trace→code→fallback 优先级', () => {
+    const sys = sysOf('explorer');
+    expect(sys).toContain('cbm_search_graph');
+    expect(sys).toContain('cbm_trace');
+    expect(sys).toContain('cbm_code');
+    expect(sys).toMatch(/qualified name/);
+    expect(sys).toMatch(/行号/);
+    // 保留 AST/文本 fallback 工具
+    expect(sys).toContain('ast_grep_search');
+    expect(sys).toContain('grep');
+  });
+
+  test('oracle prompt 包含 CBM code→trace→query/detect_changes 顺序', () => {
+    const sys = sysOf('oracle');
+    expect(sys).toContain('cbm_code');
+    expect(sys).toContain('cbm_trace');
+    expect(sys).toContain('cbm_query');
+    expect(sys).toMatch(/detect_changes/);
+    expect(sys).toMatch(/不确定性/);
+  });
+
+  test('librarian prompt 包含 CBM 本地交叉验证（外部仍用 Web）', () => {
+    const sys = sysOf('librarian');
+    expect(sys).toContain('websearch');
+    expect(sys).toContain('webfetch');
+    expect(sys).toContain('cbm_search_graph');
+    expect(sys).toContain('cbm_code');
+  });
+
+  test('fixer prompt 包含 CBM 高风险改动前检查', () => {
+    const sys = sysOf('fixer');
+    expect(sys).toContain('cbm_trace');
+    expect(sys).toContain('cbm_query');
+    expect(sys).toMatch(/公共|public|高风险/);
+  });
+});
+
+describe('CBM-12：agent prompt CBM 调度最终审计', () => {
+  const sysOf = (name: string) => {
+    const agent = createAgents().find((a) => a.name === name);
+    expect(agent).toBeDefined();
+    return agent!.system!;
+  };
+
+  // 与 src/tools/cbm/builders.ts 注册的工具一致，禁止虚构 cbm_* 工具名
+  const REGISTERED_CBM_TOOLS = [
+    'cbm_status',
+    'cbm_index',
+    'cbm_search_graph',
+    'cbm_trace',
+    'cbm_code',
+    'cbm_query',
+    'cbm_detect_changes',
+  ];
+
+  const cbmToolsIn = (sys: string) =>
+    [...sys.matchAll(/\bcbm_[a-z_]+/g)].map((m) => m[0]);
+
+  test('所有 agent 引用的 cbm_* 工具名均在注册集合内', () => {
+    const agents = ['oceanus', 'sisyphus', 'explorer', 'oracle', 'librarian', 'fixer'];
+    for (const name of agents) {
+      for (const t of cbmToolsIn(sysOf(name))) {
+        expect(REGISTERED_CBM_TOOLS).toContain(t);
+      }
+    }
+  });
+
+  test('oceanus 用注册的 cbm_* 名，不用裸 canonical 名', () => {
+    const sys = sysOf('oceanus');
+    expect(sys).toContain('cbm_search_graph');
+    expect(sys).toContain('cbm_trace');
+    expect(sys).toContain('cbm_code');
+    expect(sys).toContain('cbm_query');
+    expect(sys).toContain('cbm_detect_changes');
+    expect(sys).not.toMatch(/(?<!cbm_)search_graph/);
+    expect(sys).not.toMatch(/(?<!cbm_)trace_path/);
+    expect(sys).not.toMatch(/(?<!cbm_)get_code_snippet/);
+    expect(sys).not.toMatch(/(?<!cbm_)query_graph/);
+    expect(sys).not.toMatch(/(?<!cbm_)detect_changes/);
+  });
+
+  test('oracle 用 cbm_detect_changes 而非裸 detect_changes', () => {
+    const sys = sysOf('oracle');
+    expect(sys).toContain('cbm_detect_changes');
+    expect(sys).not.toMatch(/(?<!cbm_)detect_changes/);
+  });
+
+  test('sisyphus CBM 阶段边界四阶段齐全且只出现一次', () => {
+    const sys = sysOf('sisyphus');
+    expect((sys.match(/## CBM 阶段边界/g) || []).length).toBe(1);
+    for (const phase of ['brainstorm', 'plan', 'execute', 'review']) {
+      expect(sys).toMatch(new RegExp(`- ${phase}:`));
+    }
+    expect(sys).toMatch(/降级/);
+    expect(sys).toMatch(/trace|impact|影响/);
+  });
+
+  test('oceanus CBM 与 grep/AST/glob/Web 分工明确且不互相替代', () => {
+    const sys = sysOf('oceanus');
+    expect(sys).toMatch(/grep|search_code/); // 文本
+    expect(sys).toMatch(/ast_grep_search/); // AST
+    expect(sys).toMatch(/glob/); // 文件发现
+    expect(sys).toMatch(/websearch|webfetch/); // Web
+    expect((sys.match(/不使用 CBM 替代/g) || []).length).toBeGreaterThanOrEqual(3);
+    expect(sys).toContain('Structured code-knowledge retrieval prefers CBM');
+  });
+
+  test('CBM 证据输出统一要求 qualified name/文件路径/行号/不确定性', () => {
+    for (const name of ['explorer', 'oracle', 'librarian', 'oceanus']) {
+      const sys = sysOf(name);
+      expect(sys).toMatch(/qualified name/);
+      expect(sys).toMatch(/文件路径|file path/);
+      expect(sys).toMatch(/行号|line/);
+      expect(sys).toMatch(/不确定性|uncertain/);
+    }
+  });
+
+  test('fixer 高风险改动前先 trace/impact，且明确为修改前动作', () => {
+    const sys = sysOf('fixer');
+    expect(sys).toContain('cbm_trace');
+    expect(sys).toContain('cbm_query');
+    expect(sys).toMatch(/高风险|公共|public/);
+    expect(sys).toMatch(/修改前|before/);
   });
 });

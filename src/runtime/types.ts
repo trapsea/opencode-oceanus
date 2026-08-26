@@ -63,11 +63,87 @@ export interface ToolDraftLike {
   add(tool: ToolDefinition): void;
 }
 
-/** wiring 用完整上下文（`ctx.tool` + `ctx.session` 的最小镜像）。 */
+/**
+ * 本地 MCP server 的最小契约（对应 v2 `Mcp.LocalConfig`）。
+ * `command` 必须为数组（参数数组模式，绝不启用 shell）。
+ */
+export interface MCPLocalConfigLike {
+  type: 'local';
+  command: string[];
+  cwd?: string;
+  environment?: Record<string, string>;
+  disabled?: boolean;
+  codemode?: boolean;
+}
+
+/** 远程 MCP server 的最小契约（对应 v2 `Mcp.RemoteConfig`）。 */
+export interface MCPRemoteConfigLike {
+  type: 'remote';
+  url: string;
+  headers?: Record<string, string>;
+  disabled?: boolean;
+  codemode?: boolean;
+}
+
+/** MCP server 配置的并集（对应 v2 `Mcp.ServerConfig`）。 */
+export type MCPServerConfigLike = MCPLocalConfigLike | MCPRemoteConfigLike;
+
+/** wiring 用 MCP transform draft 的最小契约（对应 v2 `MCPDraft`）。 */
+export interface MCPDraftLike {
+  list(): readonly [string, MCPServerConfigLike][];
+  get(name: string): MCPServerConfigLike | undefined;
+  set(name: string, config: MCPServerConfigLike): void;
+  update(name: string, update: (config: MCPServerConfigLike) => void): void;
+  remove(name: string): void;
+}
+
+/** wiring 用 MCP domain 的最小契约（`ctx.mcp`）。 */
+export interface MCPDomainLike {
+  transform(cb: (draft: MCPDraftLike) => void): Promise<unknown>;
+  reload(): Promise<void>;
+}
+
+/** wiring 用完整上下文（`ctx.tool` + `ctx.session` + `ctx.mcp` 的最小镜像）。 */
 export interface ToolingContext {
   readonly tool: {
     transform(cb: (draft: ToolDraftLike) => void): Promise<unknown>;
     hook(name: string, cb: (event: any) => Promise<void> | void): Promise<unknown>;
   };
   readonly session: SessionLike;
+  readonly mcp: MCPDomainLike;
+}
+
+/** 命令回复入参的最小透传形状（只透传 sessionID / text / delivery）。 */
+export interface PromptInputLike {
+  sessionID: string;
+  text: string;
+  delivery: 'steer' | 'queue';
+}
+
+/**
+ * v2 插件 setup ctx 的最小结构（仅含本插件使用的域）。
+ *
+ * 生产代码在 `src/index.ts` 中以 `ctx as unknown as PluginSetupContext` 注入真实
+ * ctx；本类型只供入口接线（CBM-13）与 smoke 测试使用，不伪造宿主行为。
+ * agent/skill/command 的 transform draft 形状较复杂，此处用 `any` 保持最小契约，
+ * 具体 draft 方法由各 transform 回调内部使用。
+ */
+export interface PluginSetupContext {
+  agent: {
+    transform(cb: (draft: any) => void): Promise<unknown>;
+    reload(): Promise<void>;
+  };
+  skill: {
+    transform(cb: (draft: any) => void): Promise<unknown>;
+    reload(): Promise<void>;
+  };
+  command: {
+    transform(cb: (draft: any) => void): Promise<unknown>;
+    reload(): Promise<void>;
+  };
+  session: SessionLike & {
+    prompt(input: PromptInputLike): Promise<unknown>;
+  };
+  tool: ToolingContext['tool'];
+  mcp: MCPDomainLike;
 }

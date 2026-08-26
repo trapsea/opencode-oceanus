@@ -333,13 +333,13 @@ describe('task registry → status → result → cancel 生命周期（经注�
 // ─────────────────────────── Hook 顺序 / 配置开关 / 失败隔离 ───────────────────────────
 
 describe('Hook 顺序、配置开关与失败隔离', () => {
-  test('默认注册计数：6 工具、3 before + 4 after hooks', async () => {
+  test('默认注册计数：13 工具、4 before + 5 after hooks', async () => {
     const mock = createMockCtx();
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
-    expect(mock.addedTools).toHaveLength(6);
-    expect(mock.beforeHooks).toHaveLength(3);
-    expect(mock.afterHooks).toHaveLength(4);
+    expect(mock.addedTools).toHaveLength(13);
+    expect(mock.beforeHooks).toHaveLength(4);
+    expect(mock.afterHooks).toHaveLength(5);
   });
 
   test('全部禁用矩阵 → 0 工具、0 hooks', async () => {
@@ -351,6 +351,13 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
         'task_status',
         'task_result',
         'task_cancel',
+        'cbm_status',
+        'cbm_index',
+        'cbm_search_graph',
+        'cbm_trace',
+        'cbm_code',
+        'cbm_query',
+        'cbm_detect_changes',
       ],
       disabled_hooks: [
         'apply_patch',
@@ -358,6 +365,7 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
         'json_error_recovery',
         'tool_output_truncator',
         'task_registry_observer',
+        'cbm_guidance',
       ],
     };
     const mock = createMockCtx();
@@ -383,10 +391,11 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
     expect(names).toContain('hashline_edit');
     expect(names).toContain('task_result');
     expect(names).toContain('task_cancel');
-    expect(mock.addedTools).toHaveLength(4);
-    // json 被禁用 → after 只剩 truncator + loop-guard + observer
-    expect(mock.afterHooks).toHaveLength(3);
-    expect(mock.beforeHooks).toHaveLength(3);
+    // 未禁用 4 个常规工具 + 默认 7 个 CBM 工具
+    expect(mock.addedTools).toHaveLength(11);
+    // json 被禁用 → after 只剩 truncator + loop-guard + observer + cbm-guidance
+    expect(mock.afterHooks).toHaveLength(4);
+    expect(mock.beforeHooks).toHaveLength(4); // apply_patch + loop-guard + observer + cbm-guidance
   });
 
   test('after 顺序：json 先于 truncator（小上限下追加的 marker 被截掉）', async () => {
@@ -489,10 +498,10 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
       },
     };
     await registerOceanusHooks(ctx, {}, { logger: (m) => log.push(m) });
-    // apply_patch.before 仍注册；observer 独立注册不受影响 → before 2（apply + observer）；
-    // 所有 after（json / truncator / loop-guard / observer）仍注册 → after 4
-    expect(beforeHooks).toHaveLength(2);
-    expect(afterHooks).toHaveLength(4);
+    // apply_patch.before 仍注册；observer / cbm-guidance 独立注册不受影响 → before 3；
+    // 所有 after（json / truncator / loop-guard / observer / cbm-guidance）仍注册 → after 5
+    expect(beforeHooks).toHaveLength(3);
+    expect(afterHooks).toHaveLength(5);
     expect(log.some((m) => m.includes('tool-loop-guard.before'))).toBe(true);
   });
 });

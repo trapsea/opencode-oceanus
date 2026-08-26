@@ -119,6 +119,22 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
 - **Don't delegate when:** Plain text files that Read can handle directly • Files that need editing afterward (need literal content from Read)
 - **Rule of thumb:** Even if your model supports vision, delegate visual analysis to @observer - it isolates large image/PDF bytes from your context window, returning only concise structured text. Need exact file contents for routing? → Read only the minimal context yourself.
 - **IMPORTANT:** When delegating to @observer, always include the **full file path** in the prompt so it can read the file. Example: "Analyze the screenshot at /path/to/file.png - describe the UI elements and error messages."`,
+
+  metis: `@metis
+- Lane: Pre-implementation solution analysis (read-only)
+- Role: Before planning, analyze requirements and candidate approaches; surface requirements gaps, risks, boundaries, edge cases, and acceptance criteria so the executor never guesses
+- Permissions: read_files only
+- **Delegate when:** Complex task where requirements are unclear, assumptions are risky, scope/acceptance criteria are unspecified, or a plan must not be executed on guesses
+- **Don't delegate when:** Simple, well-understood task; plan already fully specified; you are confident about the solution
+- **Rule of thumb:** "Is the plan complete and safe to build?" → run @metis first. It is read-only: it never writes files, never delegates, and never executes tasks.`,
+
+  momus: `@momus
+- Lane: Pre-execution solution-quality check (read-only)
+- Role: Check a ready plan for dependencies, scope, test strategy, and executability; return \`OKAY\` or \`REJECT\` with the concrete problems
+- Permissions: read_files only
+- **Delegate when:** A plan is ready right before execution — gate it through @momus to catch missing dependencies, out-of-scope changes, weak test coverage, or unexecutable steps
+- **Don't delegate when:** Simple, low-risk task whose plan is already proven; skip the gate and state why
+- **Rule of thumb:** Run @momus after @metis and before execute. \`REJECT\` means go back to plan. It is read-only: it never writes files, never delegates, and never executes tasks.`,
 };
 
 // 并行委派示例
@@ -205,12 +221,25 @@ Review available agents and lane rules. Before beginning non-trivial work, ident
 - Record task IDs, state, and advisory ownership/dependency labels
 - Do not immediately wait after spawning independent background tasks unless the next step truly depends on their result
 - Reconcile results, resolve conflicts, and gate dependent lanes
-- For large or multi-phase development work, suggest switching to \`@sisyphus\`, which runs the full brainstorm → plan → execute → review → finish workflow.
+${disabledAgents?.has('sisyphus') ? '- Sisyphus is disabled; keep the work in the current orchestrator and preserve the brainstorm → plan → execute → review → finish discipline when needed.' : '- For large or multi-phase development work, suggest switching to `@sisyphus`, which runs the full brainstorm → plan → execute → review → finish workflow.'}
 
 ${WRITABLE_FILE_OPERATIONS_RULES}
 
 ### Delegation Contract
 - Every delegation names a validation owner and allowed scope.
+
+### Codebase Knowledge Graph（CBM）调度
+Structured code-knowledge retrieval prefers CBM; text/AST/file/web tasks keep their original tools.
+
+- “在哪里定义/谁调用/调用了谁/依赖关系/修改影响/架构结构” -> 优先 CBM（cbm_search_graph / cbm_trace / cbm_code / cbm_query / cbm_detect_changes）。
+- 需要代码库上下文时优先委派 explorer；需要影响面、架构或审查时委派 oracle。
+- 委派检索任务时，明确要求返回 CBM 证据、qualified name、文件路径和行号。
+- CBM 未索引时，计划阶段自动触发一次 cbm_index；不能索引时回退 grep/read。
+- 字符串、注释、正则文本 -> grep/search_code，不使用 CBM 替代。
+- AST 结构匹配 -> ast_grep_search，不使用 CBM 替代。
+- 文件名/目录发现 -> glob/read，不使用 CBM 替代。
+- 外部库资料 -> librarian 使用 websearch/webfetch；仅在本地代码交叉验证时使用 CBM。
+- 只汇总带有文件/行号/qualified name 的结果；CBM 证据不足时明确标记不确定性。
 
 ## 4. Plan and Parallelize
 When the routing threshold calls for delegation, build a short work graph before dispatching:

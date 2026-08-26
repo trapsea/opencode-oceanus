@@ -20,6 +20,24 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 | `designer` | UI/UX 设计与实现 | subagent |
 | `fixer` | 有界实现执行 | subagent |
 | `observer` | 视觉 / 多媒体分析（**默认禁用**，需要视觉模型） | subagent |
+| `metis` | 实现前方案分析（需求缺口/风险/边界/反例/验收标准） | subagent |
+| `momus` | 执行前方案质量检查（依赖/范围/测试/可执行性），输出 `OKAY`/`REJECT` | subagent |
+
+`metis`、`momus` **默认启用、只读**，不写文件、不委派、不执行 task；`observer` 默认禁用（需要视觉模型）。
+
+### 复杂任务门禁：metis → momus → execute
+
+对复杂任务（需求模糊、风险高、多文件、方案未定型），`sisyphus` / `oceanus` 工作流遵循以下协议：
+
+1. `@metis`（实现前方案分析）：在规划/执行前做方案前置分析，产出需求缺口、风险、边界、反例与验收标准，供制定或修订方案使用。
+2. `@momus`（执行前方案质量检查）：方案形成后、进入 execute 前检查依赖、范围、测试与可执行性，输出 `OKAY` 或 `REJECT` + 具体问题；`REJECT` 时必须回到 plan 修订后重新检查，`OKAY` 才放行 execute。
+3. 简单任务（单文件、低风险、方案明确）可明确跳过该门禁，并说明跳过理由。
+
+> **重要**：该门禁是 **prompt 工作流门禁**，由 `sisyphus` / `oceanus` 的提示词与工作流约定强制执行，**不是**插件注册的自动运行时 supervisor——插件不会在运行时自动硬拦截执行路径。`metis` / `momus` 只负责分析与判断，最终决策与放行由 orchestrator / sisyphus 决定。
+
+### 默认只读权限
+
+`explorer`、`librarian`、`oracle`、`observer`、`metis`、`momus` 在无显式 `agents.<name>.permission` 时，集中应用默认只读 v2 permission（allow `read`/`glob`/`grep`/`list`/`lsp`/`codesearch`/`webfetch`/`websearch`，deny `bash`/`edit`/`write`/`apply_patch`/`ast_grep_replace`/`hashline_edit`/`task`/`todowrite`）。显式 `agents.<name>.permission` 始终覆盖该默认值。
 
 ## 安装
 
@@ -125,6 +143,20 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 
 `sisyphus` agent 会按阶段自动加载对应 skill。
 
+### Sisyphus 五阶段工作流
+
+`sisyphus` 按 superpowers 风格执行五阶段工作流，各阶段职责与产物如下：
+
+| 阶段 | 职责 | 产物 / 落点 |
+|------|------|-------------|
+| **Brainstorm** | Sisyphus 负责澄清与决策；复杂任务先调用 `@metis` 做需求缺口 / 风险 / 边界 / 反例 / 验收标准的方案前置分析 | `.oceanus/spec/` |
+| **Plan** | Sisyphus 负责拆分任务并维护进度 ledger；`@momus` 在执行前做方案质量门禁，输出 `OKAY` / `REJECT` | `.oceanus/plan/` |
+| **Execute** | `fixer` / `designer` 实现；若计划发生实质变化或执行失败需重规划，回到 Plan 并**重新经过 momus** | 代码变更 + 更新后的计划 |
+| **Review** | Sisyphus 做证据化审查；高风险变更由 `@oracle` 做独立审查。momus 只做 execute 前门禁，**不替代** oracle 评审 | 审查结论 |
+| **Finish** | Sisyphus 做最终验证与收口 | 交付总结 |
+
+要点：该工作流是 **prompt / skill 层面的约束**，由 `sisyphus` 的提示词与 `sisyphus-*` skill 约定强制执行，**不是**运行时自动 supervisor——插件不会在运行时自动拦截或强制各阶段。禁用相关 Agent 时不得伪造阶段性结果，应如实说明能力缺失。
+
 ## 新增工具与运行时保护
 
 插件通过 `ctx.tool.transform` / `ctx.tool.hook` 注册一组原生 v2 工具与运行时保护 Hook，**默认全部启用**，可分别用 `disabled_tools`、`disabled_hooks` 或单项 `enabled: false` 关闭。具体设计见 `.oceanus/spec/tooling-and-runtime-guards.md`。
@@ -169,6 +201,11 @@ bun add -D @ast-grep/cli   # 或 cargo install ast-grep、brew install ast-grep
 > 说明：`context7`、`gh_grep`、`task_message`、`task_revive` 等能力**不在本项目范围内**，也不作为原生工具提供。
 
 ## 配置
+
+### codebase-memory-mcp（CBM）
+
+插件内置 CBM 集成，详细的下载、缓存、权限、故障回退及 agent 调度说明见
+[`docs/codebase-memory-mcp.md`](docs/codebase-memory-mcp.md)。默认启用 CLI/MCP 与查询前自动索引，Web UI 则按需启动（默认不自动启动）。
 
 每个 agent 的模型等可通过独立 jsonc 配置文件定制：
 
@@ -297,7 +334,7 @@ bun run typecheck # 类型检查
 ├── src/
 │   ├── index.ts        # v2 插件入口：Plugin.define + ctx.agent/skill/command/tool/hook 注册
 │   ├── config/         # jsonc 配置加载与 schema（paths / loader / schema / utils / constants）
-│   ├── agents/         # 各 agent 定义（oceanus / sisyphus + 6 个子 agent）
+│   ├── agents/         # 各 agent 定义（oceanus / sisyphus + 8 个子 agent）
 │   ├── tools/          # 新增工具（ast-grep / hashline-edit / task）
 │   ├── hooks/          # 运行时保护 Hook（apply-patch / json-error-recovery / tool-output-truncator / tool-loop-guard / task-registry-observer）
 │   ├── runtime/        # task registry、workspace 解析等运行时支撑

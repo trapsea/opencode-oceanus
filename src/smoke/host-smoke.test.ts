@@ -96,7 +96,7 @@ describe('v2 host smoke：环境探测', () => {
 // ─────────────────────────── 注册契约 smoke（无真实 host 也运行） ───────────────────────────
 
 describe('v2 host smoke：注册契约（mock ctx）', () => {
-  test('默认注册 6 个工具 + 6 个 hooks（3 before + 4 after）', async () => {
+  test('默认注册 13 个工具 + 9 个 hooks（4 before + 5 after）', async () => {
     const mock = createMockCtx();
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
@@ -109,10 +109,17 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
         'task_cancel',
         'task_result',
         'task_status',
+        'cbm_status',
+        'cbm_index',
+        'cbm_search_graph',
+        'cbm_trace',
+        'cbm_code',
+        'cbm_query',
+        'cbm_detect_changes',
       ].sort(),
     );
-    expect(mock.beforeHooks).toHaveLength(3);
-    expect(mock.afterHooks).toHaveLength(4);
+    expect(mock.beforeHooks).toHaveLength(4);
+    expect(mock.afterHooks).toHaveLength(5);
   });
 
   test('禁用矩阵：disabled_tools / disabled_hooks 全部生效后为 0', async () => {
@@ -125,6 +132,13 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
         'task_status',
         'task_result',
         'task_cancel',
+        'cbm_status',
+        'cbm_index',
+        'cbm_search_graph',
+        'cbm_trace',
+        'cbm_code',
+        'cbm_query',
+        'cbm_detect_changes',
       ],
       disabled_hooks: [
         'apply_patch',
@@ -132,6 +146,7 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
         'json_error_recovery',
         'tool_output_truncator',
         'task_registry_observer',
+        'cbm_guidance',
       ],
     };
     await registerOceanusTools(mock.ctx, config as any);

@@ -110,6 +110,13 @@ export const ToolsConfigSchema = z
     task_status: ToolConfigSchema.optional(),
     task_result: ToolConfigSchema.optional(),
     task_cancel: ToolConfigSchema.optional(),
+    cbm_status: ToolConfigSchema.optional(),
+    cbm_index: ToolConfigSchema.optional(),
+    cbm_search_graph: ToolConfigSchema.optional(),
+    cbm_trace: ToolConfigSchema.optional(),
+    cbm_code: ToolConfigSchema.optional(),
+    cbm_query: ToolConfigSchema.optional(),
+    cbm_detect_changes: ToolConfigSchema.optional(),
   })
   .strict();
 
@@ -121,6 +128,43 @@ export const HooksConfigSchema = z
     json_error_recovery: HookConfigSchema.optional(),
     tool_loop_guard: HookConfigSchema.optional(),
     task_registry_observer: HookConfigSchema.optional(),
+    cbm_guidance: HookConfigSchema.optional(),
+  })
+  .strict();
+
+/**
+ * codebase-memory-mcp 的 Web UI 配置。
+ * 默认不自动启动 UI（`autoStart=false`）；host/port/open 均可配置覆盖。
+ * `.strict()` 拒绝未知字段。
+ */
+export const CodebaseMemoryUiConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    autoStart: z.boolean().optional(),
+    host: z.string().min(1).optional(),
+    port: z.number().int().min(1).max(65535).optional(),
+    open: z.boolean().optional(),
+  })
+  .strict();
+
+/**
+ * codebase-memory-mcp 集成配置。
+ * 仅包含开关、版本/路径与生命周期控制；缺省字段使用默认值（见 utils.ts）。
+ * `.strict()` 拒绝未知字段。
+ */
+export const CodebaseMemoryConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    autoDownload: z.boolean().optional(),
+    version: z.string().min(1).optional(),
+    binaryPath: z.string().min(1).optional(),
+    cacheDir: z.string().min(1).optional(),
+    autoIndex: z.boolean().optional(),
+    indexOnStart: z.boolean().optional(),
+    mcp: z.boolean().optional(),
+    cliFallback: z.boolean().optional(),
+    guidance: z.boolean().optional(),
+    ui: CodebaseMemoryUiConfigSchema.optional(),
   })
   .strict();
 
@@ -142,6 +186,7 @@ export const PluginConfigSchema = z
     disabled_hooks: z.array(z.string()).optional(),
     tools: ToolsConfigSchema.optional(),
     hooks: HooksConfigSchema.optional(),
+    codebaseMemory: CodebaseMemoryConfigSchema.optional(),
   })
   .strict();
 
@@ -151,3 +196,9 @@ export type ToolConfig = z.infer<typeof ToolConfigSchema>;
 export type HookConfig = z.infer<typeof HookConfigSchema>;
 export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
 export type HooksConfig = z.infer<typeof HooksConfigSchema>;
+export type CodebaseMemoryConfig = z.infer<
+  typeof CodebaseMemoryConfigSchema
+>;
+export type CodebaseMemoryUiConfig = z.infer<
+  typeof CodebaseMemoryUiConfigSchema
+>;

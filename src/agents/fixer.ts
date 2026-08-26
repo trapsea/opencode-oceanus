@@ -30,6 +30,11 @@ ${WRITABLE_FILE_OPERATIONS_RULES}
   automatically.
 - Report validation results and skips accurately.
 
+**改动前影响检查（CBM）**:
+- 普通实现不强制调用 CBM；
+- 涉及公共函数、接口、路由、配置契约或高风险重构时，修改前调用 \`cbm_trace\` 或 \`cbm_query\` 评估影响面；
+- 修改后由主 agent 或 oracle 再做一次影响面验证；不确定影响时先查询再改。
+
 **Output Format**:
 <summary>
 Brief summary of what was implemented

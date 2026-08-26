@@ -3,6 +3,7 @@ import type { SessionStatus as EventSessionStatus } from '@opencode-ai/client';
 import type { Context } from '@opencode-ai/plugin/tui/plugin';
 import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js';
 import { ALL_AGENT_NAMES } from './config/constants';
+import { loadPluginConfig } from './config/loader';
 
 type ModelRef = {
   id: string;
@@ -41,6 +42,20 @@ export function shortModelName(model: string): string {
     .replace(/^openai\//, '')
     .replace(/^google\//, '')
     .replace(/^github-copilot\//, 'copilot/');
+}
+
+/**
+ * 侧边栏模型展示：基于 ModelRef 结构去掉 provider，只显示模型名（+variant）。
+ * 与 shortModelName 的区别：这里直接按 providerID 字段剥离，而非字符串前缀猜测，
+ * 因此 deepseek/ollama 等任意 provider 都不再显示前缀。
+ */
+export function bareModelName(model: ModelRef | undefined): string {
+  if (!model) return '跟随会话';
+
+  const modelName = model.id.includes('/')
+    ? model.id.split('/').at(-1) ?? model.id
+    : model.id;
+  return model.variant ? `${modelName}#${model.variant}` : modelName;
 }
 
 export function sortAgentRows<T extends { id: string }>(agents: T[]): T[] {
@@ -193,6 +208,15 @@ function AgentModelPanel(props: { context: Context; sessionID: string }) {
   });
   const hasRows = createMemo(() => rows().length > 0);
 
+  // 当前生效 preset（用户+项目合并后）。随 dataVersion 刷新：/preset 切换后
+  // session.inbox.delivered → refreshAgents → refreshData 会触发这里重新计算。
+  const presetName = createMemo(() => {
+    dataVersion();
+    return loadPluginConfig({
+      directory: props.context.location?.directory,
+    }).preset;
+  });
+
   return (
     <box
       flexDirection="column"
@@ -208,13 +232,16 @@ function AgentModelPanel(props: { context: Context; sessionID: string }) {
         paddingRight={1}
       >
         <text fg={SIDEBAR_ACCENT}><b>Oceanus</b></text>
+        <Show when={presetName()} fallback={<text>&nbsp;</text>}>
+          <text fg={theme().textMuted}>{presetName()}</text>
+        </Show>
       </box>
 
       <box flexDirection="column" paddingLeft={1} paddingRight={1} gap={0}>
         <Show when={hasRows()} fallback={<text fg={theme().textMuted}>agent registry 同步中，暂按会话模型降级</text>}>
           <For each={rows()}>
             {(row) => {
-              const model = createMemo(() => shortModelName(normalizeModel(row.model)));
+              const model = createMemo(() => bareModelName(row.model));
               return (
                 <box flexDirection="row" justifyContent="space-between" gap={1}>
                   <text fg={row.active ? theme().text : theme().textMuted} flexShrink={0}>

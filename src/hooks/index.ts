@@ -3,8 +3,10 @@
  *
  * 通过 `ctx.tool.hook("execute.before")` / `ctx.tool.hook("execute.after")` 注册，
  * 固定执行顺序：
- *   before: apply-patch → (loop-guard.before)
+ *   before: apply-patch → (loop-guard.before) → task-registry-observer.before
+ *           → cbm-guidance.before
  *   after:  json-error-recovery → tool-output-truncator → tool-loop-guard
+ *           → task-registry-observer.after → cbm-guidance.after
  *
  * 每个 Hook 独立容错：
  * - 注册阶段各自 try/catch，一个 Hook 注册失败不阻止其它 Hook。
@@ -19,8 +21,17 @@ import { createApplyPatchHook } from './apply-patch';
 import { applyJsonErrorRecovery } from './json-error-recovery';
 import { createToolOutputTruncator } from './tool-output-truncator';
 import { createToolLoopGuardHook } from './tool-loop-guard';
+import { createCbmGuidanceHook } from './cbm-guidance';
 import { createTaskObserver } from '../runtime/task-observer';
-import { isHookEnabled, getHookConfig } from '../config/utils';
+import {
+  isHookEnabled,
+  getHookConfig,
+  getCodebaseMemoryConfig,
+  isCodebaseMemoryEnabled,
+  isCodebaseMemoryGuidanceEnabled,
+} from '../config/utils';
+import { createIndexer, type IndexerHandle, type IndexerRunCli } from '../cbm/indexer';
+import type { CbmRunDeps } from '../tools/cbm/types';
 import type { PluginConfig } from '../config/schema';
 import { resolveWorkspaceRoot } from '../runtime/workspace';
 import type { ToolingContext } from '../runtime/types';
@@ -28,6 +39,14 @@ import type { ToolingContext } from '../runtime/types';
 /** 注册期可选依赖（日志注入，测试可传入 spy）。 */
 export interface RegisterHooksOptions {
   logger?: (message: string, meta?: Record<string, unknown>) => void;
+  /** cbm-guidance 实际执行 CLI 的函数（默认 runCbmCli，测试注入 fake）。 */
+  runCli?: IndexerRunCli;
+  /** CLI 执行依赖（spawn / resolveBinary / ensureInstalled 等）。 */
+  runDeps?: CbmRunDeps;
+  /** 自定义索引器（测试注入 stub；缺省由 createIndexer 构建）。 */
+  indexer?: IndexerHandle;
+  /** cbm-guidance 索引检查超时（毫秒）。 */
+  timeoutMs?: number;
 }
 
 /** 默认输出截断上限（与规格一致）。 */
@@ -168,6 +187,37 @@ export async function registerOceanusHooks(
       await ctx.tool.hook('execute.after', observer['execute.after'] as never);
     } catch (e) {
       log('[oceanus] 注册 task-registry-observer 失败', { error: messageOf(e) });
+    }
+  }
+
+  // ── cbm-guidance：CBM 索引健康 advisory（不拦截合法工具，fail-open） ──
+  // 同时受 hook 开关、codebaseMemory.enabled 与 codebaseMemory.guidance 约束。
+  const cbmGuidanceEnabled =
+    isHookEnabled(config, 'cbm_guidance') &&
+    isCodebaseMemoryEnabled(config) &&
+    isCodebaseMemoryGuidanceEnabled(config);
+  if (cbmGuidanceEnabled) {
+    try {
+      const cm = getCodebaseMemoryConfig(config);
+      const indexer =
+        opts.indexer ??
+        createIndexer({
+          autoIndex: cm.autoIndex,
+          binaryPath: cm.binaryPath,
+          runCli: opts.runCli,
+          runDeps: opts.runDeps,
+        });
+      const cbmGuidance = createCbmGuidanceHook({
+        indexer,
+        guidanceEnabled: true,
+        timeoutMs: opts.timeoutMs,
+        resolveRoot: (sessionID) => resolveWorkspaceRoot(ctx.session, sessionID),
+        log: (message, meta) => log(`[oceanus] ${message}`, meta),
+      });
+      await ctx.tool.hook('execute.before', cbmGuidance.before as never);
+      await ctx.tool.hook('execute.after', cbmGuidance.after as never);
+    } catch (e) {
+      log('[oceanus] 注册 cbm-guidance hook 失败', { error: messageOf(e) });
     }
   }
 }

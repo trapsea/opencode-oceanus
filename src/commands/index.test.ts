@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createCommands } from './index';
 import type {
+  CbmCommandHandlers,
   CommandDefinition,
   CommandInvocation,
   PresetCommandHandlers,
@@ -43,19 +44,40 @@ function makePresetDeps(runPreset: PresetCommandHandlers['runPreset']) {
 }
 
 function presetDefinition(deps: PresetCommandHandlers): CommandDefinition {
-  const preset = createCommands({ preset: deps }).find((command) => command.name === 'preset');
+  const preset = createCommands({ preset: deps, cbm: cbmStub() }).find(
+    (command) => command.name === 'preset',
+  );
   expect(preset).toBeDefined();
   return preset as CommandDefinition;
+}
+
+/** 最小 cbm handlers 桩：仅供聚合/类型契约测试，不参与 preset 行为断言。 */
+function cbmStub(): CbmCommandHandlers {
+  return {
+    reply: async () => {},
+  };
 }
 
 describe('commands 聚合与 v2 注册契约（commands-directory-injection）', () => {
   test('createCommands 注入最小 preset handlers 后返回包含 preset 的数组', () => {
     const { deps } = makePresetDeps(async () => ({ current: 'none', presets: [] }));
 
-    const commands = createCommands({ preset: deps });
+    const commands = createCommands({ preset: deps, cbm: cbmStub() });
 
     expect(Array.isArray(commands)).toBe(true);
     expect(commands.some((command) => command.name === 'preset')).toBe(true);
+  });
+
+  test('createCommands 同时注册 cbm 命令族（CBM-10）', () => {
+    const { deps } = makePresetDeps(async () => ({ current: 'none', presets: [] }));
+
+    const commands = createCommands({ preset: deps, cbm: cbmStub() });
+
+    const cbm = commands.find((command) => command.name === 'cbm');
+    expect(cbm).toBeDefined();
+    expect(typeof cbm!.description).toBe('string');
+    expect(cbm!.description!.length).toBeGreaterThan(0);
+    expect(typeof cbm!.execute).toBe('function');
   });
 
   test('preset 定义具有 name/description/execute 形状', () => {

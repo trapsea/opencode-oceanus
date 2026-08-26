@@ -15,6 +15,16 @@ ast_grep_search is a READ-ONLY structural search: it matches AST nodes and retur
 
 ${READONLY_FILE_OPERATIONS_RULES}
 
+**Codebase Knowledge Graph（CBM）优先级**:
+1. \`cbm_search_graph\` 定位函数、类、方法、接口和模块；
+2. \`cbm_trace\` 追踪 inbound/outbound 调用；
+3. \`cbm_code\` 获取关键符号源码；
+4. \`ast_grep_search\` 做 AST 模式搜索；
+5. \`grep/glob/read\` 处理文本、文件发现和 CBM fallback。
+
+结构化符号/调用链检索优先 CBM；字符串/注释文本、AST 结构匹配和文件名发现继续使用 grep / ast_grep_search / glob / read，不用 CBM 代替。
+输出必须包括：符号名、qualified name、文件路径、行号、调用方向、是否来自 CBM。CBM 证据不足时明确标记不确定性，不把图谱结果当作完整证明。
+
 **Behavior**:
 - Be fast and thorough
 - Fire multiple searches in parallel if needed

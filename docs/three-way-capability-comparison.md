@@ -46,7 +46,7 @@
 | 能力领域 | Oceanus | omo-slim | oh-my-openagent |
 |---|---|---|---|
 | 主编排 Agent | `oceanus`、`sisyphus` | `orchestrator`、`council` | `sisyphus`、`atlas` 等 |
-| 专家 Agent | explorer、librarian、oracle、designer、fixer、observer | 以上角色 + Council/Councillor | 以上角色 + metis、momus、hephaestus、multimodal-looker、sisyphus-junior |
+| 专家 Agent | explorer、librarian、oracle、designer、fixer、observer、metis、momus | 以上角色 + Council/Councillor | 以上角色 + metis、momus、hephaestus、multimodal-looker、sisyphus-junior |
 | Agent 配置 | prompt、model、temperature、权限、preset | Agent override、模型数组、preset | 动态 prompt、模型能力、类别模型、fallback 链 |
 | 自定义 Tool | 当前没有插件自有 Tool 注册 | task 生命周期、AST-grep、webfetch、ACP、wait-for-user | delegate-task、后台任务、grep/glob、hashline-edit、monitor、team message 等 |
 | MCP | `skills/mcps` 字段当前不直接映射到 v2 Agent | context7、gh_grep | ast-grep、git-bash、LSP、MCP OAuth、codegraph 等 |
@@ -87,12 +87,17 @@
 - `designer`：UI/UX 设计与实现。
 - `fixer`：有界实现。
 - `observer`：视觉和多媒体分析，默认禁用。
+- `metis`：实现前方案分析（需求缺口/风险/边界/反例/验收标准），只读、默认启用。
+- `momus`：执行前方案质量检查（依赖/范围/测试/可执行性），输出 `OKAY`/`REJECT`，只读、默认启用。
+
+对复杂任务，工作流遵循 `@metis`（方案前置分析）→ `@momus`（方案质量检查）→ `execute` 的协议：`@momus` 返回 `REJECT` 时回到 plan 修订后重新检查，`OKAY` 才放行 execute；简单任务可明确跳过并说明理由。该门禁是 **prompt 工作流门禁**（由 sisyphus/oceanus 提示词强制执行），不是插件注册的自动运行时 supervisor。`metis`、`momus` 默认启用、只读，不写文件、不委派、不执行 task。
 
 ### 4.2 配置与 preset
 
 - 用户级和项目级 JSON/JSONC 配置。
 - preset 与显式 Agent override 合并。
 - 每个 Agent 可独立配置模型、温度、prompt、颜色、权限和 options。
+- `explorer`/`librarian`/`oracle`/`observer`/`metis`/`momus` 在无显式 `agents.<name>.permission` 时应用默认只读 v2 permission（allow 只读工具，deny `bash`/`edit`/`write`/`apply_patch`/`ast_grep_replace`/`hashline_edit`/`task`/`todowrite`）；显式配置始终覆盖默认值。
 - `/preset` 命令支持查询和切换 preset。
 - 配置变更支持原子写入。
 
@@ -141,7 +146,7 @@ omo-slim 相比 Oceanus 已经补齐了较完整的插件运行时：
 
 ### 6.1 真正的产品能力
 
-这些能力对用户有明显可感知的提升：
+这些能力对用户有明显可感知的提升（其中 `metis`、`momus` 已被 Oceanus 采纳，见 §4.1）：
 
 1. `metis`：计划前需求和风险分析。
 2. `momus`：计划质量审查。
@@ -175,14 +180,14 @@ omo-slim 相比 Oceanus 已经补齐了较完整的插件运行时：
 
 ### P0：低风险、高收益
 
-| 功能 | 推荐做法 | 来源 |
-|---|---|---|
-| `metis` | 新增只读计划前分析 Agent | oh-my-openagent |
-| `momus` | 新增只读计划审查 Agent | oh-my-openagent |
-| Agent 默认权限矩阵 | 为只读、编辑、编排 Agent 设置明确 allow/deny | omo-slim、oh-my-openagent |
-| 能力一致性检查 | 检查 prompt 引用的 Tool/MCP 是否实际存在 | 三方共同问题 |
-| `ast_grep_search/replace` | 作为原生 v2 Tool 注册 | omo-slim、oh-my-openagent |
-| 轻量 `doctor` | 检查配置、模型、Agent、Tool、MCP 和版本 | omo-slim、oh-my-openagent |
+| 功能 | 推荐做法 | 来源 | 状态 |
+|---|---|---|---|
+| `metis` | 新增只读计划前分析 Agent | oh-my-openagent | **已完成**：默认启用、只读，见 §4.1 |
+| `momus` | 新增只读计划审查 Agent | oh-my-openagent | **已完成**：默认启用、只读，见 §4.1 |
+| Agent 默认权限矩阵 | 为只读、编辑、编排 Agent 设置明确 allow/deny | omo-slim、oh-my-openagent | **已完成**：只读 agent 默认 v2 permission |
+| 能力一致性检查 | 检查 prompt 引用的 Tool/MCP 是否实际存在 | 三方共同问题 | 部分：方案检查门禁已就位；工具级一致性校验待补 |
+| `ast_grep_search/replace` | 作为原生 v2 Tool 注册 | omo-slim、oh-my-openagent | **已完成**：作为原生 v2 Tool 注册 |
+| 轻量 `doctor` | 检查配置、模型、Agent、Tool、MCP 和版本 | omo-slim、oh-my-openagent | 待办：尚未实现 |
 
 ### P1：中等成本、明显提升体验
 
@@ -272,10 +277,10 @@ src/
 
 ### 阶段 A：Agent 和安全边界
 
-1. 增加 `metis`、`momus`。
-2. 完善默认 Agent 权限。
+1. ✅ 增加 `metis`、`momus`（默认启用、只读；metis→momus→execute 门禁）。
+2. ✅ 完善默认 Agent 权限（只读 agent 默认 v2 permission，显式配置可覆盖）。
 3. 修正 v2 委派工具名称和参数。
-4. 建立 prompt 与实际 Tool/MCP 的能力一致性检查。
+4. 建立 prompt 与实际 Tool/MCP 的能力一致性检查（部分完成，工具级校验待补）。
 
 ### 阶段 B：工具和诊断
 
@@ -298,4 +303,4 @@ src/
 - `subagent`、Tool transform、MCP transform、session Hook、事件和 compaction 的具体语义必须通过真实 host smoke test 验证。
 - OpenCode 是否已经原生处理 AGENTS.md/rules，需要在移植 rules-engine 前确认。
 - 模型 fallback 是否安全，取决于请求失败事件、session 状态和副作用重试语义。
-- 本文不代表已完成任何功能移植，只记录对比结果和建议。
+- 本文最初只记录对比结果和建议；其中 `metis`、`momus`、默认只读权限等已按上述路线实现，其余仍为待办建议。
