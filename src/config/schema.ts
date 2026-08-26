@@ -59,11 +59,68 @@ export const AgentOverrideConfigSchema = z
     skills: z.array(z.string()).optional(),
     mcps: z.array(z.string()).optional(),
     prompt: z.string().min(1).optional(),
+    orchestratorPrompt: z.string().min(1).optional(),
     options: z.record(z.string(), z.unknown()).optional(),
     displayName: z.string().min(1).optional(),
     description: z.string().min(1).optional(),
     color: z.string().min(1).optional(),
     permission: PermissionConfigSchema.optional(),
+  })
+  .strict();
+
+/**
+ * 单个工具的结构化配置。
+ * 仅包含通用开关与本次 Wave 1 工具会用到的参数；
+ * 未提供的字段表示使用默认值，`.strict()` 拒绝未知字段。
+ */
+export const ToolConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    timeoutMs: z.number().int().positive().optional(),
+    maxMatches: z.number().int().positive().optional(),
+    maxOutputBytes: z.number().int().positive().optional(),
+    dryRun: z.boolean().optional(),
+    maxFileBytes: z.number().int().positive().optional(),
+  })
+  .strict();
+
+/**
+ * 单个 Hook 的结构化配置。
+ * 与 ToolConfigSchema 类似，`.strict()` 拒绝未知字段。
+ */
+export const HookConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    maxOutputBytes: z.number().int().positive().optional(),
+    warnAt: z.number().int().nonnegative().optional(),
+    blockAt: z.number().int().nonnegative().optional(),
+    maxSessions: z.number().int().positive().optional(),
+  })
+  .strict();
+
+/**
+ * 本次 Wave 1 引入的工具集合。
+ * 使用 `.strict()` 的具名对象：未知工具名会被 schema 拒绝（规格：未知工具必须被报告）。
+ */
+export const ToolsConfigSchema = z
+  .object({
+    ast_grep_search: ToolConfigSchema.optional(),
+    ast_grep_replace: ToolConfigSchema.optional(),
+    hashline_edit: ToolConfigSchema.optional(),
+    task_status: ToolConfigSchema.optional(),
+    task_result: ToolConfigSchema.optional(),
+    task_cancel: ToolConfigSchema.optional(),
+  })
+  .strict();
+
+/** 本次 Wave 1 引入的 Hook 集合，同样拒绝未知 Hook 名。 */
+export const HooksConfigSchema = z
+  .object({
+    apply_patch: HookConfigSchema.optional(),
+    tool_output_truncator: HookConfigSchema.optional(),
+    json_error_recovery: HookConfigSchema.optional(),
+    tool_loop_guard: HookConfigSchema.optional(),
+    task_registry_observer: HookConfigSchema.optional(),
   })
   .strict();
 
@@ -75,11 +132,22 @@ export const AgentOverrideConfigSchema = z
  */
 export const PluginConfigSchema = z
   .object({
+    preset: z.string().min(1).optional(),
+    presets: z
+      .record(z.string(), z.record(z.string(), AgentOverrideConfigSchema))
+      .optional(),
     agents: z.record(z.string(), AgentOverrideConfigSchema).optional(),
     disabled_agents: z.array(z.string()).optional(),
     disabled_tools: z.array(z.string()).optional(),
+    disabled_hooks: z.array(z.string()).optional(),
+    tools: ToolsConfigSchema.optional(),
+    hooks: HooksConfigSchema.optional(),
   })
   .strict();
 
 export type PluginConfig = z.infer<typeof PluginConfigSchema>;
 export type AgentOverrideConfig = z.infer<typeof AgentOverrideConfigSchema>;
+export type ToolConfig = z.infer<typeof ToolConfigSchema>;
+export type HookConfig = z.infer<typeof HookConfigSchema>;
+export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
+export type HooksConfig = z.infer<typeof HooksConfigSchema>;

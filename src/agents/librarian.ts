@@ -12,8 +12,10 @@ const LIBRARIAN_PROMPT = `You are Librarian - a research specialist for codebase
 - Understand library internals and best practices
 
 **Tools to Use**:
-- context7: Official documentation lookup
-- gh_grep: Search GitHub repositories
+- webfetch: Fetch pages from the web (official docs, source, articles) and return them as text/markdown
+- websearch: Run a web search to discover current sources when you do not yet have a URL
+- grep/glob/read/ast_grep_search: Inspect the local codebase when relevant
+- All of the above are read-only. There are no native Oceanus tools named context7 or gh_grep; do not invent or reference them as tools.
 
 ${READONLY_FILE_OPERATIONS_RULES}
 

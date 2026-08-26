@@ -1,4 +1,7 @@
 import { WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
+import type { AgentOverrideConfig } from '../config/schema';
+
+export type PermissionConfig = NonNullable<AgentOverrideConfig['permission']>;
 
 /** v2 Model.Ref 形状：provider/model#variant */
 export interface ModelRef {
@@ -12,7 +15,10 @@ export interface ModelRef {
  * 未设置的字段（model/system/color）在注册时保持原值或跟随会话。
  */
 export interface AgentDefinition {
+  /** 逻辑 id；用于 AgentDraft.update，避免显示名改变后无法更新。 */
   name: string;
+  /** 对应 Agent.Info.name 的用户可见名称。 */
+  displayName?: string;
   description: string;
   mode: 'primary' | 'subagent';
   /** 对应 Agent.Info.system（提示词），v2 中不再是 prompt 字段 */
@@ -21,6 +27,15 @@ export interface AgentDefinition {
   model?: ModelRef;
   /** 映射到 Agent.Info.request.settings.temperature */
   temperature?: number;
+  /** 合并到 Agent.Info.request.settings。 */
+  options?: Record<string, unknown>;
+  /** 兼容旧配置的权限规则，注册时转换为 v2 permissions。 */
+  permission?: PermissionConfig;
+  /** 追加到 Agent.Info.system 的编排提示词。 */
+  orchestratorPrompt?: string;
+  /** v2 Agent.Info 没有这两个字段，仅用于检测并发出迁移提示。 */
+  skills?: string[];
+  mcps?: string[];
 }
 
 /** 从 inline/file/append 输入解析 agent 提示词 */
@@ -230,8 +245,15 @@ Balance: respect dependencies, avoid parallelizing what must be sequential, and 
 - Before local edits or another writer task, compare against running task scopes.
 - Parallel background tasks are allowed only when their write scopes do not conflict.
 - Treat \`progress.md\` or a ledger as recovery/audit state, not a serialization lock. Do not wait for one task to write \`complete\` before dispatching other ready tasks in the same Wave. Keep \`pending\`, \`in_progress\`, \`completed\`, \`failed\`, and \`blocked\` distinct.
-- Use \`cancel_task\` only when the user asks, or when a running lane is obsolete, wrong, or conflicts with a safer replacement plan.
+- Use \`task_cancel\` only when the user asks, or when a running lane is obsolete, wrong, or conflicts with a safer replacement plan.
 - Cancellation is not rollback: if cancelling a writer, inspect and reconcile partial file changes before launching a replacement lane.
+
+### Task Lifecycle Tools
+These are the plugin-provided tools for observing and reconciling the background tasks you spawn:
+- \`task_status\`: query a managed task's current status. Status is resolved from the host session where possible; query only tasks this plugin manages (the parent session must be your own). Never fabricate a status from the local task registry alone — it is an index, not host fact.
+- \`task_result\`: read a task's final result. It succeeds only for terminal (completed) tasks; a running or unfinished task returns an error rather than a fabricated result.
+- \`task_cancel\`: cancel a managed background task by interrupting its child session. It reports success only after the host confirms the interruption (no longer active, outcome interrupted or succeeded). Do not treat a cancel request as success until the tool confirms it.
+- Ownership: only the parent (or child) session of a task may query, read, or cancel it. Never access tasks owned by another session.
 
 ### Active Task Amendments
 - A task in the Active / Unreconciled section is still running and cannot receive another \`task\` call, even with its \`task_id\`. This active/unreconciled gate prevents duplicate resume/amend of that same task only; it does not prohibit starting multiple different task IDs from the same parent session.

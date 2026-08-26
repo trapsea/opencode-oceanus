@@ -79,18 +79,94 @@ bun run build
 
 > 本地文件 / 未发布 npm 时建议方式 1 或方式 2 的路径引用。构建产物已将 zod 内联，插件自包含，仅依赖运行时提供的 `@opencode-ai/plugin`。
 
+### TUI sidebar 配置
+
+CLI 插件和 TUI 插件分别配置在不同文件中，但使用**同一个包名**。主入口
+`opencode-oceanus` 负责注册 agents、skills 和 commands；该包通过 `./tui` 导出 TUI 入口，
+OpenCode 会在 `tui.json` 中自动加载它。
+
+在 `opencode.jsonc` 中配置 CLI 插件：
+
+```json
+{
+  "plugins": ["opencode-oceanus"]
+}
+```
+
+在 `tui.json` 中配置 TUI 插件：
+
+```json
+{
+  "plugin": ["opencode-oceanus"]
+}
+```
+
+本地开发时，OpenCode 会把文件路径当作具体入口处理，不会解析 npm 的
+`exports["./tui"]`。因此应分别配置：`opencode.jsonc` 指向 `dist/index.js`，
+`cli.json` 指向 `dist/tui.js`。只有发布并安装为 npm 包后，两个配置才都可以使用
+同一个包名 `opencode-oceanus`。
+
+sidebar 显示 Oceanus 标题、当前会话 agent，以及已注册 Oceanus agents 的模型信息。
+agent 未配置专用模型时显示“跟随会话”；如果模型包含 variant，也会一并显示。
+`observer` 默认禁用（该 agent 需要视觉模型），如需启用，在配置中将其从
+`disabled_agents` 移除或设置 `"disabled_agents": []`。
+
 ### 内置 skill
 
-插件在启动时通过 `ctx.skill.transform` 注入 sisyphus 工作流的四个阶段 skill，**安装插件即可使用，无需拷贝任何 skill 文件**：
+插件在启动时通过 `ctx.skill.transform` 注入 Oceanus 配置 skill 和 sisyphus 工作流的四个阶段 skill，**安装插件即可使用，无需拷贝任何 skill 文件**：
 
 | Skill | 作用 |
 |-------|------|
+| `opencode-oceanus` | 说明 Oceanus 配置、preset 优先级、v2 限制及 `/preset` 命令 |
 | `sisyphus-brainstorm` | 探索上下文、一次一个问题澄清需求、提出 2-3 方案、产出并保存设计 spec 到 `.oceanus/spec/` |
 | `sisyphus-plan` | 映射文件、right-size 任务、保存实现计划到 `.oceanus/plan/`、确认 TDD 与 Worktree 策略 |
 | `sisyphus-execute` | 按计划实现、后台并行委派 `task(run_in_background=true)`、同步 todo 状态 |
 | `sisyphus-review` | 阶段间证据化评审、重评审转交 @oracle、验证发现后才接受 |
 
 `sisyphus` agent 会按阶段自动加载对应 skill。
+
+## 新增工具与运行时保护
+
+插件通过 `ctx.tool.transform` / `ctx.tool.hook` 注册一组原生 v2 工具与运行时保护 Hook，**默认全部启用**，可分别用 `disabled_tools`、`disabled_hooks` 或单项 `enabled: false` 关闭。具体设计见 `.oceanus/spec/tooling-and-runtime-guards.md`。
+
+### 内置工具
+
+| 工具 | 作用 | 说明 |
+|------|------|------|
+| `ast_grep_search` | 按 AST 语法模式搜索 | 只读；支持 `$VAR` / `$$$` 元变量、语言、路径、glob、上下文；受匹配数与输出字节上限、超时保护 |
+| `ast_grep_replace` | 按 AST 语法模式替换 | **默认 dry-run**（只预览不改写）；显式 `dryRun: false` 才真正写入；只改写工作区内的文件 |
+| `hashline_edit` | 按文件行 hash 锚点精确编辑 | 支持 replace / append / prepend，校验文件版本并返回结构化 diff；只允许工作区内文件 |
+| `task_status` | 查询后台子任务状态 | 只读；仅可访问本插件管理且属于当前 session 的任务；优先使用运行时可用的宿主 session 事实，能力缺失时诚实降级为本地索引 |
+| `task_result` | 读取已完成子任务结果 | 只读；**仅限已完成任务**，未完成会返回错误，不伪装完成 |
+| `task_cancel` | 取消后台子任务 | 中断子 session 并验证宿主状态；调用方须为任务的父/子 session，可传 `parentID`/`childID` 交叉校验 ownership；仅当宿主确认中断成功才报告 cancelled |
+
+`hashline_edit` 使用前应先 `read` 获取行 hash 锚点；出现 hash mismatch（文件已被改动）时返回可操作的重新读取提示，**不会静默重试**，需要重新 `read` 后再编辑。
+
+### 内置 Hook
+
+Hook 通过 `execute.before` / `execute.after` 注册，每个 Hook 独立容错，单个失败不阻断插件启动。固定执行顺序：`before: apply-patch → tool-loop-guard.before → task-registry-observer.before`；`after: json-error-recovery → tool-output-truncator → tool-loop-guard → task-registry-observer.after`。
+
+| Hook | 位置 | 作用 | 失败边界 |
+|------|------|------|----------|
+| `apply_patch` | before | 校验并保守规范化 `apply_patch` 输入（解析 Codex 风格 patch、路径边界、无损重写） | 工作区外路径、只读输入 **fail-open**（交由宿主处理）；输入/校验/内部异常 **fail-closed**（抛错阻断执行） |
+| `json_error_recovery` | after | 修正工具返回的错误 JSON 参数，避免错误被当作结果吞掉 | **fail-open**：恢复失败不阻断已完成结果 |
+| `tool_output_truncator` | after | 截断超长工具输出，避免破坏上下文 | **fail-open**，保留错误、状态、diff 与 hash mismatch 等控制信息 |
+| `tool_loop_guard` | before + after | 检测重复工具调用（达到 `warnAt` 提示、`blockAt` 熔断） | **fail-open**，且不阻止 `task_status` 等合法轮询调用 |
+| `task_registry_observer` | before + after | 观察宿主 `task` / `subagent` 调用，把明确可识别的任务记录写入本地 task registry（任务 id、父子 ownership、child session、受限结果摘要） | **fail-open**：不拦截、不抛错；未知结果形状不猜测 child session、不伪造终态 |
+
+### AST CLI 安装与诊断
+
+`ast_grep_search` / `ast_grep_replace` 需要真实 ast-grep CLI。插件不自动下载二进制；解析顺序为：`AST_GREP_BIN` 环境变量 → 缓存目录 → `@ast-grep/cli` 包 → 平台专属包 → PATH 上的 `ast-grep` / `sg`。
+
+每个候选在接受前都会执行短超时 `--version` 验证并确认输出包含 `ast-grep`，从而拒绝同名但非 ast-grep 的程序（如 Linux 上作为 `newgrp` 别名的 `sg`）。当前 AST 写盘工具由自身工具入口和工作区边界保护，不复制宿主 `edit` 的 ask/deny 状态机。安装方式：
+
+```bash
+bun add -D @ast-grep/cli   # 或 cargo install ast-grep、brew install ast-grep
+```
+
+或设置 `AST_GREP_BIN=/path/to/ast-grep` 指向已有二进制。环境中没有真正可用的 ast-grep 时，工具会返回诊断信息；测试（`src/smoke/host-smoke.test.ts`）也会**明确 skip 真实 CLI 集成并输出诊断**，而不是把环境缺失误报为产品失败。真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内执行插件时验证；当前 beta 插件类型未暴露 `session.active` 时，运行时会探测并诚实降级，当前 bun test 环境无真实 host 时相关 smoke 会 skip，仅用 mock ctx 验证注册契约，不声称真实 host 已通过。
+
+> 说明：`context7`、`gh_grep`、`task_message`、`task_revive` 等能力**不在本项目范围内**，也不作为原生工具提供。
 
 ## 配置
 
@@ -101,19 +177,106 @@ bun run build
 
 ```jsonc
 {
+  // 当前使用的 preset；名称必须存在于 presets 中
+  "preset": "balanced",
+  "presets": {
+    "balanced": {
+      "explorer": {
+        "model": "ollama-cloud/deepseek-v4-flash",
+        "temperature": 0.2
+      },
+      "oracle": {
+        "model": [
+          "openai/gpt-5.6-luna",
+          { "id": "openai/gpt-5.6-luna", "variant": "reasoning" }
+        ],
+        "options": { "effort": "medium" }
+      }
+    },
+    "fast": {
+      "explorer": { "model": "openai/gpt-5.6-luna#fast" },
+      "fixer": { "temperature": 0.2 }
+    }
+  },
   "agents": {
+    // 显式 agents 优先于当前 preset；此处只覆盖需要例外的字段
     "oceanus":  { "model": "openai/gpt-5.6-luna" },
-    "explorer": { "model": "ollama-cloud/deepseek-v4-flash", "temperature": 0.2 },
+    "explorer": { "temperature": 0.4 },
     "designer": { "color": "#FFB3BA" }
   },
-  "disabled_agents": []
+  "disabled_agents": [],
+  "disabled_tools": ["task_cancel"],
+  "disabled_hooks": [],
+  "tools": {
+    "ast_grep_replace": { "enabled": true, "dryRun": true },
+    "hashline_edit": { "enabled": true, "maxFileBytes": 1048576 },
+    "task_status": { "enabled": true }
+  },
+  "hooks": {
+    "tool_output_truncator": { "enabled": true, "maxOutputBytes": 200000 },
+    "tool_loop_guard": { "enabled": true, "warnAt": 3, "blockAt": 5 },
+    "task_registry_observer": { "enabled": true }
+  }
 }
 ```
 
-- `model`：格式 `provider/model` 或 `provider/model#variant`；未配置时跟随当前会话模型
-- `temperature`：映射到 agent 请求设置
-- `prompt` / `description` / `color`：覆盖默认提示词 / 描述 / 颜色
-- `disabled_agents`：默认 `["observer"]`；置空数组 `[]` 可启用全部 agent（`oceanus` 受保护，不可禁用）
+### 配置字段
+
+顶层字段：
+
+- `preset`：当前预设名称。插件先读取 `presets[preset]`；名称不存在时发出警告，并仅使用显式 `agents`。
+- `presets`：预设名到 agent 覆盖对象的映射。每个预设的内容与 `agents` 使用相同字段。
+- `agents`：按 agent 名称配置覆盖。它始终覆盖当前 preset 中同名 agent 的同名字段，适合放例外设置。
+- `disabled_agents`：禁用的 agent 名称；默认 `['observer']`，置空数组 `[]` 可启用全部 agent（`oceanus` 受保护，不可禁用）。
+- `disabled_tools`：禁用的工具名称数组，对工具拥有最终禁用权。
+- `disabled_hooks`：禁用的 Hook 名称数组，对 Hook 拥有最终禁用权。
+- `tools`：按工具名深合并的结构化配置（见下方「新增工具与运行时保护」）。
+- `hooks`：按 Hook 名深合并的结构化配置（见下方「新增工具与运行时保护」）。
+
+`presets.<name>.<agent>` 或 `agents.<agent>` 支持的完整字段：
+
+- `model`：字符串（如 `provider/model` 或 `provider/model#variant`），或非空数组；数组元素可为模型字符串，也可为 `{ "id": "provider/model", "variant": "name" }`。由于 v2 agent 只接受单个 `ModelRef`，数组仅取第一项；未配置时跟随当前会话模型。
+- `temperature`：`0` 至 `2` 的数字，映射到 agent 请求设置。
+- `variant`：模型变体字符串；可与模型配置配合使用。
+- `prompt`：覆盖 agent 系统提示词。
+- `orchestratorPrompt`：覆盖编排器提示词。
+- `displayName`：覆盖显示名称。
+- `description`：覆盖描述。
+- `color`：覆盖显示颜色，例如 `#FFB3BA`。
+- `options`：传给 agent 的任意请求选项对象。
+- `permission`：工具权限规则；可写单个 `ask`、`allow`、`deny`，或按工具名映射这些动作，也支持工具名的 glob/pattern 映射。
+- `skills` / `mcps`：schema 接受字符串数组，但当前 OpenCode v2 的 `Agent.Info` 没有对应的直接字段，因此不会映射到 agent；配置时会输出警告。它们不会替代插件注入的 `sisyphus-*` skills。
+
+### 合并优先级
+
+配置按以下顺序合并（越靠后优先级越高）：
+
+1. 用户级 `~/.config/opencode/opencode-oceanus.jsonc`（也支持 `.json`）；
+2. 项目级 `.opencode/opencode-oceanus.jsonc`（也支持 `.json`），项目配置覆盖用户配置；同名 `agents` 和 `presets` 会递归合并；
+3. 合并后的 `presets[preset]` 作为基础；
+4. 合并后的显式 `agents` 覆盖 preset，同一 agent 的同一字段以显式配置为准。
+
+因此，想固定项目行为可在项目配置设置 `preset`；项目级 `preset` 也会覆盖用户级选择。
+
+### 工具 / Hook 配置规则
+
+新增工具与 Hook 的启停和参数遵循以下规则：
+
+1. **默认全部启用**：未配置时所有新增工具与 Hook 均启用。
+2. **禁用列表优先**：`disabled_tools` / `disabled_hooks` 对对应名称拥有最终禁用权；单项 `enabled: false` 等价于禁用；优先级为 `disabled_*` > `item.enabled` > 默认 `true`。
+3. **按名称深合并**：`tools` 与 `hooks` 使用按工具/Hook 名称的深度合并，同一项只覆盖显式提供的字段；项目配置覆盖用户配置，`disabled_tools` / `disabled_hooks` 作为数组整体由项目配置覆盖用户配置。
+4. **未知项报错**：未识别的工具名、Hook 名或配置字段会被 schema 拒绝，而不是静默忽略。
+
+### 通过 `/preset` 选择
+
+插件注入的原生 command 中可使用以下 slash 命令：
+
+```text
+/preset              # 列出预设并标记当前项
+/preset fast         # 直接选择名为 fast 的预设
+```
+
+选择成功后只会原子更新**用户级**配置文件的顶层 `preset` 字段，不会改写 `presets`、`agents` 或项目配置；没有预设、预设不存在或写入失败时会反馈错误。更新后请执行 `reload`，或开启新会话，配置才会应用到新注册的 agents。若项目配置覆盖了 `preset`，用户级 `/preset` 选择不会改变该项目的最终 preset。该命令不再由 TUI sidebar 插件重复注册。
 
 Sisyphus 执行时还会为每个计划维护任务级进度 ledger：`.oceanus/progress/<plan-name>.md`。ledger 按任务记录 `pending`、`in_progress`、`completed`、`failed` 或 `blocked` 状态、worker/session、验证证据和更新时间。并行 worker 不直接写共享 ledger，由 orchestrator 在派发前及每个任务完成后串行更新。
 
@@ -132,9 +295,13 @@ bun run typecheck # 类型检查
 ├── package.json        # npm 包定义，main 指向 dist/index.js
 ├── tsconfig.json
 ├── src/
-│   ├── index.ts        # v2 插件入口：Plugin.define + ctx.agent.transform + ctx.skill.transform
+│   ├── index.ts        # v2 插件入口：Plugin.define + ctx.agent/skill/command/tool/hook 注册
 │   ├── config/         # jsonc 配置加载与 schema（paths / loader / schema / utils / constants）
 │   ├── agents/         # 各 agent 定义（oceanus / sisyphus + 6 个子 agent）
+│   ├── tools/          # 新增工具（ast-grep / hashline-edit / task）
+│   ├── hooks/          # 运行时保护 Hook（apply-patch / json-error-recovery / tool-output-truncator / tool-loop-guard / task-registry-observer）
+│   ├── runtime/        # task registry、workspace 解析等运行时支撑
+│   ├── smoke/          # ast-grep CLI 探测与 v2 host smoke
 │   └── skills/         # sisyphus 四个阶段 skill（插件注入，安装无需拷贝）
 └── dist/               # 构建产物
 ```

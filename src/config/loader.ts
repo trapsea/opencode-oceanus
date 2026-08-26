@@ -81,7 +81,7 @@ function loadConfigFromPath(
   }
 }
 
-function deepMerge<T extends Record<string, unknown>>(
+export function deepMerge<T extends Record<string, unknown>>(
   base?: T,
   override?: T,
 ): T | undefined {
@@ -110,6 +110,48 @@ function deepMerge<T extends Record<string, unknown>>(
     }
   }
   return result;
+}
+
+/** 合并用户级和项目级配置，后者对同名字段拥有更高优先级。 */
+export function mergePluginConfigs(
+  base: PluginConfig,
+  override: PluginConfig,
+): PluginConfig {
+  return {
+    ...base,
+    ...override,
+    agents: deepMerge(
+      base.agents as Record<string, unknown> | undefined,
+      override.agents as Record<string, unknown> | undefined,
+    ) as PluginConfig['agents'],
+    presets: deepMerge(
+      base.presets as Record<string, unknown> | undefined,
+      override.presets as Record<string, unknown> | undefined,
+    ) as PluginConfig['presets'],
+    // tools/hooks 按工具/Hook 名称深度合并，同一项只覆盖显式提供的字段。
+    tools: deepMerge(
+      base.tools as Record<string, unknown> | undefined,
+      override.tools as Record<string, unknown> | undefined,
+    ) as PluginConfig['tools'],
+    hooks: deepMerge(
+      base.hooks as Record<string, unknown> | undefined,
+      override.hooks as Record<string, unknown> | undefined,
+    ) as PluginConfig['hooks'],
+  };
+}
+
+/** 将当前 preset 作为基础，并以显式 agents 覆盖；未知 preset 时仅使用显式配置。 */
+export function resolvePresetAgents(
+  config: PluginConfig,
+): PluginConfig['agents'] {
+  const presetAgents = config.preset
+    ? config.presets?.[config.preset]
+    : undefined;
+
+  return deepMerge(
+    presetAgents as Record<string, unknown> | undefined,
+    config.agents as Record<string, unknown> | undefined,
+  ) as PluginConfig['agents'];
 }
 
 export interface ConfigLoadOptions {
@@ -142,17 +184,19 @@ export function loadPluginConfig(options?: ConfigLoadOptions): PluginConfig {
     if (projectConfigPath) {
       const projectConfig = loadConfigFromPath(projectConfigPath);
       if (projectConfig) {
-        config = {
-          ...config,
-          ...projectConfig,
-          agents: deepMerge(
-            config.agents as Record<string, unknown> | undefined,
-            projectConfig.agents as Record<string, unknown> | undefined,
-          ) as PluginConfig['agents'],
-        };
+        config = mergePluginConfigs(config, projectConfig);
       }
     }
   }
 
-  return config;
+  if (config.preset && !config.presets?.[config.preset]) {
+    console.warn(
+      `[opencode-oceanus] Unknown preset "${config.preset}"; using explicit agents`,
+    );
+  }
+
+  return {
+    ...config,
+    agents: resolvePresetAgents(config),
+  };
 }

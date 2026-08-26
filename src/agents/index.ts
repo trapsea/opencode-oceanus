@@ -56,14 +56,21 @@ function getPrimaryModelFromOverride(
   override: AgentOverrideConfig | undefined,
 ): ModelRef | undefined {
   const model = override?.model;
+  const variant = override?.variant;
+  let parsed: ModelRef | undefined;
   if (typeof model === 'string') {
-    return parseModelString(model);
-  }
-  if (Array.isArray(model) && model.length > 0) {
+    parsed = parseModelString(model);
+  } else if (Array.isArray(model) && model.length > 0) {
     const first = model[0];
-    return typeof first === 'string' ? parseModelString(first) : undefined;
+    parsed =
+      typeof first === 'string'
+        ? parseModelString(first)
+        : parseModelString(first.id);
   }
-  return undefined;
+  if (parsed && variant !== undefined) {
+    parsed.variant = variant;
+  }
+  return parsed;
 }
 
 function applyOverrides(
@@ -85,6 +92,25 @@ function applyOverrides(
   }
   if (override.prompt) {
     agent.system = override.prompt;
+  }
+  if (override.displayName) agent.displayName = override.displayName;
+  if (override.options) {
+    agent.options = { ...agent.options, ...override.options };
+  }
+  if (override.permission !== undefined) agent.permission = override.permission;
+  if (override.orchestratorPrompt) {
+    agent.orchestratorPrompt = override.orchestratorPrompt;
+  }
+  if (override.skills) {
+    agent.skills = override.skills;
+  }
+  if (override.mcps) {
+    agent.mcps = override.mcps;
+  }
+  if (override.skills || override.mcps) {
+    console.warn(
+      `[opencode-oceanus] Agent '${agent.name}': skills/mcps 配置在 v2 Agent.Info 中没有直接字段，已忽略。`,
+    );
   }
 }
 

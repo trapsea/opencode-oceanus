@@ -1,7 +1,39 @@
 import { Plugin, Skill } from '@opencode-ai/plugin';
 import { getAgentDefinitions } from './agents';
+import type { AgentOverrideConfig } from './config/schema';
 import { loadPluginConfig } from './config/loader';
 import { SISYPHUS_SKILLS } from './skills';
+import { createPresetCommand, runPresetCommand } from './commands';
+import { registerOceanusTools } from './tools';
+import { registerOceanusHooks } from './hooks';
+import type { ToolingContext } from './runtime/types';
+
+function toPermissions(
+  permission: NonNullable<AgentOverrideConfig['permission']>,
+): Array<{ action: string; resource: string; effect: 'allow' | 'deny' | 'ask' }> {
+  const result: Array<{
+    action: string;
+    resource: string;
+    effect: 'allow' | 'deny' | 'ask';
+  }> = [];
+  if (typeof permission === 'string') {
+    return [{ action: '*', resource: '*', effect: permission as 'allow' | 'deny' | 'ask' }];
+  }
+  for (const [action, rule] of Object.entries(permission as Record<string, unknown>)) {
+    if (typeof rule === 'string') {
+      result.push({ action, resource: '*', effect: rule as 'allow' | 'deny' | 'ask' });
+    } else {
+      for (const [resource, effect] of Object.entries(
+        (rule ?? {}) as Record<string, unknown>,
+      )) {
+        if (typeof effect === 'string') {
+          result.push({ action, resource, effect: effect as 'allow' | 'deny' | 'ask' });
+        }
+      }
+    }
+  }
+  return result;
+}
 
 /**
  * Oceanus 插件（opencode v2 入口）。
@@ -23,17 +55,27 @@ export default Plugin.define({
   id: 'opencode-oceanus',
   tui: true,
   async setup(ctx) {
-    // v2 的 setup ctx 不暴露项目目录，用启动目录加载项目级配置
+    // v2 的 setup ctx 不暴露项目目录，用启动目录加载项目级配置；仅加载一次复用。
     const config = loadPluginConfig({ directory: process.cwd() });
-    const definitions = getAgentDefinitions(config);
-
     await ctx.agent.transform((draft) => {
+      const definitions = getAgentDefinitions(config);
+      if (draft.get('build')) {
+        draft.remove('build');
+      }
+      if (draft.get('plan')) {
+        draft.remove('plan');
+      }
       for (const def of definitions) {
         draft.update(def.name, (agent) => {
+          if (def.displayName) {
+            agent.name = def.displayName as unknown as typeof agent.name;
+          }
           agent.description = def.description;
           agent.mode = def.mode;
-          if (def.system) {
-            agent.system = def.system;
+          if (def.system || def.orchestratorPrompt) {
+            agent.system = [def.system, def.orchestratorPrompt]
+              .filter((value): value is string => Boolean(value))
+              .join('\n\n');
           }
           if (def.color) {
             agent.color = def.color;
@@ -43,6 +85,10 @@ export default Plugin.define({
           }
           if (def.temperature !== undefined) {
             agent.request.settings.temperature = def.temperature;
+          }
+          if (def.options) Object.assign(agent.request.settings, def.options);
+          if (def.permission !== undefined) {
+            agent.permissions = toPermissions(def.permission) as typeof agent.permissions;
           }
         });
       }
@@ -64,5 +110,29 @@ export default Plugin.define({
       }
     });
     await ctx.skill.reload();
+
+    await ctx.command.transform((draft) => {
+      draft.add(
+        createPresetCommand({
+          runPreset: (args) => runPresetCommand(args),
+          reloadAgents: () => ctx.agent.reload(),
+          reply: async (text, invocation) => {
+            // 仅透传 sessionID / text / delivery，避免在响应消息中
+            // 重复触发 invocation.prompt.skills 等用户原 prompt 字段。
+            await ctx.session.prompt({
+              sessionID: invocation.sessionID,
+              text,
+              delivery: invocation.delivery,
+            });
+          },
+        }),
+      );
+    });
+    await ctx.command.reload();
+
+    // Wave 2：注册新增 Tool 与 Hook（默认全部启用，按配置过滤；各自独立容错）。
+    const toolingCtx = ctx as unknown as ToolingContext;
+    await registerOceanusTools(toolingCtx, config);
+    await registerOceanusHooks(toolingCtx, config);
   },
 });
