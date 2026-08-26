@@ -1,0 +1,19 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+
+# 环境与缓存
+.env
+.env.*
+*.log
+.bun/
+.tsbuildinfo
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+
+.oceanus/progress/

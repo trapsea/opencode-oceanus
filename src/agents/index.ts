@@ -1,0 +1,158 @@
+import { Model } from '@opencode-ai/plugin';
+import { SUBAGENT_NAMES } from '../config/constants';
+import type { AgentOverrideConfig, PluginConfig } from '../config/schema';
+import { getAgentOverride, getDisabledAgents } from '../config/utils';
+import { createSisyphusAgent } from './sisyphus';
+import { createDesignerAgent } from './designer';
+import { createExplorerAgent } from './explorer';
+import { createFixerAgent } from './fixer';
+import { createLibrarianAgent } from './librarian';
+import { createObserverAgent } from './observer';
+import { createOracleAgent } from './oracle';
+import {
+  type AgentDefinition,
+  type ModelRef,
+  createOceanusAgent,
+} from './oceanus';
+
+export type { AgentDefinition } from './oceanus';
+
+type AgentFactory = (
+  model?: ModelRef,
+  customPrompt?: string,
+  customAppendPrompt?: string,
+) => AgentDefinition;
+
+const SUBAGENT_FACTORIES: Record<(typeof SUBAGENT_NAMES)[number], AgentFactory> =
+  {
+    explorer: createExplorerAgent,
+    librarian: createLibrarianAgent,
+    oracle: createOracleAgent,
+    designer: createDesignerAgent,
+    fixer: createFixerAgent,
+    observer: createObserverAgent,
+  };
+
+/** 解析配置中的 model 字符串（provider/model#variant）为 v2 ModelRef */
+function parseModelString(input: string): ModelRef | undefined {
+  try {
+    const ref = Model.Ref.parse(input);
+    return { id: ref.id, providerID: ref.providerID, variant: ref.variant };
+  } catch (error) {
+    console.warn(
+      `[opencode-oceanus] Invalid model ref "${input}":`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return undefined;
+  }
+}
+
+/**
+ * 从配置覆盖中解析主模型。
+ * 仅支持字符串形式（provider/model#variant）；数组形式取第一个字符串项，
+ * 其余字段（对象项）无法映射到 v2 的单个 ModelRef，返回 undefined 即跟随会话模型。
+ */
+function getPrimaryModelFromOverride(
+  override: AgentOverrideConfig | undefined,
+): ModelRef | undefined {
+  const model = override?.model;
+  if (typeof model === 'string') {
+    return parseModelString(model);
+  }
+  if (Array.isArray(model) && model.length > 0) {
+    const first = model[0];
+    return typeof first === 'string' ? parseModelString(first) : undefined;
+  }
+  return undefined;
+}
+
+function applyOverrides(
+  agent: AgentDefinition,
+  override: AgentOverrideConfig,
+): void {
+  const model = getPrimaryModelFromOverride(override);
+  if (model) {
+    agent.model = model;
+  }
+  if (override.temperature !== undefined) {
+    agent.temperature = override.temperature;
+  }
+  if (override.description) {
+    agent.description = override.description;
+  }
+  if (override.color) {
+    agent.color = override.color;
+  }
+  if (override.prompt) {
+    agent.system = override.prompt;
+  }
+}
+
+export type SubagentName = (typeof SUBAGENT_NAMES)[number];
+
+export function isSubagent(name: string): name is SubagentName {
+  return (SUBAGENT_NAMES as readonly string[]).includes(name);
+}
+
+/**
+ * 创建所有 agent 定义（v2 Agent.Info 可写字段）。
+ * oceanus 与 sisyphus 为主 agent，其余为子 agent。
+ * 每个 agent 的模型：优先取配置文件中 agents.<name>.model，否则跟随当前会话模型。
+ */
+export function createAgents(
+  config?: PluginConfig,
+): AgentDefinition[] {
+  const disabled = getDisabledAgents(config);
+
+  // 1. 组装子 agent（应用配置覆盖）
+  const subAgents = Object.entries(SUBAGENT_FACTORIES)
+    .filter(([name]) => !disabled.has(name))
+    .map(([name, factory]) => {
+      const override = getAgentOverride(config, name);
+      const model = getPrimaryModelFromOverride(override);
+      const agent = factory(model, override?.prompt);
+
+      if (override) {
+        applyOverrides(agent, override);
+      }
+      return agent;
+    });
+
+  // 2. 创建 oceanus 主 agent
+  const oceanusOverride = getAgentOverride(config, 'oceanus');
+  const oceanus = createOceanusAgent(
+    getPrimaryModelFromOverride(oceanusOverride),
+    oceanusOverride?.prompt,
+    undefined,
+    disabled,
+  );
+
+  if (oceanusOverride) {
+    applyOverrides(oceanus, oceanusOverride);
+  }
+
+  // 3. 创建 sisyphus 主 agent
+  const sisyphusOverride = getAgentOverride(config, 'sisyphus');
+  const sisyphusDisabled = disabled.has('sisyphus');
+  let sisyphus: AgentDefinition | undefined;
+  if (!sisyphusDisabled) {
+    sisyphus = createSisyphusAgent(
+      getPrimaryModelFromOverride(sisyphusOverride),
+      sisyphusOverride?.prompt,
+      undefined,
+      disabled,
+    );
+    if (sisyphusOverride) {
+      applyOverrides(sisyphus, sisyphusOverride);
+    }
+  }
+
+  return [oceanus, ...(sisyphus ? [sisyphus] : []), ...subAgents];
+}
+
+/** 供插件入口使用的最终 agent 定义列表 */
+export function getAgentDefinitions(
+  config?: PluginConfig,
+): AgentDefinition[] {
+  return createAgents(config);
+}
