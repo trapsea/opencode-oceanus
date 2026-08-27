@@ -3,16 +3,26 @@ import type { SkillDefinition } from './types';
 const SISYPHUS_EXECUTE_SKILL: SkillDefinition = {
   name: 'sisyphus-execute',
   description:
-    'Phase 3 — Execute: implement task-by-task, dispatch independent work in parallel with task(run_in_background=true), keep dependent tasks waiting for terminal results, reconcile outputs, and keep the todo list in sync. Loaded by the sisyphus agent at the start of the execute phase.',
+    'Phase 4 — Execute: implement task-by-task, dispatch independent work in parallel with task(run_in_background=true), keep dependent tasks waiting for terminal results, reconcile outputs, and keep the todo list in sync. Loaded by the sisyphus agent at the start of the execute phase.',
   slash: true,
   content: `---
 name: sisyphus-execute
-description: Phase 3 of the Sisyphus workflow — Execute. Implement task-by-task, dispatch independent work in parallel with task(run_in_background=true), keep dependent tasks waiting for terminal results, and keep the todo list in sync.
+input: Momus OKAY 的 plan
+owner: Sisyphus 主 Agent；workers 仅持有显式分配的文件范围
+output: 实现与证据
+entry: plan 放行
+exit: 任务终态
+failure: 标记失败并重规划
+verification: 测试与 ledger
+humanReview: conditional
+description: Phase 4 of the Sisyphus workflow — Execute. Implement task-by-task, dispatch independent work in parallel with task(run_in_background=true), keep dependent tasks waiting for terminal results, and keep the todo list in sync.
 ---
 
-# Sisyphus Phase 3 — Execute
+# Sisyphus Phase 4 — Execute
 
 ## Goal
+Sisyphus 主 Agent 持有计划、调度、ledger 与验收上下文；仅将无冲突的明确任务条件委派给 workers。
+
 Implement the plan reliably: parallel where safe, serial where dependent, and fully tracked.
 
 ## Steps
@@ -57,9 +67,11 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 
 ## Rules
 - Use the real background parameter: \`task(..., run_in_background=true)\` — not \`background: true\`.
+- Poll background tasks explicitly with \`task_status\` / \`task_result\`; host facts take priority over any local observation. Do not rely on queue notifications — completion is never pushed by default, and a task must never be treated as terminal without a query.
 - Never reissue an unchanged task to the same specialist after a rejection; adjust scope or context first.
 - Parallel background tasks are allowed only when write scopes do not conflict.
 - Parallel workers must not write the shared progress ledger; the orchestrator serializes ledger updates so task records cannot overwrite one another.
+- **CBM 边界**：高风险公共符号修改前先做 trace/impact（cbm_trace / cbm_query 分析影响面）；普通机械修改不强制查询。
 - In shared-worktree mode, workers must not run \`git add\`/\`commit\`/\`reset\`, branch or worktree operations, or edit files outside their declared \`Files\`.
 - Follow the Failing-First Discipline above; do not skip RED→GREEN unless the change matches the exemption whitelist and the reason is recorded.
 - Never claim a task complete on passing tests alone; a real-surface artifact is required.

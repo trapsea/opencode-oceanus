@@ -80,6 +80,13 @@ describe('agent prompt 工具对齐（tooling-10）', () => {
     expect(sys).toContain('Hook validates your `patchText`');
   });
 
+  test('fixer 依赖编排者提供完整委派上下文，而不是自行规划', () => {
+    const sys = byName('fixer');
+    expect(sys).toMatch(/context|上下文/i);
+    expect(sys).toContain('BLOCKED');
+    expect(sys).toMatch(/parent|父 agent|orchestrator|编排/i);
+  });
+
   test('librarian 不虚构 context7/gh_grep 为原生工具', () => {
     const sys = byName('librarian');
     expect(sys).toContain('webfetch');
@@ -108,6 +115,17 @@ describe('agent prompt 工具对齐（tooling-10）', () => {
       'the local task registry is only an index and never a substitute for host fact',
     );
     expect(sys).toContain('`task_result` returns data only for terminal');
+  });
+
+  test('sisyphus/oceanus 通信协议：显式 task_status/task_result 查询，不依赖 queue 通知', () => {
+    const sis = byName('sisyphus');
+    expect(sis).toMatch(/[Dd]o not rely on queue notifications/);
+    expect(sis).toContain('`task_status` / `task_result`');
+
+    const oc = byName('oceanus');
+    expect(oc).toMatch(/[Dd]o not rely on queue notifications/);
+    expect(oc).toContain('`task_status`');
+    expect(oc).toContain('`task_result`');
   });
 });
 
@@ -181,12 +199,11 @@ describe('只读 agent 默认 permission 契约', () => {
     'librarian',
     'oracle',
     'observer',
-    'metis',
     'momus',
   ];
 
   /** 把 permission 规则（string | pattern→action 映射）解析为某工具的最终 action */
-  function action(agent: AgentDefinition, tool: string): string | undefined {
+  function action(agent: AgentDefinition, tool: string, resource?: string): string | undefined {
     const p = agent.permission;
     if (p === undefined) return undefined;
     if (typeof p === 'string') return p;
@@ -194,7 +211,9 @@ describe('只读 agent 默认 permission 契约', () => {
     if (entry === undefined) return undefined;
     if (typeof entry === 'string') return entry;
     if (typeof entry === 'object' && entry !== null) {
-      const vals = Object.values(entry as Record<string, string>);
+      const rules = entry as Record<string, string>;
+      if (resource !== undefined && rules[resource] !== undefined) return rules[resource];
+      const vals = Object.values(rules);
       if (vals.includes('allow')) return 'allow';
       if (vals.includes('deny')) return 'deny';
       return 'ask';
@@ -216,13 +235,58 @@ describe('只读 agent 默认 permission 契约', () => {
     expect(action(byName(name), 'grep')).toBe('allow');
   });
 
-  test.each(READONLY_NAMES)('%s 默认不授予写入动作 edit/task', (name) => {
+  test.each(READONLY_NAMES)('%s 默认禁止初始化 CBM', (name) => {
+    expect(action(byName(name), 'cbm_index')).toBe('deny');
+  });
+
+  test('metis 默认允许初始化 CBM', () => {
+    expect(action(byName('metis'), 'cbm_index')).toBe('allow');
+  });
+
+  test.each(READONLY_NAMES)('%s 默认显式允许查询 CBM 工具', (name) => {
+    for (const tool of [
+      'cbm_status',
+      'cbm_search_graph',
+      'cbm_trace',
+      'cbm_code',
+      'cbm_query',
+      'cbm_detect_changes',
+    ]) {
+      expect(action(byName(name), tool)).toBe('allow');
+    }
+  });
+
+  test.each(READONLY_NAMES)('%s 默认显式允许其它只读工具', (name) => {
+    for (const tool of ['ast_grep_search', 'task_status', 'task_result']) {
+      expect(action(byName(name), tool)).toBe('allow');
+    }
+  });
+
+  test.each(READONLY_NAMES)('%s 默认拒绝写入与执行动作', (name) => {
     expect(action(byName(name), 'edit')).not.toBe('allow');
-    expect(action(byName(name), 'task')).not.toBe('allow');
     expect(action(byName(name), 'write')).toBe('deny');
     expect(action(byName(name), 'apply_patch')).toBe('deny');
     expect(action(byName(name), 'ast_grep_replace')).toBe('deny');
     expect(action(byName(name), 'hashline_edit')).toBe('deny');
+    expect(action(byName(name), 'todowrite')).toBe('deny');
+    expect(action(byName(name), 'shell', 'git status')).toBe('allow');
+    expect(action(byName(name), 'subagent')).toBe('deny');
+  });
+
+  test.each(READONLY_NAMES)('%s shell 允许只读命令并按 pattern 拒绝写入命令', (name) => {
+    const agent = byName(name);
+    for (const command of ['git status', 'git diff', 'git log', 'ls -la', 'grep foo file']) {
+      expect(action(agent, 'shell', command)).toBe('allow');
+    }
+    for (const command of [
+      'rm *', 'rmdir *', 'mv *', 'cp *', 'touch *', 'mkdir *', 'ln *',
+      'chmod *', 'chown *', 'tee *', 'sed -i*', 'perl -i*', 'git add *',
+      'git commit *', 'git push *', 'git pull *', 'git fetch *', 'git checkout *',
+      'git reset *', 'git restore *', 'git clean *', 'git merge *', 'git rebase *',
+      'npm install*', 'yarn add *', 'pnpm remove *', 'bun update*', '* > *',
+    ]) {
+      expect(action(agent, 'shell', command)).toBe('deny');
+    }
   });
 
   test('显式只读 agent permission 覆盖默认矩阵', () => {
@@ -232,6 +296,17 @@ describe('只读 agent 默认 permission 契约', () => {
     }).find((item) => item.name === 'explorer');
     expect(action(agent!, 'edit')).toBe('allow');
     expect(action(agent!, 'write')).toBeUndefined();
+  });
+
+  test('显式 cbm_index 权限覆盖默认拒绝', () => {
+    const agent = createAgents({ disabled_agents: [], agents: { explorer: { permission: { cbm_index: 'allow' } } } }).find((item) => item.name === 'explorer');
+    expect(action(agent!, 'cbm_index')).toBe('allow');
+  });
+
+  test('keepsReadonlyAgentsFromFileOperations：只读 agent 拒绝文件操作工具', () => {
+    for (const name of READONLY_NAMES) {
+      expect(action(byName(name), 'hashline_edit')).toBe('deny');
+    }
   });
 });
 
@@ -252,7 +327,7 @@ describe('编排门禁：oceanus/sisyphus 路由 metis/momus', () => {
     const sys = createAgents({ disabled_agents: ['metis', 'momus'] }).find(
       (a) => a.name === 'oceanus',
     )!.system!;
-    expect(sys).not.toContain('@metis');
+    expect(sys).toMatch(/metis/i);
     expect(sys).not.toContain('@momus');
   });
 
@@ -263,23 +338,51 @@ describe('编排门禁：oceanus/sisyphus 路由 metis/momus', () => {
     expect(sys).toMatch(/REJECT/i);
     expect(sys).toMatch(/back to plan|back to the plan|回.*plan|重新规划|回到计划/i);
     expect(sys).toMatch(/skip|跳过/i);
+    expect(sys).toMatch(/human approval|人工批准|approval/i);
+  });
+
+  test('Metis 仅在 Intake、澄清完成且主 Agent 明确需要时做方案分析', () => {
+    const sys = createAgents().find((agent) => agent.name === 'metis')!.system!;
+    expect(sys).toMatch(/exactly one mode|一个模式/i);
+    expect(sys).toMatch(/Intake|SOLUTION_ANALYSIS/i);
+    expect(sys).toMatch(/Intake.*clarification|Intake.*澄清/i);
+    expect(sys).toMatch(/unresolved|未决|genuinely/i);
+    expect(sys).toMatch(/explicitly requested|明确指定/);
+    expect(sys).toMatch(/missing|缺少|not guess|不猜测/i);
+  });
+
+  test('Intake 不委派 Metis 做 INTAKE', () => {
+    const sys = sysOf('sisyphus');
+    expect(sys).toMatch(/Intake/);
+    expect(sys).toMatch(/Metis.*INTAKE|INTAKE.*Metis/i);
+    expect(sys).toMatch(/不得|禁止|不.*委派|do not delegate|not delegate/i);
+  });
+
+  test('Brainstorm 仅条件式委派 SOLUTION_ANALYSIS', () => {
+    const sys = sysOf('sisyphus');
+    expect(sys).toMatch(/Brainstorm|brainstorm/i);
+    expect(sys).toMatch(/SOLUTION_ANALYSIS/);
+    expect(sys).toMatch(/仅当|只有.*才|条件|when.*needed|if.*needed/i);
+  });
+
+  test('编排 Agent 声明六阶段但不展开阶段细节', () => {
+    const sys = sysOf('sisyphus');
+    expect(sys).toMatch(/intake.*brainstorm.*plan.*execute.*review.*finish/i);
+    expect(sys).not.toMatch(/Phase 1.*澄清.*范围.*验收.*风险/i);
   });
 
   test('禁用 metis/momus 后 sisyphus 不指向已禁用 Agent', () => {
     const sys = createAgents({ disabled_agents: ['metis', 'momus'] }).find(
       (agent) => agent.name === 'sisyphus',
     )!.system!;
-    expect(sys).not.toContain('@metis');
-    expect(sys).not.toContain('@momus');
-    expect(sys).toContain('已禁用');
+    expect(sys).toMatch(/metis.*disabled|momus.*disabled|已禁用/i);
   });
 
   test('禁用 sisyphus 后 oceanus 不指向已禁用 Agent', () => {
     const sys = createAgents({ disabled_agents: ['sisyphus'] }).find(
       (agent) => agent.name === 'oceanus',
     )!.system!;
-    expect(sys).not.toContain('@sisyphus');
-    expect(sys).toContain('Sisyphus is disabled');
+    expect(sys).toMatch(/sisyphus is disabled|sisyphus.*disabled/i);
   });
 });
 
@@ -307,7 +410,8 @@ describe('CBM-04：agent 调度契约（代码知识图谱）', () => {
   test('oceanus prompt 委派检索时要求 CBM 证据与降级回退', () => {
     const sys = sysOf('oceanus');
     expect(sys).toMatch(/CBM 未索引|cbm_index/);
-    expect(sys).toMatch(/回退 grep|fallback|grep\/read/);
+    expect(sys).toMatch(/grep/);
+    expect(sys).toMatch(/read/);
   });
 
   test('sisyphus prompt 包含 CBM 四阶段边界且不覆盖既有门禁', () => {

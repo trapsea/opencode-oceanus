@@ -105,6 +105,18 @@ async function exec(tool: ToolDefinition, input: unknown): Promise<any> {
 // ─────────────────────────── 注册门控 ───────────────────────────
 
 describe('buildCbmTools 注册门控', () => {
+  test('仅配置 custom cacheDir 时，CLI 入口传递 cacheRoot 与 CBM_CACHE_DIR', async () => {
+    let observed: any;
+    const tools = buildCbmTools(
+      createMockCtx().ctx,
+      { codebaseMemory: { enabled: true, cliFallback: true, cacheDir: '/custom/cbm' } },
+      { runCli: async (options) => { observed = options; return { ok: true, tool: options.tool, data: { installed: false } }; } },
+    );
+    await find(tools, 'cbm_status').execute({}, { sessionID: 's1' } as ToolContextLike);
+    expect(observed.cacheRoot).toBe('/custom/cbm');
+    expect(observed.env?.CBM_CACHE_DIR).toBe('/custom/cbm');
+  });
+
   const ALL = [
     'cbm_status',
     'cbm_index',
@@ -186,6 +198,14 @@ describe('cbm_index：显式触发索引', () => {
     expect(records[0].tool).toBe('index_repository');
     expect((records[0].args as Record<string, unknown>).repository_path).toBe(root);
     expect(res.in_progress).toBe(true);
+  });
+
+  test('builder 将 cbm_index 映射到 index_repository CLI', async () => {
+    const { ctx, root } = createMockCtx();
+    const records: Array<{ tool: string; args: unknown }> = [];
+    const tool = find(buildCbmTools(ctx, {}, { runCli: recordingRun(records), indexer: failIndexer() }), 'cbm_index');
+    await exec(tool, {});
+    expect(records[0]).toMatchObject({ tool: 'index_repository', args: { repository_path: root } });
   });
 });
 

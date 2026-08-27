@@ -9,6 +9,7 @@ import {
   isToolNotFoundOutput,
   isTraceTool,
   validateProjectPath,
+  deriveProjectName,
 } from './args';
 
 /**
@@ -71,6 +72,13 @@ describe('extractProjectPath', () => {
     expect(extractProjectPath(null)).toBeUndefined();
     expect(extractProjectPath(undefined)).toBeUndefined();
     expect(extractProjectPath('not-an-object')).toBeUndefined();
+  });
+});
+
+describe('deriveProjectName', () => {
+  test('生成稳定、清理后的项目名', () => {
+    expect(deriveProjectName('/workspace/my_repo.v2')).toBe('my_repo.v2');
+    expect(deriveProjectName('///')).toBe('workspace');
   });
 });
 

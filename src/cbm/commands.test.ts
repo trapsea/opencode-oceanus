@@ -110,6 +110,15 @@ describe('/cbm status（空子命令默认 status）', () => {
 });
 
 describe('/cbm install（后台非阻塞）', () => {
+  test('install 传入冲突 cacheRoot 时由共享入口保持同一 root', async () => {
+    const seen: string[] = [];
+    const { command } = makeCbmDeps({
+      getCacheRoot: () => '/shared/cbm',
+      startBackgroundInstall: async (opts) => { seen.push(opts?.cacheRoot ?? ''); return null; },
+    });
+    await command.execute(invocation('install'));
+    expect(seen).toEqual(['/shared/cbm']);
+  });
   test('立即回写"后台启动"，安装完成前不触发 registerMcp', async () => {
     let resolveInstall!: (bin: string | null) => void;
     const installPromise = new Promise<string | null>((resolve) => {

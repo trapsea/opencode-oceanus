@@ -22,6 +22,7 @@ import { applyJsonErrorRecovery } from './json-error-recovery';
 import { createToolOutputTruncator } from './tool-output-truncator';
 import { createToolLoopGuardHook } from './tool-loop-guard';
 import { createCbmGuidanceHook } from './cbm-guidance';
+import { createHashlineReadEnhancer } from './hashline-read-enhancer';
 import { createTaskObserver } from '../runtime/task-observer';
 import {
   isHookEnabled,
@@ -29,6 +30,7 @@ import {
   getCodebaseMemoryConfig,
   isCodebaseMemoryEnabled,
   isCodebaseMemoryGuidanceEnabled,
+  getTaskReuseConfig,
 } from '../config/utils';
 import { createIndexer, type IndexerHandle, type IndexerRunCli } from '../cbm/indexer';
 import type { CbmRunDeps } from '../tools/cbm/types';
@@ -47,6 +49,10 @@ export interface RegisterHooksOptions {
   indexer?: IndexerHandle;
   /** cbm-guidance 索引检查超时（毫秒）。 */
   timeoutMs?: number;
+  /** 注入 JobBoard/通知依赖，缺省时 observer 仍仅维护 registry。 */
+  board?: import('../tools/task/job-board').JobBoard;
+  /** 任务生命周期观测：记录生产接线实际收到的 JobBoard。 */
+  taskLifecycleObserver?: (board: import('../tools/task/job-board').JobBoard) => void;
 }
 
 /** 默认输出截断上限（与规格一致）。 */
@@ -75,6 +81,7 @@ export async function registerOceanusHooks(
   opts: RegisterHooksOptions = {},
 ): Promise<void> {
   const log = opts.logger ?? (() => {});
+  if (opts.board) opts.taskLifecycleObserver?.(opts.board);
 
   // ── before ─────────────────────────────────────────────
   if (isHookEnabled(config, 'apply_patch')) {
@@ -149,6 +156,21 @@ export async function registerOceanusHooks(
   }
 
   // 2) tool-output-truncator
+  // hashline enhancer 是固定协议适配器，不受 hooks.enabled/disabled_hooks 控制。
+  {
+    try {
+      const enhancer = createHashlineReadEnhancer();
+      await ctx.tool.hook('execute.after', (event: any) => {
+        try { enhancer(event); } catch (e) {
+          log('[oceanus] hashline-read-enhancer 失败(fail-open)', { error: messageOf(e) });
+        }
+      });
+    } catch (e) {
+      log('[oceanus] 注册 hashline-read-enhancer hook 失败', { error: messageOf(e) });
+    }
+  }
+
+  // 3) tool-output-truncator
   if (isHookEnabled(config, 'tool_output_truncator')) {
     try {
       const hookCfg = getHookConfig(config, 'tool_output_truncator');
@@ -182,6 +204,9 @@ export async function registerOceanusHooks(
     try {
       const observer = createTaskObserver({
         logger: (message, meta) => log(`[oceanus] ${message}`, meta),
+        board: opts.board,
+        session: ctx.session as import('../runtime/types').SessionLike,
+        reuse: getTaskReuseConfig(config),
       });
       await ctx.tool.hook('execute.before', observer['execute.before'] as never);
       await ctx.tool.hook('execute.after', observer['execute.after'] as never);

@@ -6,7 +6,13 @@ Oceanus 将 CBM 作为可选的代码库结构化检索能力；CBM 不可用时
 
 默认配置为 `codebaseMemory.enabled=true`、`autoDownload=true`、`version="0.10.8"`、`mcp=true`、`cliFallback=true`、`autoIndex=true`，`indexOnStart=false`。首次需要 CBM 时，插件可后台按需下载；并发调用共享同一安装任务，不会重复下载。
 
-默认缓存位置由平台决定：Unix 使用 `${XDG_CACHE_HOME:-~/.cache}/opencode-oceanus/codebase-memory-mcp/`，Windows 使用 `%LOCALAPPDATA%/opencode-oceanus/codebase-memory-mcp/`。也可设置 `codebaseMemory.cacheDir` 或 `CBM_CACHE_DIR`。已安装二进制解析顺序是显式 `binaryPath` → Oceanus 缓存 → PATH 上的 `codebase-memory-mcp`。
+缓存根目录优先级为 `codebaseMemory.cacheDir` → 外部环境变量 `CBM_CACHE_DIR` → 平台默认：Unix 使用 `${XDG_CACHE_HOME:-~/.cache}/opencode-oceanus/codebase-memory-mcp/`，Windows 使用 `%LOCALAPPDATA%/opencode-oceanus/codebase-memory-mcp/`。插件 `setup` 完成后会固定本次 setup 的缓存根快照；之后即使环境或配置变化，当前实例也不会切换缓存根目录。也可设置 `codebaseMemory.cacheDir` 或 `CBM_CACHE_DIR`。已安装二进制解析顺序是显式 `binaryPath` → Oceanus 缓存 → PATH 上的 `codebase-memory-mcp`。
+
+这里的缓存目录是**二进制安装缓存**，用于保存版本/平台归档、解压后的二进制及 `current.json`；它不是 CBM daemon 的数据目录。daemon 的索引、运行时状态等数据由 daemon 自己管理，不能把二者混同，也不要通过删除安装缓存来清理索引数据。
+
+安装或修复不会仅凭文件存在就认为安装有效：会检查 `current.json`，确认其中的版本和平台与当前配置/运行平台匹配，并检查二进制存在且 `--version` 可执行、输出有效。任一检查失败都会重新安装（或返回诊断）。
+
+daemon 按缓存根目录隔离。若已经运行的 daemon 使用了不同的 cache root，插件不会自动接管或复用它；请先关闭旧会话/daemon，再用目标缓存根目录重启。
 
 下载归档来源固定为官方 DeusData 仓库：
 `https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.10.8/`。
@@ -65,13 +71,30 @@ Windows 支持下载 `.zip`、`.exe` 二进制及缓存路径；若 Windows 上 
 
 ## Agent 调度矩阵
 
+代码或混合任务在 Intake 阶段由 Sisyphus 直接调用一次 `cbm_index` 初始化；非代码任务跳过。Review 开始时再次调用 `cbm_index` 刷新索引；Brainstorm/Plan 不重复初始化。失败、超时或 in-progress 均 fail-open；查询型工具可由需要的 agent 使用。CBM 仅提供 advisory 证据，不是依赖门控、权限边界或完成事实；Ledger/Review schema 不得伪造宿主状态。
+
 | Agent | CBM 使用建议 | 不可用时 |
 |---|---|---|
 | `oceanus` / `sisyphus` | 编排复杂任务，要求检索证据 | 明确记录降级证据 |
-| `explorer` | 优先 `cbm_search_graph`、`cbm_trace`、`cbm_code` | 回退 `read`/`grep`/`glob` |
+| `explorer` | 优先 `cbm_search_graph`、`cbm_trace`、`cbm_code` 等只读查询 | 回退 `read`/`grep`/`glob` |
 | `librarian` | 外部文档研究，不依赖 CBM | 使用 `webfetch`/`websearch` |
 | `oracle` / `metis` / `momus` | 按需读取结构与调用链 | 静态检查并说明不确定性 |
 | `fixer` | 实现前按需查询，写入仍用受控编辑工具 | 依据原生检索工具实现 |
 | `designer` / `observer` | UI/视觉任务按需使用 | 使用现有上下文；`observer` 默认禁用 |
 
 矩阵是调度约定而非运行时强制路由；agent 必须如实报告 CBM 不可用及回退路径。
+
+参数示例：`cbm_status({})`、`cbm_search_graph({ query: ".*OrderHandler.*", limit: 20 })`、`cbm_trace({ symbol: "pkg/orders.OrderHandler", direction: "inbound" })`、`cbm_code({ qualified_name: "pkg/orders.OrderHandler" })`、`cbm_query({ query: "MATCH (n) RETURN n LIMIT 20" })`、`cbm_detect_changes({ since: "HEAD~1" })`；索引初始化由 Sisyphus Intake 与 Review 阶段负责。
+
+### CBM CLI 参数契约
+
+CLI fallback 统一使用当前 workspace 的目录名作为 `project`，不再使用完整路径拼接名称；建索引时同时传入 `name`，确保后续查询使用同一名称。已使用旧的全路径 project 名建立的索引需要重新执行 `/cbm index`。`search_graph`、`trace_path`、`get_code_snippet`、`query_graph`、`detect_changes` 和 `index_status` 最终只发送 `project`。`index_repository` 最终只发送 `repo_path` 与 `name`。所有路径字段（包括 `projectPath`、`repository_path`、`repo_path`、`project_path`、`path`、`workspace_root`）会在执行前校验不得越出 workspace；越界时不会启动任何 CBM 子进程。
+
+## 后台任务通信协议（T5）
+
+`oceanus` / `sisyphus` 与后台子任务之间的通信是拉取式（pull-based）协议：
+
+- 终态确认必须通过 `task_status` / `task_result` 显式查询；宿主事实（session active / outcome）优先于 registry 本地观察，registry 只是索引。
+- 不存在默认的 queue 完成通知：prompt 不得要求或暗示等待 queue 推送终态；沉默不代表完成。
+- `task_result` 只读终态：宿主已确认 running 时旧 observation 的终态一律不返回；宿主已确认终态时以宿主 outcome 为准；任务被 revive（generation 递增）后，旧 generation 的结果以 `STALE_GENERATION` 拒绝。
+- 宿主无法确认状态时返回 `verified:false` / `certainty:uncertain`，绝不伪装完成；跨 parent 访问统一返回 `PARENT_OWNERSHIP`。

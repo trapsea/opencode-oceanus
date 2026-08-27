@@ -42,6 +42,10 @@ export interface McpRegistrationResult {
 
 export interface McpRegisterOptions extends ProvisionOptions {
   logger?: (message: string, meta?: Record<string, unknown>) => void;
+  /** 共享安装实现；由 wiring 注入以复用同一 Promise。 */
+  ensureInstalled?: (options?: ProvisionOptions) => Promise<string | null>;
+  /** 已有二进制的可注入健康检查；未通过时视为不可用。 */
+  healthCheck?: (binary: string) => Promise<boolean>;
 }
 
 /** 注入的 MCP server 固定名称。 */
@@ -154,9 +158,10 @@ export async function registerCbmMcp(
     mutated: false,
   };
 
-  const cacheDir = cfg.cacheDir ?? opts.cacheRoot ?? getCacheRoot();
+  const cacheDir = cfg.cacheDir ?? opts.cacheRoot ?? process.env.CBM_CACHE_DIR ?? getCacheRoot();
   const expected = resolveExpectedBinaryPath(cfg, cacheDir);
-  const hasBinary = existsSync(expected);
+  const hasBinary = existsSync(expected) &&
+    (opts.healthCheck ? await opts.healthCheck(expected).catch(() => false) : true);
   const canAuto = isCodebaseMemoryAutoDownloadEnabled(config);
 
   let installPromise: Promise<string | null> | null = null;
@@ -188,7 +193,7 @@ export async function registerCbmMcp(
       res.registered = true;
       res.mutated = true;
       res.disabled = true;
-      installPromise = ensureInstalled({
+      installPromise = (opts.ensureInstalled ?? ensureInstalled)({
         ...opts,
         cacheRoot: cacheDir,
         version: cfg.version,

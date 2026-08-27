@@ -402,6 +402,19 @@ describe('CBM-08 reload 隔离与 cleanup ownership', () => {
 });
 
 describe('CBM-08 环境白名单与构造辅助', () => {
+  test('传入冲突 cacheRoot 时仍使用共享配置根', async () => {
+    const root = newRoot();
+    const other = newRoot();
+    const cfg = baseConfig(root);
+    const binary = resolveExpectedBinaryPath({ version: '0.10.8', cacheDir: root } as never, root);
+    mkdirSync(join(root, 'versions', '0.10.8', getPlatformKey(resolveCbmPlatform('linux', 'x64'))), { recursive: true });
+    writeFileSync(binary, 'binary');
+    const { draft } = makeFakeDraft();
+    await registerCbmMcp(makeFakeMcpCtx(draft) as never, cfg, { cacheRoot: other } as never);
+    const srv = draft.get(MCP_SERVER_NAME) as Extract<MCPServerConfigLike, { type: 'local' }>;
+    expect(srv.environment?.CBM_CACHE_DIR).toBe(root);
+  });
+
   test('buildMcpEnvironment 只包含白名单键、CBM_CACHE_DIR 与 marker', () => {
     process.env.PROVIDER_SECRET_TOKEN = 'should-not-leak';
     process.env.HOME = '/home/user';

@@ -321,6 +321,44 @@ describe('CBM-05 缓存命中重校验', () => {
     expect(downloads).toBe(1);
     expect(second).toBeTruthy();
   });
+
+  test('current manifest 损坏时不误报缓存命中，而是重新安装', async () => {
+    const root = newRoot();
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, 'current.json'), '{not-json');
+    const archive = buildTarGz([{ name: 'codebase-memory-mcp', content: 'fresh' }]);
+    const platform = resolveCbmPlatform('linux', 'x64');
+    const manifest = createCanonicalManifest(platform, sha256Hex(archive), { url: 'https://example.invalid/cbm.tar.gz' });
+    let downloads = 0;
+    await provision({ cacheRoot: root, platform, manifest, download: async (_u, dest) => { downloads++; writeFileSync(dest, archive); }, spawn: fakeSpawn().spawn, pid: 31, now: () => 1, isPidAlive: () => true });
+    expect(downloads).toBe(1);
+  });
+
+  test('current manifest 版本或平台不匹配时不误报缓存命中', async () => {
+    for (const current of [{ version: 'old', platform: 'linux-x64' }, { version: '0.10.8', platform: 'darwin-arm64' }]) {
+      const root = newRoot();
+      mkdirSync(root, { recursive: true });
+      writeFileSync(join(root, 'current.json'), JSON.stringify(current));
+      const archive = buildTarGz([{ name: 'codebase-memory-mcp', content: 'fresh' }]);
+      const platform = resolveCbmPlatform('linux', 'x64');
+      const manifest = createCanonicalManifest(platform, sha256Hex(archive), { url: 'https://example.invalid/cbm.tar.gz' });
+      let downloads = 0;
+      await provision({ cacheRoot: root, platform, manifest, download: async (_u, dest) => { downloads++; writeFileSync(dest, archive); }, spawn: fakeSpawn().spawn, pid: 32, now: () => 1, isPidAlive: () => true });
+      expect(downloads).toBe(1);
+    }
+  });
+
+  test('current manifest 指向缺失二进制时不误报缓存命中', async () => {
+    const root = newRoot();
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, 'current.json'), JSON.stringify({ version: '0.10.8', platform: 'linux-x64' }));
+    const archive = buildTarGz([{ name: 'codebase-memory-mcp', content: 'fresh' }]);
+    const platform = resolveCbmPlatform('linux', 'x64');
+    const manifest = createCanonicalManifest(platform, sha256Hex(archive), { url: 'https://example.invalid/cbm.tar.gz' });
+    let downloads = 0;
+    await provision({ cacheRoot: root, platform, manifest, download: async (_u, dest) => { downloads++; writeFileSync(dest, archive); }, spawn: fakeSpawn().spawn, pid: 33, now: () => 1, isPidAlive: () => true });
+    expect(downloads).toBe(1);
+  });
 });
 
 describe('CBM-05 并发 / 陈旧锁', () => {
@@ -546,6 +584,34 @@ describe('CBM-05 --version 健康检查失败保留旧版本', () => {
 });
 
 describe('CBM-05 ensureInstalled 共享 Promise / 后台不阻塞', () => {
+  test('相同 cacheRoot+version 复用同一 Promise', () => {
+    const root = newRoot();
+    const platform = resolveCbmPlatform('linux', 'x64');
+    const manifest = createCanonicalManifest(platform, 'a'.repeat(64));
+    const options = { cacheRoot: root, platform, manifest, download: async () => new Promise<void>(() => {}), spawn: fakeSpawn().spawn };
+    expect(ensureInstalled(options)).toBe(ensureInstalled({ ...options }));
+  });
+
+  test('相同 root 不同 version 不复用；不同 root 相同 version 不复用', () => {
+    const root = newRoot();
+    const otherRoot = newRoot();
+    const platform = resolveCbmPlatform('linux', 'x64');
+    const base = { cacheRoot: root, platform, manifest: createCanonicalManifest(platform, 'b'.repeat(64)), download: async () => new Promise<void>(() => {}), spawn: fakeSpawn().spawn };
+    const otherVersion = { ...base, manifest: createCanonicalManifest(platform, 'c'.repeat(64), { version: '0.10.9' }) };
+    const otherRootOptions = { ...base, cacheRoot: otherRoot };
+    expect(ensureInstalled(base)).not.toBe(ensureInstalled(otherVersion));
+    expect(ensureInstalled(base)).not.toBe(ensureInstalled(otherRootOptions));
+  });
+
+  test('非默认 version 仍命中对应安装路径', async () => {
+    const root = newRoot();
+    const archive = buildTarGz([{ name: 'codebase-memory-mcp', content: 'custom' }]);
+    const platform = resolveCbmPlatform('linux', 'x64');
+    const manifest = createCanonicalManifest(platform, sha256Hex(archive), { version: '0.10.9' });
+    const bin = await provision({ cacheRoot: root, platform, manifest, download: async (_u, dest) => writeFileSync(dest, archive), spawn: fakeSpawn().spawn, pid: 41, now: () => 1, isPidAlive: () => true });
+    expect(bin).toBe(vbin(root, 'linux-x64', '0.10.9', 'codebase-memory-mcp'));
+  });
+
   test('并发 ensureInstalled 只触发一次下载', async () => {
     const root = newRoot();
     const archive = buildTarGz([{ name: 'codebase-memory-mcp', content: 'shared' }]);

@@ -65,6 +65,8 @@ export interface IndexerOptions {
   binaryPath?: string;
   /** 额外环境变量白名单覆盖。 */
   env?: Record<string, string | undefined>;
+  /** CBM 缓存根目录；设置后不可被单次调用的 env 覆盖。 */
+  cacheRoot?: string;
   /** 实际执行 CLI 的函数；默认 runCbmCli，测试注入 fake。 */
   runCli?: IndexerRunCli;
   /** CBM-03 注入接口：spawn / resolveBinary / ensureInstalled 等。 */
@@ -205,6 +207,11 @@ export function createIndexer(options: IndexerOptions = {}): IndexerHandle {
   const indexedProjects = new Set<string>();
   const inFlight = new Map<string, Promise<IndexerOutcome>>();
   const lastOutcomes = new Map<string, IndexerOutcome>();
+  const buildEnv = (env?: Record<string, string | undefined>) => ({
+    ...options.env,
+    ...env,
+    ...(options.cacheRoot !== undefined ? { CBM_CACHE_DIR: options.cacheRoot } : {}),
+  });
 
   async function checkStatus(
     projectPath: string,
@@ -213,11 +220,12 @@ export function createIndexer(options: IndexerOptions = {}): IndexerHandle {
     const result = await run(
       {
         tool: INDEX_STATUS_TOOL,
-        args: { project_path: projectPath },
+        args: { project: projectPath },
         workspaceRoot: opts.workspaceRoot,
         binaryPath: opts.binaryPath ?? options.binaryPath,
-        timeoutMs: opts.timeoutMs,
-        env: opts.env ?? options.env,
+         timeoutMs: opts.timeoutMs,
+        env: buildEnv(opts.env),
+        cacheRoot: options.cacheRoot,
       },
       options.runDeps,
     );
@@ -231,11 +239,12 @@ export function createIndexer(options: IndexerOptions = {}): IndexerHandle {
     const result = await run(
       {
         tool: INDEX_REPOSITORY_TOOL,
-        args: { repository_path: projectPath },
+        args: { repo_path: projectPath },
         workspaceRoot: opts.workspaceRoot,
         binaryPath: opts.binaryPath ?? options.binaryPath,
-        timeoutMs: opts.timeoutMs,
-        env: opts.env ?? options.env,
+         timeoutMs: opts.timeoutMs,
+        env: buildEnv(opts.env),
+        cacheRoot: options.cacheRoot,
       },
       options.runDeps,
     );

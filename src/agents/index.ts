@@ -2,6 +2,7 @@ import { Model } from '@opencode-ai/plugin';
 import {
   READONLY_AGENTS,
   READONLY_DEFAULT_PERMISSION,
+  METIS_DEFAULT_PERMISSION,
   SUBAGENT_NAMES,
 } from '../config/constants';
 import type { AgentOverrideConfig, PluginConfig } from '../config/schema';
@@ -22,6 +23,9 @@ import {
 } from './oceanus';
 
 export type { AgentDefinition } from './oceanus';
+export { formatDelegationBrief } from './orchestrator-context';
+export type { DelegationBrief } from './orchestrator-context';
+const CHILD_BLOCKING_RULE = '\n缺少委派上下文时不要直接问用户；将问题反馈给父 agent，并输出 STATUS: BLOCKED、QUESTIONS、IMPACT。未明确指定模式时不猜测。\n';
 
 type AgentFactory = (
   model?: ModelRef,
@@ -144,7 +148,9 @@ export function createAgents(
     .map(([name, factory]) => {
       const override = getAgentOverride(config, name);
       const model = getPrimaryModelFromOverride(override);
-      const agent = factory(model, override?.prompt);
+       const agent = factory(model, override?.prompt);
+
+       if (!override?.prompt && agent.system) agent.system += CHILD_BLOCKING_RULE;
 
       if (override) {
         applyOverrides(agent, override);
@@ -152,8 +158,9 @@ export function createAgents(
 
       // 只读 agent 在无显式 permission 时集中应用默认只读权限。
       // 显式 agents.<name>.permission 已在上方 applyOverrides 中设置，此处分支自动跳过。
-      if (READONLY_AGENTS.has(name) && agent.permission === undefined) {
-        agent.permission = READONLY_DEFAULT_PERMISSION;
+       if (READONLY_AGENTS.has(name) && agent.permission === undefined) {
+         agent.permission =
+           name === 'metis' ? METIS_DEFAULT_PERMISSION : READONLY_DEFAULT_PERMISSION;
       }
       return agent;
     });

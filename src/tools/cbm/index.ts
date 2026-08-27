@@ -4,6 +4,7 @@ import type { PluginConfig } from '../../config/schema';
 import type { ToolDefinition, ToolingContext } from '../../runtime/types';
 import { runCbmCli } from './cli';
 import type { CbmRunDeps } from './types';
+import { getCacheRoot } from '../../cbm/paths';
 import {
   buildCbmCodeTool,
   buildCbmDetectChangesTool,
@@ -31,6 +32,7 @@ export interface RegisterCbmToolsOptions {
   runDeps?: CbmRunDeps;
   /** 自定义索引器（测试注入 stub；缺省由 createIndexer 构建）。 */
   indexer?: IndexerHandle;
+  cacheRoot?: string;
 }
 
 /** 按配置构建全部启用的 cbm_* 工具；codebaseMemory 关闭时返回空数组。 */
@@ -43,6 +45,7 @@ export function buildCbmTools(
   if (!cm.enabled || !cm.cliFallback) return [];
 
   const run: IndexerRunCli = opts.runCli ?? runCbmCli;
+  const cacheRoot = opts.cacheRoot ?? cm.cacheDir ?? process.env.CBM_CACHE_DIR ?? getCacheRoot();
   const env: CbmToolEnv = {
     run,
     runDeps: opts.runDeps,
@@ -51,11 +54,13 @@ export function buildCbmTools(
       createIndexer({
         autoIndex: cm.autoIndex,
         binaryPath: cm.binaryPath,
+        cacheRoot,
         runCli: run,
         runDeps: opts.runDeps,
       }),
     binaryPath: cm.binaryPath,
-    env: cm.cacheDir ? { CBM_CACHE_DIR: cm.cacheDir } : undefined,
+    env: { CBM_CACHE_DIR: cacheRoot },
+    cacheRoot,
     autoIndex: cm.autoIndex,
   };
 

@@ -111,6 +111,22 @@ function findTool(added: ToolDefinition[], name: string): ToolDefinition {
 // ─────────────────────────── hashline → diff → 磁盘 ───────────────────────────
 
 describe('hashline_edit 跨模块：真实文件 → diff → 磁盘', () => {
+  test('readAnchorCanEditFile：read 返回的锚点可直接用于编辑', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'oceanus-int-anchor-'));
+    tempDirs.push(dir);
+    const file = path.join(dir, 'data.txt');
+    await writeFile(file, 'alpha\nbeta\n', 'utf8');
+    const { ctx, addedTools } = createMockCtx({ root: dir });
+    await registerOceanusTools(ctx, {});
+    const tool = findTool(addedTools, 'hashline_edit');
+    const res = parsed(await tool.execute({
+      filePath: 'data.txt',
+      edits: [{ op: 'replace', pos: `2#${computeLineHash(2, 'beta')}`, lines: 'changed' }],
+    }, { sessionID: 's1' }));
+    expect(res.ok).toBe(true);
+    expect(await readFile(file, 'utf8')).toContain('changed');
+  });
+
   test('replace 锚点：改写文件并返回包含新旧行的结构化 diff', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'oceanus-int-hl-'));
     tempDirs.push(dir);
@@ -330,16 +346,126 @@ describe('task registry → status → result → cancel 生命周期（经注�
   });
 });
 
+// ─────────────────────────── T5：宿主事实优先级统一 ───────────────────────────
+
+describe('task_status/task_result 宿主事实优先级（T5）', () => {
+  function seededRegistry(observation?: { status: string; text?: string }) {
+    const registry = new TaskRegistry();
+    registry.create({
+      id: 't-x',
+      parentSessionId: 'parent-1',
+      childSessionId: 'child-1',
+      status: 'running',
+    });
+    if (observation) {
+      registry.setObservation('t-x', 'parent-1', {
+        source: 'host-after',
+        at: 1,
+        status: observation.status as any,
+        text: observation.text,
+      });
+    }
+    return registry;
+  }
+
+  test('host active=true 优先于 registry observation 终态 → status=running，result 拒绝旧观察', async () => {
+    const registry = seededRegistry({ status: 'completed', text: 'stale done' });
+    const mock = createMockCtx({ active: { 'child-1': { type: 'running' } } });
+    await registerOceanusTools(mock.ctx, {}, { registry });
+    const statusTool = findTool(mock.addedTools, 'task_status');
+    const resultTool = findTool(mock.addedTools, 'task_result');
+
+    const st = parsed(await statusTool.execute({ taskId: 't-x' }, { sessionID: 'parent-1' }));
+    expect(st.status).toBe('running');
+    expect(st.source).toBe('host');
+    expect(st.verified).toBe(true);
+
+    const rr = parsed(await resultTool.execute({ taskId: 't-x' }, { sessionID: 'parent-1' }));
+    expect(rr.error).toContain('尚未完成');
+    expect(rr.resultText).toBeUndefined();
+  });
+
+  test('host outcome 优先于旧 observation：observation failed 但宿主 succeeded → 返回 host 终态', async () => {
+    const registry = seededRegistry({ status: 'failed', text: 'stale failure' });
+    const mock = createMockCtx({
+      active: {},
+      get: { id: 'child-1', projectID: 'p1', location: { directory: '/ws' }, outcome: 'succeeded' },
+    });
+    await registerOceanusTools(mock.ctx, {}, { registry });
+    const statusTool = findTool(mock.addedTools, 'task_status');
+    const resultTool = findTool(mock.addedTools, 'task_result');
+
+    const st = parsed(await statusTool.execute({ taskId: 't-x' }, { sessionID: 'parent-1' }));
+    expect(st.status).toBe('completed');
+    expect(st.source).toBe('host');
+    expect(st.verified).toBe(true);
+
+    const rr = parsed(await resultTool.execute({ taskId: 't-x' }, { sessionID: 'parent-1' }));
+    expect(rr.error).toBeUndefined();
+    expect(rr.status).toBe('completed');
+    expect(rr.source).toBe('host');
+    expect(rr.verified).toBe(true);
+  });
+
+  test('旧 generation 结果不可返回：board generation 超过 registry 记录 → STALE_GENERATION', async () => {
+    const registry = seededRegistry({ status: 'completed', text: 'old attempt result' });
+    // 宿主不可确认（active 空、无 outcome）
+    const mock = createMockCtx({ active: {} });
+    const board = {
+      get: (id: string) =>
+        id === 't-x'
+          ? { task_id: 't-x', parent_session_id: 'parent-1', state: 'starting', generation: 2 }
+          : undefined,
+    } as any;
+    await registerOceanusTools(mock.ctx, {}, { registry, board });
+    const resultTool = findTool(mock.addedTools, 'task_result');
+    const rr = parsed(await resultTool.execute({ taskId: 't-x' }, { sessionID: 'parent-1' }));
+    expect(rr.errorCode).toBe('STALE_GENERATION');
+    expect(rr.resultText).toBeUndefined();
+  });
+
+  test('host 不可确认且无终态观察 → verified:false / uncertain，不伪装完成', async () => {
+    const registry = seededRegistry();
+    const mock = createMockCtx({ active: {} });
+    await registerOceanusTools(mock.ctx, {}, { registry });
+    const statusTool = findTool(mock.addedTools, 'task_status');
+    const resultTool = findTool(mock.addedTools, 'task_result');
+
+    const st = parsed(await statusTool.execute({ taskId: 't-x' }, { sessionID: 'parent-1' }));
+    expect(st.verified).toBe(false);
+    expect(st.certainty).toBe('uncertain');
+    expect(st.source).toBe('registry');
+
+    const rr = parsed(await resultTool.execute({ taskId: 't-x' }, { sessionID: 'parent-1' }));
+    expect(rr.error).toBeTruthy();
+    expect(rr.resultText).toBeUndefined();
+  });
+
+  test('跨 parent 访问 → PARENT_OWNERSHIP', async () => {
+    const registry = seededRegistry();
+    const mock = createMockCtx({ active: {} });
+    await registerOceanusTools(mock.ctx, {}, { registry });
+    const statusTool = findTool(mock.addedTools, 'task_status');
+    const resultTool = findTool(mock.addedTools, 'task_result');
+
+    const st = parsed(await statusTool.execute({ taskId: 't-x' }, { sessionID: 'stranger' }));
+    expect(st.errorCode).toBe('PARENT_OWNERSHIP');
+
+    const rr = parsed(await resultTool.execute({ taskId: 't-x' }, { sessionID: 'stranger' }));
+    expect(rr.errorCode).toBe('PARENT_OWNERSHIP');
+  });
+});
+
 // ─────────────────────────── Hook 顺序 / 配置开关 / 失败隔离 ───────────────────────────
 
 describe('Hook 顺序、配置开关与失败隔离', () => {
-  test('默认注册计数：13 工具、4 before + 5 after hooks', async () => {
+  test('默认注册计数：15 工具、4 before + 6 after hooks', async () => {
     const mock = createMockCtx();
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
-    expect(mock.addedTools).toHaveLength(13);
+    expect(mock.addedTools).toHaveLength(15);
     expect(mock.beforeHooks).toHaveLength(4);
-    expect(mock.afterHooks).toHaveLength(5);
+    expect(mock.afterHooks).toHaveLength(6);
   });
 
   test('全部禁用矩阵 → 0 工具、0 hooks', async () => {
@@ -351,6 +477,8 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
         'task_status',
         'task_result',
         'task_cancel',
+        'task_message',
+        'task_revive',
         'cbm_status',
         'cbm_index',
         'cbm_search_graph',
@@ -373,7 +501,7 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
     await registerOceanusHooks(mock.ctx, config);
     expect(mock.addedTools).toHaveLength(0);
     expect(mock.beforeHooks).toHaveLength(0);
-    expect(mock.afterHooks).toHaveLength(0);
+    expect(mock.afterHooks).toHaveLength(1);
   });
 
   test('混合禁用：只禁用部分，其余照常注册', async () => {
@@ -392,9 +520,9 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
     expect(names).toContain('task_result');
     expect(names).toContain('task_cancel');
     // 未禁用 4 个常规工具 + 默认 7 个 CBM 工具
-    expect(mock.addedTools).toHaveLength(11);
+    expect(mock.addedTools).toHaveLength(13);
     // json 被禁用 → after 只剩 truncator + loop-guard + observer + cbm-guidance
-    expect(mock.afterHooks).toHaveLength(4);
+    expect(mock.afterHooks).toHaveLength(5);
     expect(mock.beforeHooks).toHaveLength(4); // apply_patch + loop-guard + observer + cbm-guidance
   });
 
@@ -408,7 +536,7 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
     const content = 'json parse error ' + 'a'.repeat(300_000);
     const event = { tool: 'some_tool', sessionID: 's1', status: 'completed', result: { content } };
     await afterHooks[0]!(event); // json-error-recovery（先）
-    afterHooks[1]!(event as any); // tool-output-truncator（后）
+    afterHooks[2]!(event as any); // tool-output-truncator（后）
     expect(event.result.content.length).toBeLessThan(300_000);
     expect(event.result.content).toContain(TRUNCATION_MARKER_PREFIX);
     // 由于 json 先追加、truncator 后截断，reminder 落在保留尾部之外被截掉。
@@ -438,8 +566,8 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
       await beforeHooks[0]!(event); // apply_patch（非 apply_patch 工具，no-op）
       await beforeHooks[1]!(event); // loop-guard.before → 记录调用指纹
       await afterHooks[0]!(event); // json（no-op）
-      afterHooks[1]!(event as any); // truncator → 截断到 200
-      await afterHooks[2]!(event); // loop-guard.after → 第 3 次告警追加 warning
+      afterHooks[2]!(event as any); // truncator → 截断到 200
+      await afterHooks[3]!(event); // loop-guard.after → 第 3 次告警追加 warning
       lastContent = event.result.content as string;
     }
     expect(lastContent).toContain(TRUNCATION_MARKER_PREFIX);
@@ -469,7 +597,7 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
         result: { content: 'same' },
       };
       await beforeHooks[1]!(event); // loop-guard.before
-      await afterHooks[2]!(event); // loop-guard.after
+      await afterHooks[3]!(event); // loop-guard.after
       lastContent = event.result.content as string;
     }
     expect(lastContent).toContain(LOOP_GUARD_MARKER);
@@ -501,7 +629,7 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
     // apply_patch.before 仍注册；observer / cbm-guidance 独立注册不受影响 → before 3；
     // 所有 after（json / truncator / loop-guard / observer / cbm-guidance）仍注册 → after 5
     expect(beforeHooks).toHaveLength(3);
-    expect(afterHooks).toHaveLength(5);
+    expect(afterHooks).toHaveLength(6);
     expect(log.some((m) => m.includes('tool-loop-guard.before'))).toBe(true);
   });
 });

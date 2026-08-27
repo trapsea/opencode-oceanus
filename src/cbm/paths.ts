@@ -36,13 +36,17 @@ export function getCacheRoot(platform: NodeJS.Platform = process.platform): stri
 }
 
 /** versions/ 目录。 */
-export function getVersionsDir(): string {
-  return join(getCacheRoot(), 'versions');
+export function getVersionsDir(cacheRoot: string = getCacheRoot()): string {
+  return join(cacheRoot, 'versions');
 }
 
 /** 某个版本+平台的目录：versions/<version>/<platform>。 */
-export function getVersionPlatformDir(platformKey: string, version: string): string {
-  return join(getVersionsDir(), version, platformKey);
+export function getVersionPlatformDir(
+  platformKey: string,
+  version: string,
+  cacheRoot: string = getCacheRoot(),
+): string {
+  return join(getVersionsDir(cacheRoot), version, platformKey);
 }
 
 /** 已安装二进制路径：versions/<version>/<platform>/<binaryName>。 */
@@ -50,13 +54,18 @@ export function getBinaryPath(
   platformKey: string,
   version: string,
   binaryName: string,
+  cacheRoot: string = getCacheRoot(),
 ): string {
-  return join(getVersionPlatformDir(platformKey, version), binaryName);
+  return join(getVersionPlatformDir(platformKey, version, cacheRoot), binaryName);
 }
 
 /** runtime-assets 目录（随二进制安装的运行时资源）。 */
-export function getRuntimeAssetsDir(platformKey: string, version: string): string {
-  return join(getVersionPlatformDir(platformKey, version), 'runtime-assets');
+export function getRuntimeAssetsDir(
+  platformKey: string,
+  version: string,
+  cacheRoot: string = getCacheRoot(),
+): string {
+  return join(getVersionPlatformDir(platformKey, version, cacheRoot), 'runtime-assets');
 }
 
 /** downloads/ 目录。 */
@@ -85,6 +94,6 @@ export function getInstallLockPath(): string {
 }
 
 /** current.json：当前有效版本/平台 manifest 的引用。 */
-export function getCurrentManifestPath(): string {
-  return join(getCacheRoot(), 'current.json');
+export function getCurrentManifestPath(cacheRoot: string = getCacheRoot()): string {
+  return join(cacheRoot, 'current.json');
 }

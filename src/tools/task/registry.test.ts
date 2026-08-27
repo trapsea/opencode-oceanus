@@ -389,3 +389,13 @@ describe('类型辅助函数', () => {
     expect(isTerminalStatus('unknown')).toBe(false);
   });
 });
+
+describe('generation 字段', () => {
+  test('create 缺省 generation=1，显式 generation 保留', () => {
+    const registry = new TaskRegistry();
+    registry.create({ id: 't-default', parentSessionId: 'parent' });
+    registry.create({ id: 't-explicit', parentSessionId: 'parent', generation: 3 });
+    expect(registry.get('t-default', 'parent')?.generation).toBe(1);
+    expect(registry.get('t-explicit', 'parent')?.generation).toBe(3);
+  });
+});

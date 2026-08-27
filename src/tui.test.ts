@@ -1,12 +1,46 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  createPresetWatcher,
   getRelatedRunningSessions,
+  getRows,
   normalizeModel,
+  recordRecall,
+  resolveDisplayModel,
+  setup,
   shortModelName,
   sortAgentRows,
   bareModelName,
 } from './tui';
 import { ALL_AGENT_NAMES } from './config/constants';
+
+type FakeSession = { id: string; time: { created: number }; agent?: string; location: { directory: string } };
+
+function makeContext(options: {
+  current: string;
+  sessions: FakeSession[];
+  family: Record<string, string[]>;
+  root: Record<string, string>;
+  running: Set<string>;
+  location: { directory: string };
+  agents?: Array<{ id: string; name: string; mode: string }>;
+}) {
+  return {
+    location: options.location,
+    data: {
+      session: {
+        family: (id: string) => options.family[id],
+        root: (id: string) => options.root[id],
+        list: () => options.sessions,
+        status: (id: string) => (options.running.has(id) ? 'running' : 'idle'),
+      },
+      location: {
+        agent: {
+          list: () => options.agents ?? [],
+        },
+      },
+    },
+  };
+}
 
 describe('sidebar 模型展示', () => {
   test('缺省模型跟随会话', () => {
@@ -70,29 +104,6 @@ describe('sidebar agent 排序', () => {
 });
 
 describe('sidebar 活跃会话隔离', () => {
-  type FakeSession = { id: string; time: { created: number }; agent?: string; location: { directory: string } };
-
-  function makeContext(options: {
-    current: string;
-    sessions: FakeSession[];
-    family: Record<string, string[]>;
-    root: Record<string, string>;
-    running: Set<string>;
-    location: { directory: string };
-  }) {
-    return {
-      location: options.location,
-      data: {
-        session: {
-          family: (id: string) => options.family[id],
-          root: (id: string) => options.root[id],
-          list: () => options.sessions,
-          status: (id: string) => (options.running.has(id) ? 'running' : 'idle'),
-        },
-      },
-    };
-  }
-
   test('同一目录下其它窗口的会话不被计为活跃', () => {
     const location = { directory: '/project' };
     // 窗口 1：oceanus 会话；窗口 2：sisyphus 会话，同一目录。
@@ -165,5 +176,197 @@ describe('sidebar 活跃会话隔离', () => {
     const result = getRelatedRunningSessions(context as never, 'a', new Map(), new Set());
 
     expect(result.map((session) => session.id)).toEqual(['a']);
+  });
+});
+
+describe('resolveDisplayModel 模型展示优先级', () => {
+  const configModel = { id: 'anthropic/claude-sonnet', providerID: 'anthropic', variant: 'high' };
+  const recallModel = { id: 'openai/gpt-5', providerID: 'openai', variant: 'low' };
+
+  test('配置 model 存在：display=配置、recalled=false，永不覆盖', () => {
+    expect(resolveDisplayModel(configModel, recallModel)).toEqual({
+      display: 'claude-sonnet#high',
+      recalled: false,
+    });
+  });
+
+  test('配置 undefined + recall 存在：display=recall、recalled=true', () => {
+    expect(resolveDisplayModel(undefined, recallModel)).toEqual({
+      display: 'gpt-5#low',
+      recalled: true,
+    });
+  });
+
+  test('都无：display=跟随会话、recalled=false', () => {
+    expect(resolveDisplayModel(undefined, undefined)).toEqual({
+      display: '跟随会话',
+      recalled: false,
+    });
+  });
+
+  test('配置 model 存在时，recall 不影响 display', () => {
+    expect(resolveDisplayModel(configModel, undefined)).toEqual({
+      display: 'claude-sonnet#high',
+      recalled: false,
+    });
+  });
+});
+
+describe('recordRecall 去重与最近一次胜出', () => {
+  const agentA = { id: 'explorer', providerID: 'anthropic', variant: 'high' };
+
+  test('undefined 不覆盖已有 recall，返回原引用', () => {
+    const recalls = { explorer: agentA };
+    expect(recordRecall(recalls, 'explorer', undefined)).toBe(recalls);
+    expect(recordRecall(recalls, 'explorer', undefined)).toEqual(recalls);
+  });
+
+  test('同 agent 相同 model（新实例、按值全等）返回原引用', () => {
+    const recalls = { explorer: agentA };
+    const identicalNewInstance = { id: 'explorer', providerID: 'anthropic', variant: 'high' };
+    expect(recordRecall(recalls, 'explorer', identicalNewInstance)).toBe(recalls);
+  });
+
+  test('同 agent 不同 model 更新为最近一次', () => {
+    const recalls = { explorer: agentA };
+    const newer = { id: 'openai/gpt-5', providerID: 'openai', variant: 'low' };
+    const result = recordRecall(recalls, 'explorer', newer);
+    expect(result).not.toBe(recalls);
+    expect(result.explorer).toBe(newer);
+  });
+
+  test('不同 agent 互不影响', () => {
+    const recalls = { explorer: agentA };
+    const other = { id: 'fixer', providerID: 'deepseek' };
+    const result = recordRecall(recalls, 'fixer', other);
+    expect(result.explorer).toBe(agentA);
+    expect(result.fixer).toBe(other);
+  });
+});
+
+describe('getRows agent 白名单过滤', () => {
+  const location = { directory: '/project' };
+
+  test('非 ALL_AGENT_NAMES 的 agent 被过滤', () => {
+    const agents = [
+      { id: 'oceanus', name: 'oceanus', mode: 'primary' },
+      { id: 'unknown-agent', name: 'Unknown Agent', mode: 'primary' },
+    ];
+    const sessions: Array<{
+      id: string;
+      time: { created: number };
+      agent?: string;
+      location: { directory: string };
+    }> = [{ id: 's1', time: { created: 1 }, agent: 'oceanus', location }];
+
+    const context = makeContext({
+      current: 's1',
+      sessions,
+      family: { s1: ['s1'] },
+      root: { s1: 's1' },
+      running: new Set(['s1']),
+      location,
+      agents,
+    });
+
+    const rows = getRows(context as never, 's1', new Map(), new Set());
+    expect(rows.map((row) => row.id)).toEqual(['oceanus']);
+    expect(rows.some((row) => row.id === 'unknown-agent')).toBe(false);
+  });
+});
+
+describe('sidebar preset 指纹轮询', () => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  test('preset 变化触发 onChange；同值、undefined、dispose 后均不触发', async () => {
+    let value: string | undefined = 'a';
+    let calls = 0;
+    const dispose = createPresetWatcher({
+      read: () => value,
+      intervalMs: 10,
+      onChange: () => {
+        calls += 1;
+      },
+    });
+
+    // 基线期：值未变不触发
+    await sleep(35);
+    expect(calls).toBe(0);
+
+    // 指纹变化 → 恰好一次
+    value = 'b';
+    await sleep(35);
+    expect(calls).toBe(1);
+
+    // 同值不触发（零开销承诺）
+    value = 'b';
+    await sleep(35);
+    expect(calls).toBe(1);
+
+    // undefined 视为指纹不变（fail-open：无法区分读失败与无配置）
+    value = undefined;
+    await sleep(35);
+    expect(calls).toBe(1);
+
+    // dispose 后彻底停止
+    dispose();
+    value = 'c';
+    await sleep(35);
+    expect(calls).toBe(1);
+  });
+
+  test('read 抛异常视为指纹不变，恢复后同值也不补触发', async () => {
+    let shouldThrow = false;
+    let calls = 0;
+    const dispose = createPresetWatcher({
+      read: () => {
+        if (shouldThrow) throw new Error('read failed');
+        return 'x';
+      },
+      intervalMs: 10,
+      onChange: () => {
+        calls += 1;
+      },
+    });
+
+    await sleep(25);
+    expect(calls).toBe(0);
+
+    shouldThrow = true;
+    await sleep(30);
+    expect(calls).toBe(0);
+
+    // 异常解除后读到相同指纹 → 不触发
+    shouldThrow = false;
+    await sleep(30);
+    expect(calls).toBe(0);
+    dispose();
+  });
+});
+
+describe('sidebar setup 非阻塞', () => {
+  test('永不 resolve 的 agent.sync 不阻塞 setup，slot 仍即时挂载', async () => {
+    const neverResolve = new Promise<never>(() => {});
+    let mounted = false;
+    const context = {
+      ui: {
+        slot: (opts: unknown) => {
+          mounted = true;
+          return opts;
+        },
+      },
+      // 若未来有人在 setup 中 await agent.sync，此永不 resolve 的 promise 会挂住 setup。
+      data: {
+        location: { agent: { sync: () => neverResolve } },
+      },
+    };
+
+    const timer = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('setup blocked on agent.sync')), 200),
+    );
+    const result = await Promise.race([setup(context as never), timer]);
+
+    expect(mounted).toBe(true);
+    expect(result).toBeDefined();
   });
 });

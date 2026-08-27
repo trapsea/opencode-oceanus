@@ -98,8 +98,8 @@ export function buildCbmSharedDeps(
 ): CbmSharedDeps {
   const log = injections.logger ?? (() => {});
   const cm = getCodebaseMemoryConfig(config);
-  const cacheRoot = cm.cacheDir ?? getCacheRoot();
-  const installOptions: ProvisionOptions = { cacheRoot };
+  const cacheRoot = cm.cacheDir ?? process.env.CBM_CACHE_DIR ?? getCacheRoot();
+  const installOptions: ProvisionOptions = { cacheRoot, version: cm.version };
 
   const startBackgroundInstall = injections.startBackgroundInstall ?? provisionStartBackgroundInstall;
   const ensureInstalled = injections.ensureInstalled ?? provisionEnsureInstalled;
@@ -107,10 +107,10 @@ export function buildCbmSharedDeps(
   const createIndexer = injections.createIndexer ?? createIndexerImpl;
 
   const doInstall: EnsureInstalledFn = (opts = {}) =>
-    ensureInstalled({ ...installOptions, ...opts });
+    ensureInstalled({ ...opts, ...installOptions });
   const doStart: BackgroundInstallFn = (opts = {}) =>
-    startBackgroundInstall({ ...installOptions, ...opts });
-  const doRepair: RepairFn = (opts = {}) => repair({ ...installOptions, ...opts });
+    startBackgroundInstall({ ...opts, ...installOptions });
+  const doRepair: RepairFn = (opts = {}) => repair({ ...opts, ...installOptions });
 
   // 共享 CLI runDeps：ensureInstalled 绑定同一 cacheRoot。
   const runDeps: CbmRunDeps = { ensureInstalled: () => doInstall() };
@@ -121,7 +121,8 @@ export function buildCbmSharedDeps(
     indexer = createIndexer({
       autoIndex: cm.autoIndex,
       binaryPath: cm.binaryPath,
-      env: cm.cacheDir ? { CBM_CACHE_DIR: cm.cacheDir } : undefined,
+      env: { CBM_CACHE_DIR: cacheRoot },
+      cacheRoot,
       runDeps,
     });
   } catch (e) {

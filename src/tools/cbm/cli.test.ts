@@ -79,7 +79,7 @@ describe('runCbmCli：命令构建（无 shell）', () => {
       FAKE_BIN,
       'cli',
       'search_graph',
-      '{"query":"findMe"}',
+      '{"query":"findMe","project":"root"}',
     ]);
   });
 
@@ -103,7 +103,9 @@ describe('runCbmCli：命令构建（无 shell）', () => {
       });
       expect(result.ok).toBe(true);
       const written = readFileSync(out, 'utf8');
-      expect(written).toBe(JSON.stringify({ query }));
+      const parsed = JSON.parse(written) as { query: string; project?: unknown };
+      expect(parsed.query).toBe(query);
+      expect(typeof parsed.project).toBe('string');
       expect(written).toContain('$(danger)');
       expect(written).toContain('`x`');
       expect(written).toContain('a;b');
@@ -161,6 +163,17 @@ describe('runCbmCli：二进制解析', () => {
     }
   });
 
+  test('CLI 非默认 version 仍命中 current.json 对应路径', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cbm-version-cache-'));
+    try {
+      const bin = join(root, 'versions', '9.9.9', 'linux-x64', 'codebase-memory-mcp');
+      mkdirSync(dirname(bin), { recursive: true });
+      writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
+      writeFileSync(join(root, 'current.json'), JSON.stringify({ version: '9.9.9', platform: 'linux-x64' }));
+      expect(resolveCbmBinaryPath({ cacheRoot: root })).toBe(bin);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test('解析顺序：缓存无 current.json 时回退 PATH', () => {
     const cache = mkdtempSync(join(tmpdir(), 'cbm-empty-cache-'));
     const pathDir = mkdtempSync(join(tmpdir(), 'cbm-path-'));
@@ -189,6 +202,37 @@ describe('runCbmCli：二进制解析', () => {
     } finally {
       rmSync(cache, { recursive: true, force: true });
     }
+  });
+
+  test('custom root 下查找 current manifest 与二进制', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cbm-custom-cache-'));
+    try {
+      withEnv('CBM_CACHE_DIR', root, () => {
+        const bin = join(root, 'versions', '0.10.8', 'linux-x64', 'codebase-memory-mcp');
+        mkdirSync(dirname(bin), { recursive: true });
+        writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
+        writeFileSync(join(root, 'current.json'), JSON.stringify({ version: '0.10.8', platform: 'linux-x64' }));
+        expect(resolveCbmBinaryPath({})).toBe(bin);
+      });
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('解析优先级为 binaryPath > cache root > PATH', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cbm-priority-'));
+    const pathDir = mkdtempSync(join(tmpdir(), 'cbm-priority-path-'));
+    try {
+      withEnv('CBM_CACHE_DIR', root, () => withEnv('PATH', pathDir, () => {
+        const cached = join(root, 'versions', '0.10.8', 'linux-x64', 'codebase-memory-mcp');
+        const explicit = join(root, 'explicit');
+        mkdirSync(dirname(cached), { recursive: true });
+        writeFileSync(cached, 'cache', { mode: 0o755 });
+        writeFileSync(join(root, 'current.json'), JSON.stringify({ version: '0.10.8', platform: 'linux-x64' }));
+        writeFileSync(join(pathDir, 'codebase-memory-mcp'), 'path', { mode: 0o755 });
+        writeFileSync(explicit, 'explicit', { mode: 0o755 });
+        expect(resolveCbmBinaryPath({})).toBe(cached);
+        expect(resolveCbmBinaryPath({ binaryPath: explicit })).toBe(explicit);
+      }));
+    } finally { rmSync(root, { recursive: true, force: true }); rmSync(pathDir, { recursive: true, force: true }); }
   });
 });
 
@@ -228,6 +272,25 @@ describe('runCbmCli：路径越界', () => {
       { spawn, resolveBinary: () => FAKE_BIN },
     );
     expect(result.ok).toBe(true);
+  });
+
+  test('args.repo_path 越界时不执行 list_projects 或目标命令', async () => {
+    const { spawn, calls } = capturingSpawn(() => procOf('{}'));
+    const result = await runCbmCli(
+      { tool: 'index_repository', args: { repo_path: '../outside' }, workspaceRoot: ROOT },
+      { spawn, resolveBinary: () => FAKE_BIN },
+    );
+    expect(result.error?.code).toBe('workspace_boundary');
+    expect(calls).toHaveLength(0);
+  });
+
+  test('使用当前目录名作为 project', async () => {
+    const { spawn, calls } = capturingSpawn(() => procOf('{"ok":true}'));
+    const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
+    expect(result.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    const target = JSON.parse(calls[0].command[3]) as Record<string, unknown>;
+    expect(target.project).toBe('root');
   });
 });
 
@@ -313,6 +376,23 @@ describe('runCbmCli：环境白名单', () => {
     } finally {
       process.env = previous;
     }
+  });
+
+  test('子进程 CBM_CACHE_DIR 等于 resolved root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cbm-env-root-'));
+    try {
+      const { spawn, calls } = capturingSpawn(() => procOf('{"ok":true}'));
+      const previous = process.env.CBM_CACHE_DIR;
+      process.env.CBM_CACHE_DIR = root;
+      try {
+        const result = await runCbmCli({ ...searchOpts, env: {} }, { spawn, resolveBinary: () => FAKE_BIN });
+        expect(result.ok).toBe(true);
+        expect(calls[0].options?.env?.CBM_CACHE_DIR).toBe(root);
+      } finally {
+        if (previous === undefined) delete process.env.CBM_CACHE_DIR;
+        else process.env.CBM_CACHE_DIR = previous;
+      }
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
 

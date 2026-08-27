@@ -59,10 +59,9 @@ export function stripLinePrefixes(lines: string[]): string[] {
 
 /** 将 string 或 string[] 输入统一转为待写入的行数组，并剥离前缀。 */
 export function toNewLines(input: string | string[]): string[] {
-  if (Array.isArray(input)) {
-    return stripLinePrefixes(input)
-  }
-  return stripLinePrefixes(input.split("\n"))
+  // payload 中的 CRLF 只属于输入换行，不应与封套的 CRLF 再次叠加。
+  const lines = Array.isArray(input) ? input : input.split("\n")
+  return stripLinePrefixes(lines.map((line) => line.endsWith("\r") ? line.slice(0, -1) : line))
 }
 
 /** 若目标行无缩进而模板行有缩进，则补上模板缩进。 */

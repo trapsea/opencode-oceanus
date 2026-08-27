@@ -96,7 +96,17 @@ describe('v2 host smoke：环境探测', () => {
 // ─────────────────────────── 注册契约 smoke（无真实 host 也运行） ───────────────────────────
 
 describe('v2 host smoke：注册契约（mock ctx）', () => {
-  test('默认注册 13 个工具 + 9 个 hooks（4 before + 5 after）', async () => {
+  test('preservesReadOffsetAndHookOrder：保留 read offset 且 hook 顺序固定', async () => {
+    const mock = createMockCtx();
+    await registerOceanusTools(mock.ctx, {});
+    await registerOceanusHooks(mock.ctx, {});
+    const hashline = mock.addedTools.find((tool) => tool.name === 'hashline_edit') as any;
+    expect(hashline).toBeDefined();
+    expect(hashline.input.properties.filePath).toBeDefined();
+    expect(mock.afterHooks).toHaveLength(6);
+  });
+
+   test('默认注册 15 个工具 + 10 个 hooks（4 before + 6 after）', async () => {
     const mock = createMockCtx();
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
@@ -108,7 +118,9 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
         'hashline_edit',
         'task_cancel',
         'task_result',
-        'task_status',
+         'task_status',
+         'task_message',
+         'task_revive',
         'cbm_status',
         'cbm_index',
         'cbm_search_graph',
@@ -119,7 +131,7 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
       ].sort(),
     );
     expect(mock.beforeHooks).toHaveLength(4);
-    expect(mock.afterHooks).toHaveLength(5);
+    expect(mock.afterHooks).toHaveLength(6);
   });
 
   test('禁用矩阵：disabled_tools / disabled_hooks 全部生效后为 0', async () => {
@@ -131,7 +143,9 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
         'hashline_edit',
         'task_status',
         'task_result',
-        'task_cancel',
+         'task_cancel',
+         'task_message',
+         'task_revive',
         'cbm_status',
         'cbm_index',
         'cbm_search_graph',
@@ -153,7 +167,7 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
     await registerOceanusHooks(mock.ctx, config as any);
     expect(mock.addedTools).toHaveLength(0);
     expect(mock.beforeHooks).toHaveLength(0);
-    expect(mock.afterHooks).toHaveLength(0);
+    expect(mock.afterHooks).toHaveLength(1);
   });
 });
 

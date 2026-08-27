@@ -64,6 +64,8 @@ export interface NewTask {
   createdAt?: number;
   /** 便于观测的可读标签，可选。 */
   label?: string;
+  /** 任务 generation（revive 递增）。缺省 1。 */
+  generation?: number;
 }
 
 /** registry 中存储的单条任务记录。 */
@@ -74,7 +76,48 @@ export interface TaskRecord {
   status: TaskStatus;
   createdAt: number;
   lastActivityAt: number;
+  /** 任务 generation，缺省 1；revive 后递增，用于拒绝旧事件。 */
+  generation: number;
   label?: string;
   /** 观察到的结果摘要（受限大小，仅 observer 写入）。 */
   observation?: TaskObservation;
+}
+
+/** 任务协议中可跨 agent 传递的委派摘要。 */
+export interface DelegationBrief {
+  board_revision: number;
+  task_version: number;
+  generation: number;
+  task_id: string;
+  objective: string;
+  capabilities: string[];
+  result: TaskResult;
+}
+
+export interface BlockedRequest {
+  task_id: string;
+  reason: string;
+  requested_capabilities: string[];
+}
+
+export type TaskState = 'queued' | 'starting' | 'running' | 'blocked' | 'cancel_requested' | 'stopped' | 'uncertain' | 'completed' | 'failed' | 'cancelled';
+export type TaskCertainty = 'authoritative' | 'observed' | 'uncertain';
+export type Reconciliation = 'unreconciled' | 'reconciled';
+export interface TaskResult { status: 'success' | 'failure' | 'blocked'; summary: string }
+
+/**
+ * observer 从宿主 execute.before/after 事件派生的观察事件。
+ * eventId 约定为 `${callId}:${phase}:${attempt}`；终态事件缺 callId/phase 不应用。
+ */
+export interface ObservedTaskEvent {
+  /** `${callId}:${phase}:${attempt}`，幂等键。 */
+  eventId: string;
+  taskId: string;
+  parentSessionId: string;
+  childSessionId?: string;
+  /** 事件所属 generation；小于任务当前 generation 视为陈旧。 */
+  generation: number;
+  kind: 'started' | 'completed' | 'failed' | 'interrupted';
+  result?: TaskResult;
+  at: number;
 }

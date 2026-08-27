@@ -6,6 +6,16 @@
 
 ## 总体说明
 
+六阶段工作流（Intake → Brainstorm → Plan → Execute → Review → Finish）由 Agent/Skill 的
+prompt 契约驱动：Agent 负责编排与委派，Skill 规定阶段边界；工具和 Hook 只提供运行时
+能力，不是阶段 supervisor。Plan 必须经过 `@momus` 的 `OKAY` 后再获人工批准；Review
+由 review subagent、`@momus` 复核并运行测试。Finish 只读 Review 报告，不再测试、构建、
+调用 CBM、委派或写文件。
+
+Ledger 与 Review 报告是不同契约：Ledger 记录任务 id、状态、父子关系和时间等进度视图；
+Review schema 记录 success criteria、证据、发现、验证结果和结论。二者都不能把 registry
+状态或 CBM（仅 advisory 依赖）提升为宿主事实，也不能用 advisory 结果替代权限门控。
+
 - 新增 Tool 与 Hook 默认全部启用。
 - 通过 `ctx.tool.transform` 注册工具、`ctx.tool.hook` 注册 Hook。
 - 工具与 Hook 各自独立容错：单个初始化或执行失败不阻止其它 Hook 与插件启动。

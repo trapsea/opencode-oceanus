@@ -13,7 +13,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 | Agent | 角色 | mode |
 |-------|------|------|
 | `oceanus` | AI 编码编排器（颜色 `#0FFFFF`） | primary |
-| `sisyphus` | superpowers 五阶段工作流主导（brainstorm → plan → execute → review → finish） | primary |
+| `sisyphus` | superpowers 六阶段工作流主导（intake → brainstorm → plan → execute → review → finish） | primary |
 | `explorer` | 快速代码库检索 | subagent |
 | `librarian` | 外部文档 / 库研究 | subagent |
 | `oracle` | 架构决策 / 复杂调试 / 评审 | subagent |
@@ -29,7 +29,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 
 对复杂任务（需求模糊、风险高、多文件、方案未定型），`sisyphus` / `oceanus` 工作流遵循以下协议：
 
-1. `@metis`（实现前方案分析）：在规划/执行前做方案前置分析，产出需求缺口、风险、边界、反例与验收标准，供制定或修订方案使用。
+1. 上下文优先：Sisyphus 直接完成 Intake、澄清目标与验收；仅当 Intake 已有、澄清完成后仍有未决方案，且主 Agent 明确需要独立分析时，才条件委派 `@metis` 做方案分析。
 2. `@momus`（执行前方案质量检查）：方案形成后、进入 execute 前检查依赖、范围、测试与可执行性，输出 `OKAY` 或 `REJECT` + 具体问题；`REJECT` 时必须回到 plan 修订后重新检查，`OKAY` 才放行 execute。
 3. 简单任务（单文件、低风险、方案明确）可明确跳过该门禁，并说明跳过理由。
 
@@ -38,6 +38,10 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 ### 默认只读权限
 
 `explorer`、`librarian`、`oracle`、`observer`、`metis`、`momus` 在无显式 `agents.<name>.permission` 时，集中应用默认只读 v2 permission（allow `read`/`glob`/`grep`/`list`/`lsp`/`codesearch`/`webfetch`/`websearch`，deny `bash`/`edit`/`write`/`apply_patch`/`ast_grep_replace`/`hashline_edit`/`task`/`todowrite`）。显式 `agents.<name>.permission` 始终覆盖该默认值。
+
+### CBM 调度约定
+
+代码或混合任务在 Intake 阶段由 Sisyphus 直接调用一次 `cbm_index` 初始化；非代码任务跳过。Review 开始时再次调用 `cbm_index` 刷新索引；Brainstorm/Plan 不重复初始化。失败、超时或 in-progress 均 fail-open；查询型工具可由需要的 agent 使用。详见 `docs/codebase-memory-mcp.md`。
 
 ## 安装
 
@@ -97,6 +101,24 @@ bun run build
 
 > 本地文件 / 未发布 npm 时建议方式 1 或方式 2 的路径引用。构建产物已将 zod 内联，插件自包含，仅依赖运行时提供的 `@opencode-ai/plugin`。
 
+### 自动升级
+
+插件默认在根会话启动后后台检查 npm 最新稳定版本，每小时最多检查一次，不阻塞插件加载。
+可通过配置关闭：
+
+```jsonc
+{
+  "autoUpdate": {
+    "enabled": false,
+    "checkIntervalMs": 3600000
+  }
+}
+```
+
+同一 major 的 installer-managed 固定版本会在专用缓存中 staging 安装并校验，成功后原子替换，失败保留旧版本；更新后需要重启 OpenCode。`@latest`、`file://`/本地路径、OpenCode-managed sandbox 和 major 版本只记录提示，不会被插件强行覆盖。手工安装可使用 `opencode plugin --force opencode-oceanus@latest`。
+
+插件 npm 版本与 CBM 二进制版本解耦。CBM 仍由内置 SHA-256 manifest 驱动的 `provision` 流程安装和升级，不信任网络返回的哈希。
+
 ### TUI sidebar 配置
 
 CLI 插件和 TUI 插件分别配置在不同文件中，但使用**同一个包名**。主入口
@@ -131,29 +153,33 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 
 ### 内置 skill
 
-插件在启动时通过 `ctx.skill.transform` 注入 Oceanus 配置 skill 和 sisyphus 工作流的四个阶段 skill，**安装插件即可使用，无需拷贝任何 skill 文件**：
+插件在启动时通过 `ctx.skill.transform` 注入 Oceanus 配置 skill 和 sisyphus 工作流的六个阶段 skill，**安装插件即可使用，无需拷贝任何 skill 文件**：
 
 | Skill | 作用 |
 |-------|------|
 | `opencode-oceanus` | 说明 Oceanus 配置、preset 优先级、v2 限制及 `/preset` 命令 |
 | `sisyphus-brainstorm` | 探索上下文、一次一个问题澄清需求、提出 2-3 方案、产出并保存设计 spec 到 `.oceanus/spec/` |
 | `sisyphus-plan` | 映射文件、right-size 任务、保存实现计划到 `.oceanus/plan/`、确认 TDD 与 Worktree 策略 |
+| `sisyphus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类与 CBM 初始化 |
 | `sisyphus-execute` | 按计划实现、后台并行委派 `task(run_in_background=true)`、同步 todo 状态 |
 | `sisyphus-review` | 阶段间证据化评审、重评审转交 @oracle、验证发现后才接受 |
 
 `sisyphus` agent 会按阶段自动加载对应 skill。
 
-### Sisyphus 五阶段工作流
+Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/输出与禁止事项，不能替代运行时权限或 supervisor。Ledger 记录进度而非宿主事实；Review 报告记录证据和结论，Finish 只能只读该报告。
 
-`sisyphus` 按 superpowers 风格执行五阶段工作流，各阶段职责与产物如下：
+### Sisyphus 六阶段工作流
+
+`sisyphus` 按 superpowers 风格执行六阶段工作流（`intake → brainstorm → plan → execute → review → finish`），各阶段职责与产物如下：
 
 | 阶段 | 职责 | 产物 / 落点 |
 |------|------|-------------|
-| **Brainstorm** | Sisyphus 负责澄清与决策；复杂任务先调用 `@metis` 做需求缺口 / 风险 / 边界 / 反例 / 验收标准的方案前置分析 | `.oceanus/spec/` |
-| **Plan** | Sisyphus 负责拆分任务并维护进度 ledger；`@momus` 在执行前做方案质量门禁，输出 `OKAY` / `REJECT` | `.oceanus/plan/` |
+| **Intake** | `Sisyphus 直接了解背景、完成最小需求 intake、分类任务，并在代码任务中初始化 CBM；不做方案决策 | Intake 结构化摘要 |
+| **Brainstorm** | Sisyphus 负责澄清与决策；仅在已有 Intake、澄清后仍有未决方案且主 Agent 明确需要时条件委派 `@metis` | `.oceanus/spec/` |
+| **Plan** | Sisyphus 负责拆分任务并维护进度 ledger；`@momus` 做方案质量门禁后还需人工批准，输出 `OKAY` / `REJECT` | `.oceanus/plan/` + 人工批准 |
 | **Execute** | `fixer` / `designer` 实现；若计划发生实质变化或执行失败需重规划，回到 Plan 并**重新经过 momus** | 代码变更 + 更新后的计划 |
-| **Review** | Sisyphus 做证据化审查；高风险变更由 `@oracle` 做独立审查。momus 只做 execute 前门禁，**不替代** oracle 评审 | 审查结论 |
-| **Finish** | Sisyphus 做最终验证与收口 | 交付总结 |
+| **Review** | 阶段开始先直接刷新当前项目 CBM 索引，再做证据化审查；高风险变更由 `@oracle` 独立审查 | 审查结论 |
+| **Finish** | Sisyphus 只读 Review 报告并收口，不测试、不构建、不调用 CBM、不委派、不修改文件 | 交付总结 |
 
 要点：该工作流是 **prompt / skill 层面的约束**，由 `sisyphus` 的提示词与 `sisyphus-*` skill 约定强制执行，**不是**运行时自动 supervisor——插件不会在运行时自动拦截或强制各阶段。禁用相关 Agent 时不得伪造阶段性结果，应如实说明能力缺失。
 
@@ -171,8 +197,28 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 | `task_status` | 查询后台子任务状态 | 只读；仅可访问本插件管理且属于当前 session 的任务；优先使用运行时可用的宿主 session 事实，能力缺失时诚实降级为本地索引 |
 | `task_result` | 读取已完成子任务结果 | 只读；**仅限已完成任务**，未完成会返回错误，不伪装完成 |
 | `task_cancel` | 取消后台子任务 | 中断子 session 并验证宿主状态；调用方须为任务的父/子 session，可传 `parentID`/`childID` 交叉校验 ownership；仅当宿主确认中断成功才报告 cancelled |
+| `task_message` | 向运行中的子任务发送或读取消息 | 经真实 v2 `session.prompt` 投递，只报告 `queued`（已入队），不声称子 agent 已收到；投递失败报告 `undelivered`/`queued_not_delivered` |
+| `task_revive` | 恢复 blocked 或可复用终态任务 | 经真实 v2 `session.prompt` + `session.wait` 续用已保留的 `child_session_id`；续用失败进入 `uncertain`，不伪造 `revived` |
 
 `hashline_edit` 使用前应先 `read` 获取行 hash 锚点；出现 hash mismatch（文件已被改动）时返回可操作的重新读取提示，**不会静默重试**，需要重新 `read` 后再编辑。
+
+### subagent 会话复用（task_revive / task_message）
+
+默认**关闭**（避免无限保留子会话与副作用重跑风险），通过配置开启：
+
+```jsonc
+{
+  "taskReuse": {
+    "enabled": true,
+    "ttlMs": 7200000,
+    "maxRetained": 16
+  }
+}
+```
+
+开启后，仅以 `completed` 终态结束且带明确 child session 的 subagent 任务会被标记为可复用，`task_revive` 可对其续用上下文。续用与投递使用 opencode v2 文档化的 `ctx.session.prompt` / `ctx.session.wait`（插件不依赖不存在的 `resumeChild` / `sendMessage`）。`task_revive` 返回 `revived` + `delivery`（succeeded/failed/interrupted/delivered）；宿主缺 `prompt`/`wait`、续用失败或超时则返回 `uncertain` + `reason`，进入 fail-open。超过 `ttlMs` 或 `maxRetained` 的可复用标记会被自动回收。
+
+> **验证边界**：是否接受对已完成 subagent 子会话再次 `prompt` 并保留上下文，取决于 opencode v2 运行时的实际能力（官方文档未明确承诺）。插件对此 fail-open（`ok:false → uncertain`），不把"请求被接受"当成"续用成功"。建议在真实 opencode v2 host 上做一次 smoke 确认后再广泛依赖该能力。
 
 ### 内置 Hook
 
@@ -198,7 +244,7 @@ bun add -D @ast-grep/cli   # 或 cargo install ast-grep、brew install ast-grep
 
 或设置 `AST_GREP_BIN=/path/to/ast-grep` 指向已有二进制。环境中没有真正可用的 ast-grep 时，工具会返回诊断信息；测试（`src/smoke/host-smoke.test.ts`）也会**明确 skip 真实 CLI 集成并输出诊断**，而不是把环境缺失误报为产品失败。真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内执行插件时验证；当前 beta 插件类型未暴露 `session.active` 时，运行时会探测并诚实降级，当前 bun test 环境无真实 host 时相关 smoke 会 skip，仅用 mock ctx 验证注册契约，不声称真实 host 已通过。
 
-> 说明：`context7`、`gh_grep`、`task_message`、`task_revive` 等能力**不在本项目范围内**，也不作为原生工具提供。
+> 说明：任务运行事实持久化于 `.oceanus/task-board.json`。Job Board 是调度运行态的权威来源，TaskRegistry 仅作本地索引，progress ledger 仅记录计划与受限运行摘要；宿主事实优先于插件推断。二者通过单向 bridge 同步，不互相覆盖：ledger 不覆盖 Job Board 运行态，Job Board 也不伪造计划完成。`task_message` 用于发送任务消息，`task_revive` 用于显式恢复；v2 能力不可用时诚实标记 degraded。取消不会回滚已发生的工作。子 agent 报告 `BLOCKED` 时由父 Sisyphus 统一向用户提问。
 
 ## 配置
 
@@ -206,6 +252,8 @@ bun add -D @ast-grep/cli   # 或 cargo install ast-grep、brew install ast-grep
 
 插件内置 CBM 集成，详细的下载、缓存、权限、故障回退及 agent 调度说明见
 [`docs/codebase-memory-mcp.md`](docs/codebase-memory-mcp.md)。默认启用 CLI/MCP 与查询前自动索引，Web UI 则按需启动（默认不自动启动）。
+
+CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` → 平台默认；插件 `setup` 后固定本次实例的缓存根快照。该目录是二进制安装缓存，不是 daemon 的索引/数据目录。安装会校验 `current.json`、版本与平台、二进制文件及 `--version`；已有使用不同 cache root 的 daemon 不会被自动接管，需先关闭旧会话并按目标缓存根重启。
 
 每个 agent 的模型等可通过独立 jsonc 配置文件定制：
 
@@ -253,7 +301,8 @@ bun add -D @ast-grep/cli   # 或 cargo install ast-grep、brew install ast-grep
     "tool_output_truncator": { "enabled": true, "maxOutputBytes": 200000 },
     "tool_loop_guard": { "enabled": true, "warnAt": 3, "blockAt": 5 },
     "task_registry_observer": { "enabled": true }
-  }
+  },
+  "taskReuse": { "enabled": false }
 }
 ```
 
@@ -269,6 +318,7 @@ bun add -D @ast-grep/cli   # 或 cargo install ast-grep、brew install ast-grep
 - `disabled_hooks`：禁用的 Hook 名称数组，对 Hook 拥有最终禁用权。
 - `tools`：按工具名深合并的结构化配置（见下方「新增工具与运行时保护」）。
 - `hooks`：按 Hook 名深合并的结构化配置（见下方「新增工具与运行时保护」）。
+- `taskReuse`：subagent 会话复用配置，见「subagent 会话复用」小节。字段：`enabled`（默认 `false`）、`ttlMs`（默认 2h）、`maxRetained`（默认 16）。
 
 `presets.<name>.<agent>` 或 `agents.<agent>` 支持的完整字段：
 

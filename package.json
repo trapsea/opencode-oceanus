@@ -24,6 +24,7 @@
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
     "build": "bun run clean && bun build src/index.ts src/tui.tsx --outdir dist --target node --format esm --external @opencode-ai/plugin --external @opencode-ai/schema --external @opentui/solid --external solid-js && tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
+    "verify:dist:auto-update": "bun scripts/verify-dist-auto-update.ts",
     "prepublishOnly": "bun run build",
     "dev": "bun run build"
   },

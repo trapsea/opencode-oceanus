@@ -758,7 +758,7 @@ export function resetProvisionSingleton(): void {
 export function ensureInstalled(
   options: ProvisionOptions = {},
 ): Promise<string | null> {
-  const key = options.cacheRoot ?? getCacheRoot();
+  const key = `${options.cacheRoot ?? getCacheRoot()}\0${options.version ?? options.manifest?.version ?? CBM_BASELINE_VERSION}`;
   let existing = sharedInstall.get(key);
   if (!existing) {
     existing = provision(options).then(

@@ -10,7 +10,8 @@
 export { NIBBLE_STR, HASHLINE_DICT, HASHLINE_REF_PATTERN, HASHLINE_OUTPUT_PATTERN } from "./constants"
 
 // 类型
-export type { ReplaceEdit, AppendEdit, PrependEdit, HashlineEdit, RawHashlineEdit, HashlineToolOp, LineRef } from "./types"
+export { HASHLINE_ERROR_CODES } from "./types"
+export type { ReplaceEdit, AppendEdit, PrependEdit, HashlineEdit, RawHashlineEdit, HashlineToolOp, LineRef, HashlineErrorCode } from "./types"
 export type { HashlineApplyReport } from "./edits"
 export type { FileTextEnvelope } from "./envelope"
 export type { FileBoundaryLimits } from "./boundaries"

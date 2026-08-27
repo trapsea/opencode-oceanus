@@ -61,6 +61,54 @@ export const READONLY_FILE_OPERATIONS_RULES = `**File Operations Rules**:
 - Bash is allowed for non-mutating diagnostics and shell-native inspection when it is the clearest tool, but not for modifying files.
 - Do not use cat/head/tail/sed/awk only to read code into context; use read/grep unless a shell pipeline is genuinely the better diagnostic.`;
 
+/** 只读 agent 的 shell 规则：默认允许检查，按命令模式拦截明显写操作。 */
+export const READONLY_SHELL_PERMISSION: Record<string, 'allow' | 'deny'> = {
+  '*': 'allow',
+  'rm *': 'deny',
+  'rmdir *': 'deny',
+  'mv *': 'deny',
+  'cp *': 'deny',
+  'touch *': 'deny',
+  'mkdir *': 'deny',
+  'ln *': 'deny',
+  'chmod *': 'deny',
+  'chown *': 'deny',
+  'tee *': 'deny',
+  '*tee *': 'deny',
+  'sed -i*': 'deny',
+  'perl -i*': 'deny',
+  'git add *': 'deny',
+  'git commit *': 'deny',
+  'git push *': 'deny',
+  'git pull *': 'deny',
+  'git fetch *': 'deny',
+  'git checkout *': 'deny',
+  'git reset *': 'deny',
+  'git restore *': 'deny',
+  'git clean *': 'deny',
+  'git merge *': 'deny',
+  'git rebase *': 'deny',
+  'npm install*': 'deny',
+  'npm add *': 'deny',
+  'npm remove *': 'deny',
+  'npm update*': 'deny',
+  'yarn install*': 'deny',
+  'yarn add *': 'deny',
+  'yarn remove *': 'deny',
+  'yarn update*': 'deny',
+  'pnpm install*': 'deny',
+  'pnpm add *': 'deny',
+  'pnpm remove *': 'deny',
+  'pnpm update*': 'deny',
+  'bun install*': 'deny',
+  'bun add *': 'deny',
+  'bun remove *': 'deny',
+  'bun update*': 'deny',
+  '* > *': 'deny',
+  '* >> *': 'deny',
+  '* | tee *': 'deny',
+};
+
 /** 默认禁用的 agent（observer 需要视觉模型，默认关闭） */
 export const DEFAULT_DISABLED_AGENTS: string[] = ['observer'];
 
@@ -79,8 +127,10 @@ export const READONLY_AGENTS: ReadonlySet<string> = new Set([
 
 /**
  * 只读 agent 的默认 permission：
- * - allow：read/glob/grep/list/lsp/codesearch/webfetch/websearch
- * - deny：bash/edit/write/apply_patch/ast_grep_replace/hashline_edit/task/todowrite（写入与执行相关动作）
+ * - allow：read/glob/grep/list/lsp/codesearch/webfetch/websearch/ast_grep_search/task_status/task_result
+ *   以及查询型 codebase-memory 工具
+ * - shell：默认允许非修改命令，并按 READONLY_SHELL_PERMISSION 拒绝常见写入模式
+ * - deny：subagent/edit/write/apply_patch/ast_grep_replace/hashline_edit/todowrite（写入与委派动作）
  * 显式 agents.<name>.permission 始终覆盖此默认值。
  */
 export const READONLY_DEFAULT_PERMISSION: NonNullable<
@@ -94,12 +144,31 @@ export const READONLY_DEFAULT_PERMISSION: NonNullable<
   codesearch: 'allow',
   webfetch: 'allow',
   websearch: 'allow',
-  bash: 'deny',
+  ast_grep_search: 'allow',
+  task_status: 'allow',
+  task_result: 'allow',
+  cbm_status: 'allow',
+  cbm_index: 'deny',
+  cbm_search_graph: 'allow',
+  cbm_trace: 'allow',
+  cbm_code: 'allow',
+  cbm_query: 'allow',
+  cbm_detect_changes: 'allow',
+  shell: READONLY_SHELL_PERMISSION,
+  task: 'deny',
+  subagent: 'deny',
   edit: 'deny',
   write: 'deny',
   apply_patch: 'deny',
   ast_grep_replace: 'deny',
   hashline_edit: 'deny',
-  task: 'deny',
   todowrite: 'deny',
+};
+
+/** Metis 的只读权限：除查询外，允许 Intake 阶段初始化 CBM。 */
+export const METIS_DEFAULT_PERMISSION: NonNullable<
+  AgentOverrideConfig['permission']
+> = {
+  ...READONLY_DEFAULT_PERMISSION,
+  cbm_index: 'allow',
 };

@@ -24,6 +24,8 @@ ${READONLY_FILE_OPERATIONS_RULES}
 - 需要把外部结论映射到当前仓库时，使用 \`cbm_search_graph\`/\`cbm_code\` 定位本地实现；
 - 不因本地代码问题而启动大范围 Web 搜索；本地定位结果带 qualified name、文件路径和行号，CBM 证据不足时标注不确定性。
 
+示例：cbm_search_graph(query=".*OrderHandler.*", limit=20)、cbm_code(qualified_name="pkg.OrderHandler")；CBM 不可用时 fallback 到 grep/read，外部资料仍回退 websearch/webfetch。
+
 **Behavior**:
 - Provide evidence-based answers with sources
 - Quote relevant code snippets

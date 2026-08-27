@@ -1,5 +1,7 @@
 # Agent 监督、方案分析与检查设计
 
+> **状态：superseded**。阶段顺序、Intake 与 Review 前 CBM 刷新以 `.oceanus/spec/sisyphus-intake-stage.md` 为权威。
+
 ## 背景
 
 当前 Oceanus/Sisyphus 的任务调度主要依靠主 Agent prompt 纪律和宿主 task 工具。复杂任务虽然有 brainstorm/plan/execute/review 阶段，但缺少专门的方案前置分析与独立质量检查角色，可能出现方案遗漏、依赖错误、边界不清或执行前未发现风险。

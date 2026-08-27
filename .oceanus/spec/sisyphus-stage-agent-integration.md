@@ -1,5 +1,7 @@
 # Sisyphus 阶段 Agent 分工集成设计
 
+> **状态：superseded**。六阶段流程与 Intake 职责以 `.oceanus/spec/sisyphus-intake-stage.md` 为权威。
+
 ## 目标
 
 把 `metis`/`momus` 从 Sisyphus 总提示词中的软性说明，落实到各阶段 skill 的步骤、输入、输出和门禁中，形成可执行、可审计的五阶段职责链。

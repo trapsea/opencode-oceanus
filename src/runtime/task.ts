@@ -37,6 +37,8 @@ export interface TaskHostStatus {
   source: 'host' | 'registry';
   /** 是否经过宿主确认。 */
   verified: boolean;
+  /** T5：宿主确认 → authoritative；无法确认 → uncertain，绝不伪装终态。 */
+  certainty: 'authoritative' | 'uncertain';
 }
 
 /**
@@ -50,17 +52,17 @@ export async function resolveTaskHostStatus(
   rec: TaskRecord,
 ): Promise<TaskHostStatus> {
   const childId = rec.childSessionId;
-  if (!childId) return { status: rec.status, source: 'registry', verified: false };
+  if (!childId) return { status: rec.status, source: 'registry', verified: false, certainty: 'uncertain' };
 
   const active = await sessionActive(session, childId);
-  if (active === true) return { status: 'running', source: 'host', verified: true };
+  if (active === true) return { status: 'running', source: 'host', verified: true, certainty: 'authoritative' };
 
   const outcome = await sessionOutcome(session, childId);
-  if (outcome === 'succeeded') return { status: 'completed', source: 'host', verified: true };
-  if (outcome === 'failed') return { status: 'failed', source: 'host', verified: true };
-  if (outcome === 'interrupted') return { status: 'cancelled', source: 'host', verified: true };
+  if (outcome === 'succeeded') return { status: 'completed', source: 'host', verified: true, certainty: 'authoritative' };
+  if (outcome === 'failed') return { status: 'failed', source: 'host', verified: true, certainty: 'authoritative' };
+  if (outcome === 'interrupted') return { status: 'cancelled', source: 'host', verified: true, certainty: 'authoritative' };
 
-  return { status: rec.status, source: 'registry', verified: false };
+  return { status: rec.status, source: 'registry', verified: false, certainty: 'uncertain' };
 }
 
 /** 取消后的宿主验证视图。 */

@@ -168,6 +168,30 @@ export const CodebaseMemoryConfigSchema = z
   })
   .strict();
 
+/** 自动更新配置；未知字段（包括 allowMajor）会被拒绝。 */
+export const AutoUpdateConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    checkIntervalMs: z.number().int().positive().optional(),
+  })
+  .strict();
+
+/**
+ * subagent 会话复用配置（`task_revive` / `task_message` 的真实续用能力）。
+ * 默认关闭：不自动把完成的任务标为可复用，避免无限保留子会话与副作用重跑风险。
+ * 开启后仅保留成功（completed）任务的 child session 用于复用。
+ */
+export const TaskReuseConfigSchema = z
+  .object({
+    /** 是否启用已完成 subagent 会话复用；默认 false。 */
+    enabled: z.boolean().optional(),
+    /** 复用前保留会话的 TTL（ms）；默认 2 小时。 */
+    ttlMs: z.number().int().positive().optional(),
+    /** 同一时刻最多保留的可复用任务数；默认 16。 */
+    maxRetained: z.number().int().positive().optional(),
+  })
+  .strict();
+
 /**
  * 插件配置文件 schema。
  * 配置文件支持 .json/.jsonc，路径规则同 omo-slim：
@@ -187,6 +211,8 @@ export const PluginConfigSchema = z
     tools: ToolsConfigSchema.optional(),
     hooks: HooksConfigSchema.optional(),
     codebaseMemory: CodebaseMemoryConfigSchema.optional(),
+    autoUpdate: AutoUpdateConfigSchema.optional(),
+    taskReuse: TaskReuseConfigSchema.optional(),
   })
   .strict();
 
@@ -199,6 +225,8 @@ export type HooksConfig = z.infer<typeof HooksConfigSchema>;
 export type CodebaseMemoryConfig = z.infer<
   typeof CodebaseMemoryConfigSchema
 >;
+export type AutoUpdateConfig = z.infer<typeof AutoUpdateConfigSchema>;
+export type TaskReuseConfig = z.infer<typeof TaskReuseConfigSchema>;
 export type CodebaseMemoryUiConfig = z.infer<
   typeof CodebaseMemoryUiConfigSchema
 >;

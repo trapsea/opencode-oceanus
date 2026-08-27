@@ -87,6 +87,8 @@ export interface CbmExecOptions {
   env?: Record<string, string | undefined>;
   /** 查询前是否自动索引（预留；需注入 indexer 才生效）。 */
   autoIndex?: boolean;
+  /** 共享缓存根目录。 */
+  cacheRoot?: string;
 }
 
 /** 预留的索引器注入接口：项目未索引时自动索引。 */
@@ -101,7 +103,7 @@ export interface CbmIndexer {
 export interface CbmRunDeps {
   spawn?: SpawnFn;
   /** 同步解析二进制（binaryPath→缓存→PATH）；返回 null 表示未找到。 */
-  resolveBinary?: (opts: { binaryPath?: string }) => string | null;
+  resolveBinary?: (opts: { binaryPath?: string; cacheRoot?: string }) => string | null;
   /**
    * 预留：安装钩子。返回安装完成后可用的二进制路径（Promise<string | null>）。
    * 上层必须传入**共享**的安装 Promise，使多个并发/后续调用复用同一次安装。

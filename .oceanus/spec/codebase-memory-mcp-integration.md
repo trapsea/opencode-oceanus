@@ -1,5 +1,7 @@
 # Oceanus 集成 codebase-memory-mcp 设计规格
 
+> **状态：superseded**。Sisyphus 六阶段、Intake 初始化及 Review 前刷新以 `.oceanus/spec/sisyphus-intake-stage.md` 为权威。
+
 ## 目标
 
 在不要求用户手动安装的前提下，将包含内建 UI 的 `codebase-memory-mcp` 官方 release 完整集成到
@@ -9,7 +11,7 @@
 - 通过 OpenCode v2 `ctx.mcp.transform` 注入本地 MCP；
 - 通过 Oceanus 工具注册提供 CLI 兜底，确保子 agent 在无法继承 MCP 时仍能查询；
 - 在主 agent 与检索型子 agent 中固化调用调度规则；
-- 在首次需要结构化代码检索时自动初始化项目索引；
+- 在代码开发、修改或查询任务进入 brainstorm 前，按配置检查并按需初始化项目索引；
 - UI 能力始终随归档安装，但 Web UI 只按需启动；
 - 安装、校验、启动、索引失败时不阻塞 Oceanus，回退到 grep/glob/read/AST-Grep。
 
@@ -143,7 +145,7 @@ codemode: true
 | 工具 | 底层命令 | 主要使用者 |
 |---|---|---|
 | `cbm_status` | `list_projects` / `index_status` | 所有需要确认状态的 agent |
-| `cbm_index` | `index_repository` | 主 agent、explorer、维护命令 |
+| `cbm_index` | `index_repository` | Sisyphus Intake 与 Review 阶段 |
 | `cbm_search_graph` | `search_graph` | explorer、oracle |
 | `cbm_trace` | `trace_path`（兼容旧版本 alias：`trace_call_path`） | explorer、oracle、fixer 改前检查 |
 | `cbm_code` | `get_code_snippet` | explorer、oracle |
@@ -173,7 +175,8 @@ codemode: true
 - “在哪里定义/谁调用/调用了谁/依赖关系/修改影响/架构结构” -> 优先 CBM。
 - 需要代码库上下文时，优先委派 explorer；需要影响面、架构或审查时委派 oracle。
 - 委派检索任务时，明确要求返回 CBM 证据、qualified name、文件路径和行号。
-- CBM 未索引时，计划阶段自动触发一次 cbm_index；不能索引时回退 grep/read。
+- 代码开发、修改或查询任务进入 brainstorm 前，主 agent 先读取 `autoIndex`（无法读取时按 `true` 处理），执行一次 `cbm_status`；未索引且开启时执行 `cbm_index`。已索引、关闭、失败或状态未知均 fail-open，回退原生工具。
+- Intake 阶段代码/混合任务由 Sisyphus 初始化；Review 开始时再次刷新；Brainstorm/Plan 不重复初始化。
 - 字符串、注释、正则文本 -> grep/search_code，不使用 CBM 替代。
 - AST 结构匹配 -> ast_grep_search，不使用 CBM 替代。
 - 文件名/目录发现 -> glob/read，不使用 CBM 替代。
@@ -185,7 +188,7 @@ codemode: true
 | 阶段 | CBM 动作 |
 |---|---|
 | brainstorm | 仅做必要的架构/符号定位；不因普通文本探索触发全量索引 |
-| plan | 确定文件范围或影响面时检查索引，必要时触发一次自动索引 |
+| plan | 使用已有初始化结果确定文件范围或影响面；不在此阶段重复触发索引 |
 | execute | 高风险公共符号修改前做 trace/impact；普通机械修改不强制查询 |
 | review | 对变更入口和影响面做独立验证；CBM 不可用时明确记录降级证据 |
 
@@ -203,6 +206,8 @@ codemode: true
 4. `ast_grep_search` 做 AST 模式搜索；
 5. `grep/glob/read` 处理文本、文件发现和 CBM fallback。
 
+`explorer` 可调用上述只读查询工具，但不允许调用 `cbm_index`；索引初始化由主 agent 在 brainstorm 前完成。
+
 输出必须包括：符号名、qualified name、文件路径、行号、调用方向、是否来自 CBM。
 
 #### oracle
@@ -211,7 +216,7 @@ codemode: true
 
 1. `cbm_code` 读取关键入口和目标符号；
 2. `cbm_trace` 获取调用方、被调用方和关键深度；
-3. `cbm_query` 或 `detect_changes` 评估影响面；
+3. `cbm_query` 或 `cbm_detect_changes` 评估影响面；
 4. 再读取必要的上下文文件并给出判断；
 5. CBM 证据不足时明确标记不确定性，不把图谱结果当作完整证明。
 
@@ -272,13 +277,29 @@ CBM 查询是只读操作，可与独立检索 lane 并行：
 |---|---|---|
 | 插件首次加载 | 启动后台含 UI canonical release 安装 | 否 |
 | 首次 CBM 调用前 | 等待安装 Promise | 是，仅对当前 CBM 调用 |
-| 首次结构化查询前 | `cbm_status` 检查项目索引 | 是，仅一次缓存结果 |
-| 项目未索引且 `auto_index=true` | 自动 `cbm_index` | 是，仅首次 |
-| 项目未索引且自动索引关闭 | 返回可操作提示，回退原生工具 | 否 |
+| 代码开发/修改/查询任务进入 brainstorm 前 | 读取 `autoIndex`（读取失败按 `true`），执行一次 `cbm_status` | 是，仅主 agent 一次 |
+| 未索引且 `autoIndex=true` | 主 agent 自动 `cbm_index` | 是，仅一次 |
+| 已索引、`autoIndex=false`、初始化失败或状态未知 | fail-open，回退原生工具 | 否 |
 | 已索引项目文件变化后 | 交给 CBM watcher 增量同步 | 否 |
 | 分支切换/大规模变更 | 可选 `detect_changes` 或显式重新索引 | 否/按命令 |
 | 用户执行 `/cbm ui` | 启动 UI 进程 | 命令内等待启动确认 |
 | 用户执行 `/cbm repair` | 清理并重装含 UI canonical release | 命令内等待 |
+
+### 参数级工具示例
+
+以下示例只使用已注册的 Oceanus 工具名；查询工具允许主 agent 与子 agent 使用，`cbm_index` 仅允许主 agent 使用：
+
+```text
+cbm_status({})
+cbm_search_graph({ query: ".*OrderHandler.*", limit: 20 })
+cbm_trace({ symbol: "pkg/orders.OrderHandler", direction: "inbound" })
+cbm_code({ qualified_name: "pkg/orders.OrderHandler" })
+cbm_query({ query: "MATCH (n) RETURN n LIMIT 20" })
+cbm_detect_changes({ since: "HEAD~1" })
+cbm_index({})                 # 仅主 agent
+```
+
+非代码文本、AST、glob/文件发现及 Web 任务跳过上述初始化和 CBM，分别使用 `grep`/`ast_grep_search`/`glob`/`websearch` 等原生工具。
 
 ### 失败回退链
 
@@ -336,7 +357,7 @@ CBM MCP 原生工具
 2. 下载中 OpenCode 能正常启动，普通 agent/tool 不被阻塞。
 3. 首次 CBM 查询会等待安装完成；安装失败能明确诊断并回退 grep/read。
 4. OpenCode `/mcp` 能看到 `codebase-memory-mcp`；安装完成后能调用 `search_graph`、`get_architecture`，并验证 MCP 自动注册或占位配置更新路径。
-5. 子 agent 即使看不到 MCP，也能调用 `cbm_*` 兜底工具完成符号搜索、`trace_path` 调用链和 `detect_changes` 影响面查询。
+5. 子 agent 即使看不到 MCP，也能调用 `cbm_search_graph`、`cbm_trace`、`cbm_code`、`cbm_query`、`cbm_detect_changes` 只读工具完成查询；`cbm_index` 仅由主 agent 使用。
 6. 首次结构化查询能自动完成项目索引；后续查询复用索引，不重复全量索引。
 7. 含 UI 的 canonical 归档已下载但 UI 默认不启动；`/cbm ui` 能以 `--ui=true` 启动并在 `/cbm status` 显示 URL/PID。
 8. 校验失败、网络失败、权限失败、索引失败、MCP 连接失败均不阻塞 Oceanus。

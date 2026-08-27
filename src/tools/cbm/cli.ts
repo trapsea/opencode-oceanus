@@ -1,12 +1,13 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { crossSpawn, type SpawnFn } from '../../cbm/process';
-import { getBinaryPath, getCurrentManifestPath } from '../../cbm/paths';
+import { getBinaryPath, getCacheRoot, getCurrentManifestPath } from '../../cbm/paths';
 import {
   buildCbmEnv,
   canonicalToolName,
   CbmBoundaryError,
-  extractProjectPath,
+  extractProjectPaths,
+  deriveProjectName,
   isToolNotFoundOutput,
   isTraceTool,
   validateProjectPath,
@@ -20,6 +21,8 @@ import {
   SEARCH_GRAPH_TOOL,
   TRACE_CALL_PATH_TOOL,
   TRACE_PATH_TOOL,
+  INDEX_STATUS_TOOL,
+  INDEX_REPOSITORY_TOOL,
   type CbmCliError,
   type CbmCliResult,
   type CbmExecOptions,
@@ -48,6 +51,7 @@ const TRACE_QUERY_TOOLS = new Set<string>([
   QUERY_GRAPH_TOOL,
   DETECT_CHANGES_TOOL,
 ]);
+const PROJECT_TOOLS = new Set([SEARCH_GRAPH_TOOL, TRACE_PATH_TOOL, GET_CODE_SNIPPET_TOOL, QUERY_GRAPH_TOOL, DETECT_CHANGES_TOOL, INDEX_STATUS_TOOL]);
 
 /** 是否需要在查询前触发自动索引（index_repository / 状态类工具除外）。 */
 function shouldIndexBeforeQuery(tool: string): boolean {
@@ -63,9 +67,9 @@ function isFile(p: string): boolean {
 }
 
 /** 从 Oceanus 缓存 current.json 解析已安装二进制路径。 */
-function resolveCachedBinary(): string | null {
+function resolveCachedBinary(cacheRoot: string = getCacheRoot()): string | null {
   try {
-    const currentPath = getCurrentManifestPath();
+    const currentPath = getCurrentManifestPath(cacheRoot);
     if (!existsSync(currentPath)) return null;
     const current = JSON.parse(readFileSync(currentPath, 'utf8')) as {
       version?: string;
@@ -77,11 +81,15 @@ function resolveCachedBinary(): string | null {
     const binaryName = isWin
       ? 'codebase-memory-mcp.exe'
       : 'codebase-memory-mcp';
-    const bin = getBinaryPath(current.platform, current.version, binaryName);
+    const bin = getBinaryPath(current.platform, current.version, binaryName, cacheRoot);
     return isFile(bin) ? bin : null;
   } catch {
     return null;
   }
+}
+
+function resolveCacheRoot(cacheRoot?: string): string {
+  return cacheRoot ?? process.env.CBM_CACHE_DIR ?? getCacheRoot();
 }
 
 /** 在系统 PATH 上查找 codebase-memory-mcp。 */
@@ -102,9 +110,11 @@ function resolveOnPath(): string | null {
 }
 
 /** 默认二进制解析：binaryPath→缓存→PATH。返回 null 表示未找到。 */
-export function resolveCbmBinaryPath(opts: { binaryPath?: string } = {}): string | null {
+export function resolveCbmBinaryPath(
+  opts: { binaryPath?: string; cacheRoot?: string } = {},
+): string | null {
   if (opts.binaryPath && isFile(opts.binaryPath)) return opts.binaryPath;
-  const cached = resolveCachedBinary();
+  const cached = resolveCachedBinary(resolveCacheRoot(opts.cacheRoot));
   if (cached) return cached;
   return resolveOnPath();
 }
@@ -320,11 +330,10 @@ export async function runCbmCli(
   // 1. 路径越界校验
   let projectPath: string | undefined;
   try {
-    const fromArgs = extractProjectPath(options.args);
-    projectPath = validateProjectPath(
-      options.projectPath ?? fromArgs,
-      workspaceRoot,
-    );
+    const fromArgs = extractProjectPaths(options.args);
+    const candidates = options.projectPath === undefined ? fromArgs : [options.projectPath, ...fromArgs];
+    for (const candidate of candidates) validateProjectPath(candidate, workspaceRoot);
+    projectPath = validateProjectPath(options.projectPath ?? fromArgs[0], workspaceRoot);
   } catch (e) {
     if (e instanceof CbmBoundaryError) {
       return {
@@ -346,7 +355,12 @@ export async function runCbmCli(
     if (deps.ensureInstalled) {
       binaryPath = await deps.ensureInstalled();
     }
-    if (!binaryPath) binaryPath = resolveBinary({ binaryPath: options.binaryPath });
+    if (!binaryPath) {
+      binaryPath = resolveBinary({
+        binaryPath: options.binaryPath,
+        cacheRoot: resolveCacheRoot(options.cacheRoot),
+      } as { binaryPath?: string; cacheRoot?: string });
+    }
   }
   if (!binaryPath) return binaryMissingResult(canonical);
 
@@ -358,8 +372,17 @@ export async function runCbmCli(
     await deps.indexer.ensureIndexed(projectPath, { workspaceRoot, timeoutMs });
   }
 
-  // 5. 执行
-  const jsonArg = JSON.stringify(options.args);
+  // 5. 按当前 CBM CLI 契约规范化最终参数。
+  let normalizedArgs: unknown = options.args;
+  if (canonical === INDEX_REPOSITORY_TOOL) {
+    normalizedArgs = {
+      repo_path: projectPath ?? workspaceRoot,
+      name: deriveProjectName(workspaceRoot),
+    };
+  } else if (PROJECT_TOOLS.has(canonical)) {
+    normalizedArgs = { ...(options.args as Record<string, unknown>), project: deriveProjectName(workspaceRoot) };
+  }
+  const jsonArg = JSON.stringify(normalizedArgs);
   const first = await execute(
     spawn,
     binaryPath,

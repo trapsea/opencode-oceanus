@@ -98,7 +98,16 @@ afterEach(() => {
 // ─────────────────────────── Tool 注册 ───────────────────────────
 
 describe('Tool transform 注册', () => {
-  test('默认注册全部 13 个新增工具（6 常规 + 7 CBM 兜底）', async () => {
+  test('registersOptionalFileOperationSchema：hashline 注册可选文件操作 schema', async () => {
+    const { ctx, addedTools } = createMockCtx();
+    await registerOceanusTools(ctx, {});
+    const tool = findTool(addedTools, 'hashline_edit');
+    const input = tool.input as any;
+    expect(input.properties.delete).toMatchObject({ type: 'boolean' });
+    expect(input.properties.rename).toMatchObject({ type: 'string' });
+  });
+
+  test('默认注册全部 15 个新增工具（8 常规 + 7 CBM 兜底）', async () => {
     const { ctx, addedTools } = createMockCtx();
     await registerOceanusTools(ctx, {});
     const names = addedTools.map((t) => t.name).sort();
@@ -109,7 +118,9 @@ describe('Tool transform 注册', () => {
         'hashline_edit',
         'task_cancel',
         'task_result',
-        'task_status',
+         'task_status',
+         'task_message',
+         'task_revive',
         'cbm_status',
         'cbm_index',
         'cbm_search_graph',
@@ -147,6 +158,17 @@ describe('Tool transform 注册', () => {
     await registerOceanusTools(ctx, config);
     expect(addedTools.map((t) => t.name)).not.toContain('task_cancel');
   });
+
+  test('T7 task_message/task_revive 已注册且可执行，错误 ID fail-open', async () => {
+    const { ctx, addedTools } = createMockCtx();
+    await registerOceanusTools(ctx, {});
+    const message = findTool(addedTools, 'task_message');
+    const revive = findTool(addedTools, 'task_revive');
+    expect(message).toBeDefined();
+    expect(revive).toBeDefined();
+    expect(JSON.parse((await message!.execute({}, { sessionID: 'parent' })).content as string).error).toBe('taskId 必填');
+    expect(JSON.parse((await revive!.execute({ taskId: 'missing' }, { sessionID: 'parent' })).content as string).error).toBe('unsupported');
+  });
 });
 
 // ─────────────────────────── Hook 注册顺序 ───────────────────────────
@@ -156,10 +178,10 @@ describe('Hook 注册与固定顺序', () => {
     const { ctx, beforeHooks, afterHooks } = createMockCtx();
     await registerOceanusHooks(ctx, {});
     expect(beforeHooks.length).toBe(4);
-    expect(afterHooks.length).toBe(5);
+    expect(afterHooks.length).toBe(6);
     // 顺序通过行为验证：after[0] 是 json 恢复，after[1] 是截断，after[2] 是 loop-guard，
     // after[3] 是 task-registry-observer，after[4] 是 cbm-guidance（最后）。
-    expect(afterHooks.length).toBe(5);
+    expect(afterHooks.length).toBe(6);
   });
 
   test('disabled_hooks / enabled:false 跳过对应 Hook', async () => {
@@ -172,7 +194,7 @@ describe('Hook 注册与固定顺序', () => {
     // apply_patch 被禁用 → before 只剩 loop-guard + observer + cbm-guidance
     expect(beforeHooks.length).toBe(3);
     // json 被禁用 + truncator 被禁用 → after 只剩 loop-guard + observer + cbm-guidance
-    expect(afterHooks.length).toBe(3);
+    expect(afterHooks.length).toBe(4);
   });
 
   test('cbm-guidance 尊重 codebaseMemory.guidance=false：不注册', async () => {
@@ -180,7 +202,7 @@ describe('Hook 注册与固定顺序', () => {
     const { ctx, beforeHooks, afterHooks } = createMockCtx();
     await registerOceanusHooks(ctx, config);
     expect(beforeHooks.length).toBe(3); // apply_patch + loop-guard + observer
-    expect(afterHooks.length).toBe(4); // json + truncator + loop-guard + observer
+    expect(afterHooks.length).toBe(5); // json + enhancer + truncator + loop-guard + observer
   });
 
   test('cbm-guidance 可经 hooks.cbm_guidance.enabled=false 关闭', async () => {
@@ -188,7 +210,7 @@ describe('Hook 注册与固定顺序', () => {
     const { ctx, beforeHooks, afterHooks } = createMockCtx();
     await registerOceanusHooks(ctx, config);
     expect(beforeHooks.length).toBe(3);
-    expect(afterHooks.length).toBe(4);
+    expect(afterHooks.length).toBe(5);
   });
 
   test('cbm-guidance 注入 indexer 后生效：结构化查询前检查索引（fail-open）', async () => {
@@ -209,7 +231,7 @@ describe('Hook 注册与固定顺序', () => {
     const cbmBefore = beforeHooks[beforeHooks.length - 1];
     await cbmBefore!({ tool: 'cbm_search_graph', sessionID: 's1' });
     expect(ensureIndexedCalls).toEqual(['/ws']);
-    expect(afterHooks.length).toBe(5);
+    expect(afterHooks.length).toBe(6);
   });
 });
 
@@ -355,7 +377,7 @@ describe('tool-output-truncator execute.after', () => {
       status: 'completed',
       result: { content: 'a'.repeat(300_000) },
     };
-    await afterHooks[1]!(event);
+    await afterHooks[2]!(event);
     expect(event.result.content.length).toBeLessThan(300_000);
     expect(event.result.content).toContain(TRUNCATION_MARKER_PREFIX);
   });
@@ -370,7 +392,7 @@ describe('tool-output-truncator execute.after', () => {
       status: 'error',
       error: { message: longError },
     };
-    await afterHooks[1]!(event);
+    await afterHooks[3]!(event);
     expect(event.error.message.length).toBe(300_000);
   });
 });
@@ -702,7 +724,7 @@ describe('task_registry_observer 宿主观察链路', () => {
     });
     // observer 被禁用 → 不注册 before/after（保留 cbm-guidance）。
     expect(mock.beforeHooks).toHaveLength(3); // apply_patch + loop-guard + cbm-guidance
-    expect(mock.afterHooks).toHaveLength(4); // json + truncator + loop-guard + cbm-guidance
+    expect(mock.afterHooks).toHaveLength(5); // json + enhancer + truncator + loop-guard + cbm-guidance
     const statusTool = findTool(mock.addedTools, 'task_status');
     const st = parsed(await statusTool.execute({ taskId: 'nope' }, { sessionID: 'parent-1' }));
     expect(st.error).toContain('task 不存在');

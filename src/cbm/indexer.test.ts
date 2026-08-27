@@ -20,6 +20,16 @@ import type { CbmCliErrorCode, CbmCliResult, CbmExecOptions } from '../tools/cbm
 
 const ROOT = '/workspace/root';
 
+test('indexer 使用注入的同一 cache root', async () => {
+  const calls: CbmExecOptions[] = [];
+  const indexer = createIndexer({ cacheRoot: '/shared/cbm', runCli: async (opts) => {
+    calls.push(opts);
+    return okResult({ indexed: true });
+  }} as never);
+  await indexer.ensureIndexed(ROOT, { workspaceRoot: ROOT } as never);
+  expect(calls[0]?.env?.CBM_CACHE_DIR).toBe('/shared/cbm');
+});
+
 function okResult(data: unknown, tool = 'index_status'): CbmCliResult {
   return { ok: true, tool, data };
 }
@@ -143,7 +153,7 @@ describe('createIndexer：未索引自动建图', () => {
 
     const indexCalls = calls.filter((c) => c.tool === 'index_repository');
     expect(indexCalls).toHaveLength(1);
-    expect(argsOf(indexCalls[0]).repository_path).toBe('proj');
+    expect(argsOf(indexCalls[0]).repo_path).toBe('proj');
   });
 
   test('autoIndex=false（工厂默认）允许 fallback，不触发任何 CLI 调用', async () => {
@@ -268,10 +278,10 @@ describe('createIndexer：项目切换隔离', () => {
     const repo: string[] = [];
     const { runCli } = fakeRunCli((opts) => {
       if (opts.tool === 'index_repository') {
-        repo.push(argsOf(opts).repository_path as string);
+        repo.push(argsOf(opts).repo_path as string);
         return okResult({}, 'index_repository');
       }
-      const p = argsOf(opts).project_path;
+      const p = argsOf(opts).project;
       return okResult({ status: p === 'projA' ? 'indexed' : 'unindexed' });
     });
     const h = createIndexer({ runCli });

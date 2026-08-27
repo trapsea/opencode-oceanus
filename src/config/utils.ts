@@ -1,12 +1,32 @@
 import { DEFAULT_DISABLED_AGENTS, PROTECTED_AGENTS } from './constants';
 import type {
   AgentOverrideConfig,
+  AutoUpdateConfig,
   CodebaseMemoryConfig,
   CodebaseMemoryUiConfig,
   HookConfig,
   PluginConfig,
+  TaskReuseConfig,
   ToolConfig,
 } from './schema';
+
+export interface AutoUpdateResolvedConfig {
+  enabled: boolean;
+  checkIntervalMs: number;
+}
+
+const DEFAULT_AUTO_UPDATE_CONFIG: AutoUpdateResolvedConfig = {
+  enabled: true,
+  checkIntervalMs: 3_600_000,
+};
+
+/** 获取自动更新配置，缺省时启用并每小时检查一次。 */
+export function getAutoUpdateConfig(
+  config?: PluginConfig,
+): AutoUpdateResolvedConfig {
+  const raw: AutoUpdateConfig | undefined = config?.autoUpdate;
+  return { ...DEFAULT_AUTO_UPDATE_CONFIG, ...raw };
+}
 
 /** 获取某个 agent 的配置覆盖 */
 export function getAgentOverride(
@@ -199,4 +219,25 @@ export function isCodebaseMemoryGuidanceEnabled(
 /** UI 是否自动启动（默认 false）。 */
 export function isCodebaseMemoryUiAutoStart(config?: PluginConfig): boolean {
   return getCodebaseMemoryConfig(config).ui.autoStart;
+}
+
+/** 解析后的 subagent 复用配置（缺省字段已补齐）。 */
+export interface TaskReuseResolvedConfig {
+  enabled: boolean;
+  ttlMs: number;
+  maxRetained: number;
+}
+
+export const DEFAULT_TASK_REUSE_CONFIG: TaskReuseResolvedConfig = {
+  enabled: false,
+  ttlMs: 2 * 60 * 60 * 1000,
+  maxRetained: 16,
+};
+
+/** 获取解析后的 subagent 复用配置：显式字段覆盖默认值。 */
+export function getTaskReuseConfig(
+  config?: PluginConfig,
+): TaskReuseResolvedConfig {
+  const raw: TaskReuseConfig | undefined = config?.taskReuse;
+  return { ...DEFAULT_TASK_REUSE_CONFIG, ...raw };
 }

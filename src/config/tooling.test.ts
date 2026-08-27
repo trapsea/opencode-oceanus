@@ -13,6 +13,8 @@ import {
   getDisabledTools,
   getHookConfig,
   getToolConfig,
+  getTaskReuseConfig,
+  DEFAULT_TASK_REUSE_CONFIG,
   isHookEnabled,
   isToolEnabled,
 } from './utils';
@@ -74,6 +76,14 @@ describe('工具/Hook 结构化配置 schema', () => {
   test('拒绝未知顶层配置字段', () => {
     const result = PluginConfigSchema.safeParse({ tools_extra: {} });
     expect(result.success).toBe(false);
+  });
+
+  test('接受 taskReuse 配置并拒绝其未知字段', () => {
+    expect(PluginConfigSchema.safeParse({ taskReuse: { enabled: true, ttlMs: 60000, maxRetained: 8 } }).success).toBe(true);
+    expect(PluginConfigSchema.safeParse({ taskReuse: { enabled: true, bogus: 1 } }).success).toBe(false);
+    const resolved = getTaskReuseConfig(PluginConfigSchema.parse({ taskReuse: { enabled: true } }));
+    expect(resolved).toMatchObject({ enabled: true, ttlMs: DEFAULT_TASK_REUSE_CONFIG.ttlMs, maxRetained: DEFAULT_TASK_REUSE_CONFIG.maxRetained });
+    expect(getTaskReuseConfig(PluginConfigSchema.parse({})).enabled).toBe(false);
   });
 });
 

@@ -173,7 +173,10 @@ async function installCmd(handlers: CbmCommandHandlers, invocation: CommandInvoc
     );
     return;
   }
-  const installPromise = handlers.startBackgroundInstall();
+  // 即使调用方提供了冲突 opts，接线层也会以该快照 root 为准；显式传递可
+  // 让仅暴露 getCacheRoot 的命令接线保持同一缓存根。
+  const cacheRoot = handlers.getCacheRoot?.() ?? getCacheRoot();
+  const installPromise = handlers.startBackgroundInstall({ cacheRoot });
   await handlers.reply(
     'CBM 安装已在后台启动，不阻塞当前会话。可稍后运行 /cbm status 查看进度。',
     invocation,
@@ -184,7 +187,7 @@ async function installCmd(handlers: CbmCommandHandlers, invocation: CommandInvoc
       .then(async (bin) => {
         if (bin) {
           try {
-            await handlers.registerMcp?.();
+             await handlers.registerMcp?.({ cacheRoot });
           } catch {
             /* fail-open */
           }
@@ -201,11 +204,12 @@ async function repairCmd(handlers: CbmCommandHandlers, invocation: CommandInvoca
     await handlers.reply('cbm repair 不可用：未注入 repair 依赖。', invocation);
     return;
   }
-  const bin = await handlers.repair();
+  const cacheRoot = handlers.getCacheRoot?.() ?? getCacheRoot();
+  const bin = await handlers.repair({ cacheRoot });
   if (bin) {
     if (handlers.registerMcp) {
       try {
-        await handlers.registerMcp();
+        await handlers.registerMcp({ cacheRoot });
       } catch {
         /* fail-open */
       }

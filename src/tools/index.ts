@@ -8,6 +8,7 @@
  * - 不引入 v1 client shim；错误一律以结构化 result 返回，不抛异常。
  */
 import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { runSg } from './ast-grep/cli';
 import { CLI_LANGUAGES, type CliLanguage, type ReplaceOptions, type SearchOptions } from './ast-grep/types';
 import { isPathWithinRoot } from './ast-grep/args';
@@ -16,7 +17,10 @@ import {
   DEFAULT_BOUNDARY_LIMITS,
   type RawHashlineEdit,
 } from './hashline-edit';
-import { TaskRegistry } from './task/registry';
+import { TaskRegistry, TaskAccessDeniedError } from './task/registry';
+import type { JobBoard } from './task/job-board';
+import { buildTaskMessageTool } from './task/message';
+import { buildTaskReviveTool } from './task/revive';
 import { isTerminalStatus, type TaskRecord } from './task/types';
 import { buildCbmTools } from './cbm';
 import type { IndexerHandle, IndexerRunCli } from '../cbm/indexer';
@@ -24,6 +28,8 @@ import type { CbmRunDeps } from './cbm/types';
 import { isToolEnabled, getToolConfig } from '../config/utils';
 import type { PluginConfig } from '../config/schema';
 import { resolveWorkspaceRoot } from '../runtime/workspace';
+import { createTaskSupervisor, type TaskSupervisor } from '../runtime/task-supervisor';
+import { createV2SessionAdapter } from '../runtime/task-capabilities';
 import {
   getTaskRegistry,
   resolveTaskHostStatus,
@@ -35,6 +41,9 @@ import type { ToolContextLike, ToolDefinition, ToolResult, ToolingContext } from
 /** 注册期可选依赖（测试注入）。 */
 export interface RegisterToolsOptions {
   registry?: TaskRegistry;
+  /** T5 JobBoard；工具仅负责协议字段转换，调度仍由 JobBoard 执行。 */
+  board?: JobBoard;
+  supervisor?: TaskSupervisor;
   logger?: (message: string, meta?: Record<string, unknown>) => void;
   /** CBM 注入（测试）：替代 runCbmCli 的 CLI 执行函数。 */
   cbmRunCli?: IndexerRunCli;
@@ -42,6 +51,10 @@ export interface RegisterToolsOptions {
   cbmRunDeps?: CbmRunDeps;
   /** CBM 注入（测试）：自定义索引器。 */
   cbmIndexer?: IndexerHandle;
+  /** CBM 共享缓存根目录。 */
+  cbmCacheRoot?: string;
+  /** 任务生命周期观测：记录生产接线实际收到的 JobBoard。 */
+  taskLifecycleObserver?: (board: JobBoard) => void;
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -49,8 +62,41 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 function contentResult(obj: unknown): ToolResult {
   return { content: JSON.stringify(obj, null, 2) };
 }
-function errorResult(message: string): ToolResult {
-  return { content: JSON.stringify({ error: message }, null, 2) };
+function errorResult(message: string, errorCode = 'INVALID_INPUT'): ToolResult {
+  return { content: JSON.stringify({ error: message, errorCode }, null, 2) };
+}
+
+/** T5：跨 parent 越权访问统一映射为 PARENT_OWNERSHIP；其余错误原样透传。 */
+function taskAccessError(e: unknown): ToolResult | undefined {
+  if (e instanceof TaskAccessDeniedError) return errorResult(messageOf(e), 'PARENT_OWNERSHIP');
+  return undefined;
+}
+
+/** T5：安全读取 JobBoard 上的任务（board 缺失或任务不存在时返回 undefined）。 */
+function readBoardTask(board: JobBoard | undefined, taskId: string): any | undefined {
+  if (!board) return undefined;
+  try {
+    return (board as any).get(taskId);
+  } catch {
+    return undefined;
+  }
+}
+function hashlineErrorResult(pathValue: string | null, message: string, errorCode = 'INVALID_INPUT'): ToolResult {
+  return contentResult({
+    ok: false,
+    path: pathValue,
+    created: false,
+    changed: false,
+    before: '',
+    after: '',
+    diff: '',
+    additions: 0,
+    deletions: 0,
+    noopEdits: 0,
+    deduplicatedEdits: 0,
+    errorCode,
+    error: message,
+  });
 }
 
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -193,12 +239,14 @@ function buildHashlineTool(wctx: ToolingContext, config: PluginConfig): ToolDefi
       '按文件行 hash 锚点执行 replace / append / prepend，校验文件版本并返回结构化 diff。hash mismatch 时返回可操作的重新读取提示，不会静默重试。目标文件必须位于工作区内。',
     input: {
       type: 'object',
+      additionalProperties: false,
       properties: {
         filePath: { type: 'string', description: '目标文件路径（相对于工作区或绝对路径）' },
         edits: {
           type: 'array',
           items: {
             type: 'object',
+            additionalProperties: false,
             properties: {
               op: { type: 'string', enum: ['replace', 'append', 'prepend'] },
               pos: { type: 'string', description: '行 hash 锚点' },
@@ -214,32 +262,47 @@ function buildHashlineTool(wctx: ToolingContext, config: PluginConfig): ToolDefi
           },
           description: '编辑列表',
         },
-        maxFileBytes: { type: 'number' },
+         maxFileBytes: { type: 'integer', minimum: 1 },
+        delete: { type: 'boolean', description: '删除目标文件' },
+        rename: { type: 'string', description: '将目标文件重命名到该路径' },
       },
-      required: ['filePath', 'edits'],
+       required: ['filePath'],
     },
     async execute(input, tctx) {
       const filePath = asString(input?.filePath);
-      if (!filePath) return errorResult('filePath 必填');
+      if (!filePath) return hashlineErrorResult('', 'filePath 必填');
       const edits = input?.edits;
-      if (!Array.isArray(edits) || edits.length === 0) {
-        return errorResult('edits 必须是非空数组');
+      if ((!Array.isArray(edits) || edits.length === 0) && !input?.delete && input?.rename === undefined) {
+        return hashlineErrorResult(filePath, 'edits 必须是非空数组');
       }
       const root = await resolveWorkspaceRoot(wctx.session, tctx.sessionID);
-      if (!root) return errorResult('无法解析当前会话的工作区根目录');
+      if (!root) return hashlineErrorResult(null, '无法解析当前会话的工作区根目录', 'IO_ERROR');
 
       const resolved = path.isAbsolute(filePath)
         ? path.resolve(filePath)
         : path.resolve(root, filePath);
-      if (!isPathWithinRoot(resolved, root)) {
-        return errorResult(`路径位于工作区之外，已拒绝: ${filePath}`);
+      const canonicalRoot = await realpath(root).catch(() => path.resolve(root));
+      const canonicalTarget = await realpath(resolved).catch(() => resolved);
+      if (!isPathWithinRoot(resolved, root) || !isPathWithinRoot(canonicalTarget, canonicalRoot)) {
+        return hashlineErrorResult(null, `路径位于工作区之外，已拒绝: ${filePath}`, 'OUTSIDE_WORKSPACE');
       }
 
       const cfg = getToolConfig(config, 'hashline_edit');
+      if (input?.maxFileBytes !== undefined &&
+          (typeof input.maxFileBytes !== 'number' || !Number.isFinite(input.maxFileBytes) ||
+           !Number.isInteger(input.maxFileBytes) || input.maxFileBytes <= 0)) {
+        return hashlineErrorResult(filePath, 'maxFileBytes 必须是有限正整数');
+      }
       const limits = {
         maxFileBytes: asNumber(input?.maxFileBytes) ?? cfg?.maxFileBytes ?? DEFAULT_BOUNDARY_LIMITS.maxFileBytes,
       };
-      const result = await applyHashlineEditToFile(resolved, edits as RawHashlineEdit[], { limits });
+      if (input?.rename !== undefined) {
+       const target = path.resolve(root, input.rename);
+       if (path.isAbsolute(input.rename) || !isPathWithinRoot(target, root) || !isPathWithinRoot(path.dirname(target), canonicalRoot)) {
+          return hashlineErrorResult(null, `重命名目标位于工作区之外，已拒绝: ${input.rename}`, 'OUTSIDE_WORKSPACE');
+        }
+      }
+      const result = await applyHashlineEditToFile(resolved, (edits ?? []) as RawHashlineEdit[], { limits, root, delete: input?.delete === true, rename: input?.rename });
       return contentResult(result);
     },
   });
@@ -280,15 +343,23 @@ function buildTaskStatusTool(
       try {
         rec = registry.get(taskId, tctx.sessionID);
       } catch (e) {
-        return errorResult(messageOf(e));
+        return taskAccessError(e) ?? errorResult(messageOf(e));
       }
       if (!rec) return errorResult(`task 不存在: ${taskId}`);
+      // T5：board 上的 generation 为准（revive 递增）；旧 generation 的事实不可作为当前状态。
+      const boardTask = readBoardTask(opts.board, taskId);
+      const generation = Math.max(
+        rec.generation,
+        typeof boardTask?.generation === 'number' ? boardTask.generation : rec.generation,
+      );
       const host = await resolveTaskHostStatus(wctx.session, rec);
       return contentResult(
         taskRecordView(rec, {
           status: host.status,
           source: host.source,
           verified: host.verified,
+          certainty: host.certainty,
+          generation,
         }),
       );
     },
@@ -316,30 +387,62 @@ function buildTaskResultTool(
       try {
         rec = registry.get(taskId, tctx.sessionID);
       } catch (e) {
-        return errorResult(messageOf(e));
+        return taskAccessError(e) ?? errorResult(messageOf(e));
       }
       if (!rec) return errorResult(`task 不存在: ${taskId}`);
       const host = await resolveTaskHostStatus(wctx.session, rec);
-      // task_result 只接受"经宿主验证的终态"或"registry 中明确存储的终态观察结果"。
-      // 不能把 registry 的 completed 状态本身当作宿主事实。
-      const hostTerminal =
-        host.verified && (host.status === 'completed' || host.status === 'failed');
+      // T5：宿主事实优先级统一。
+      // 1) 宿主已确认 running（或任何非终态）→ 旧 observation 的终态一律不返回。
+      // 2) 宿主已确认终态 → 宿主 outcome 覆盖旧 observation。
+      // 3) 宿主无法确认 → 仅当 registry 中有明确终态观察且未被 revive（generation 未过期）时回退。
+      if (host.verified && !isTerminalStatus(host.status)) {
+        return errorResult(
+          `task ${taskId} 尚未完成（当前: ${host.status}）。task_result 只读经宿主验证或已明确观察到的终态任务。`,
+        );
+      }
+      const boardTask = readBoardTask(opts.board, taskId);
+      if (
+        boardTask &&
+        typeof boardTask.generation === 'number' &&
+        boardTask.generation > rec.generation
+      ) {
+        return errorResult(
+          `task ${taskId} 已被 revive（generation ${rec.generation} → ${boardTask.generation}），旧 generation 的结果不可返回；请等待新 attempt 终态。`,
+          'STALE_GENERATION',
+        );
+      }
+      const hostTerminal = host.verified && isTerminalStatus(host.status);
       const storedTerminal =
         Boolean(rec.observation) &&
         Boolean(rec.observation?.status) &&
         isTerminalStatus(rec.observation!.status!);
       if (!hostTerminal && !storedTerminal) {
         return errorResult(
-          `task ${taskId} 尚未完成（当前: ${host.status}）。task_result 只读经宿主验证或已明确观察到的终态任务。`,
+          `task ${taskId} 尚未完成（当前: ${host.status}，verified:${host.verified}）。task_result 只读经宿主验证或已明确观察到的终态任务。`,
         );
       }
-      const outcome = await readSessionOutcome(wctx.session, rec.childSessionId);
+      if (hostTerminal) {
+        const outcome = await readSessionOutcome(wctx.session, rec.childSessionId);
+        return contentResult(
+          taskRecordView(rec, {
+            status: host.status,
+            outcome,
+            source: host.source,
+            verified: true,
+            certainty: 'authoritative',
+            generation: rec.generation,
+            // 宿主终态优先，但观察文本作为补充上下文一并返回。
+            resultText: rec.observation?.text,
+          }),
+        );
+      }
       return contentResult(
         taskRecordView(rec, {
-          status: storedTerminal ? rec.observation!.status! : host.status,
-          outcome,
-          source: hostTerminal ? host.source : 'registry',
-          verified: host.verified,
+          status: rec.observation!.status!,
+          source: 'registry',
+          verified: false,
+          certainty: 'uncertain',
+          generation: rec.generation,
           resultText: rec.observation?.text,
         }),
       );
@@ -370,6 +473,16 @@ function buildTaskCancelTool(
       if (!taskId) return errorResult('taskId 必填');
       const parentID = asString(input?.parentID);
       const childID = asString(input?.childID);
+       if (opts.board) {
+         try {
+           const task: any = opts.board.get(taskId);
+          if (task.parent_session_id !== tctx.sessionID || (parentID && parentID !== task.parent_session_id) || (childID && childID !== task.child_session_id)) return errorResult('PARENT_OWNERSHIP');
+           const supervisor = opts.supervisor ?? createTaskSupervisor({ board: opts.board, session: wctx.session });
+           const outcome = await supervisor.cancel(taskId);
+           const fresh: any = opts.board.get(taskId);
+           return contentResult({ taskId, status: fresh.state, outcome, generation: task.generation, childSessionId: task.child_session_id });
+        } catch (e) { return errorResult(messageOf(e)); }
+      }
       const registry = opts.registry ?? getTaskRegistry();
       let rec: TaskRecord | undefined;
       try {
@@ -429,6 +542,8 @@ const TOOL_BUILDERS: ReadonlyArray<{
   { name: 'task_status', build: buildTaskStatusTool },
   { name: 'task_result', build: buildTaskResultTool },
   { name: 'task_cancel', build: buildTaskCancelTool },
+  { name: 'task_message', build: (ctx, _config, opts) => buildTaskMessageTool(opts.board, createV2SessionAdapter(ctx.session)) },
+  { name: 'task_revive', build: (ctx, _config, opts) => buildTaskReviveTool(opts.board, createV2SessionAdapter(ctx.session)) },
 ];
 
 /**
@@ -440,6 +555,7 @@ export async function registerOceanusTools(
   config: PluginConfig,
   opts: RegisterToolsOptions = {},
 ): Promise<unknown> {
+  if (opts.board) opts.taskLifecycleObserver?.(opts.board);
   const log = opts.logger ?? (() => {});
   const enabled = TOOL_BUILDERS.filter(({ name }) => isToolEnabled(config, name));
   // CBM CLI 兜底工具（CBM-09）：尊重 codebaseMemory.enabled / cliFallback 门控，
@@ -450,6 +566,7 @@ export async function registerOceanusTools(
       runCli: opts.cbmRunCli,
       runDeps: opts.cbmRunDeps,
       indexer: opts.cbmIndexer,
+      cacheRoot: opts.cbmCacheRoot,
     });
   } catch (e) {
     log('[oceanus] CBM 工具构建失败', { error: messageOf(e) });

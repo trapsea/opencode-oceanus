@@ -4,6 +4,7 @@ import {
   resolvePresetAgents,
 } from './config/loader';
 import { PluginConfigSchema } from './config/schema';
+import { getAutoUpdateConfig } from './config/utils';
 
 describe('agent preset 配置 schema', () => {
   test('支持顶层 preset 和 presets', () => {
@@ -67,5 +68,31 @@ describe('agent preset 配置 schema', () => {
     };
 
     expect(resolvePresetAgents(config)).toEqual(config.agents);
+  });
+});
+
+describe('autoUpdate 配置', () => {
+  test('默认启用，检查间隔为一小时', () => {
+    expect(getAutoUpdateConfig()).toEqual({
+      enabled: true,
+      checkIntervalMs: 3_600_000,
+    });
+  });
+
+  test('支持覆盖 enabled 和 checkIntervalMs，且不允许 allowMajor', () => {
+    expect(
+      PluginConfigSchema.safeParse({
+        autoUpdate: { enabled: false, checkIntervalMs: 60_000 },
+      }).success,
+    ).toBe(true);
+    expect(
+      PluginConfigSchema.safeParse({
+        autoUpdate: { allowMajor: true },
+      }).success,
+    ).toBe(false);
+    expect(getAutoUpdateConfig({ autoUpdate: { checkIntervalMs: 60_000 } })).toEqual({
+      enabled: true,
+      checkIntervalMs: 60_000,
+    });
   });
 });

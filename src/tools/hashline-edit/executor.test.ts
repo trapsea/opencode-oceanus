@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test"
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises"
+import { mkdtemp, writeFile, readFile, rm, mkdir, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { applyHashlineEditToFile } from "./executor"
@@ -127,5 +127,23 @@ describe("applyHashlineEditToFile 集成", () => {
     expect(res.firstChangedLine).toBe(2)
     expect(res.diff).toContain("--- ")
     expect(res.diff).toContain("+ 2#")
+  })
+
+  test("顶层 delete 删除文件", async () => {
+    await write("delete.ts", "x\n")
+    const res = await applyHashlineEditToFile(join(dir, "delete.ts"), [], { delete: true })
+    expect(res.ok).toBe(true)
+    expect(res.deleted).toBe(true)
+    expect(await readFile(join(dir, "delete.ts")).catch(() => null)).toBeNull()
+  })
+
+  test("顶层 rename 原子重命名文件", async () => {
+    await write("old.ts", "x\n")
+    const res = await applyHashlineEditToFile(join(dir, "old.ts"), [], { rename: join(dir, "new.ts") })
+    expect(res.ok).toBe(true)
+    expect(res.renamed).toBe(true)
+    expect(res.from).toBe(null)
+    expect(res.to).toBe(null)
+    expect(await read("new.ts")).toBe("x\n")
   })
 })

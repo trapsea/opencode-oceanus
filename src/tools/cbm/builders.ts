@@ -52,6 +52,8 @@ export interface CbmToolEnv {
   env?: Record<string, string | undefined>;
   /** 默认自动索引开关。 */
   autoIndex: boolean;
+  /** 共享缓存根目录。 */
+  cacheRoot?: string;
 }
 
 /** cbm_* 工具 canonical 名称。 */
@@ -137,10 +139,11 @@ function execOpts(
     args,
     workspaceRoot: root,
     binaryPath: env.binaryPath,
-    env: env.env,
+    env: { ...(env.env ?? {}), ...(env.cacheRoot ? { CBM_CACHE_DIR: env.cacheRoot } : {}) },
     timeoutMs: extra?.timeoutMs ?? cfg?.timeoutMs,
     maxOutputBytes: cfg?.maxOutputBytes,
     ...extra,
+    ...(env.cacheRoot ? { cacheRoot: env.cacheRoot, env: { ...(extra?.env ?? {}), CBM_CACHE_DIR: env.cacheRoot } } : {}),
   };
 }
 

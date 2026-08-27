@@ -17,7 +17,7 @@
 
 | 项目 | 当前定位 | OpenCode 形态 | 主要价值 |
 |---|---|---|---|
-| Oceanus | 轻量 Agent 编排插件 | 原生 OpenCode v2 beta | Agent 分工、Sisyphus 五阶段工作流、Skill、preset、TUI |
+| Oceanus | 轻量 Agent 编排插件 | 原生 OpenCode v2 beta | Agent 分工、Sisyphus 六阶段工作流、Skill、preset、TUI |
 | omo-slim | 完整编排运行时 | v1 主体 + v2 适配层 | 工具、MCP、Hooks、后台任务、multiplexer、CLI |
 | oh-my-openagent | 平台化 Agent Harness | 主要基于 v1 插件 API | 多模型编排、复杂后台任务、模型能力系统、多 Harness 生态 |
 
@@ -79,7 +79,7 @@
 ### 4.1 Agent 编排
 
 - `oceanus`：主工作流编排器；负责探索、计划、委派、验证和结果整合。
-- `sisyphus`：五阶段工作流 Agent：
+- `sisyphus`：六阶段工作流 Agent（intake → brainstorm → plan → execute → review → finish）：
   `brainstorm → plan → execute → review → finish`。
 - `explorer`：代码库探索。
 - `librarian`：外部文档和库研究。
@@ -90,7 +90,7 @@
 - `metis`：实现前方案分析（需求缺口/风险/边界/反例/验收标准），只读、默认启用。
 - `momus`：执行前方案质量检查（依赖/范围/测试/可执行性），输出 `OKAY`/`REJECT`，只读、默认启用。
 
-对复杂任务，工作流遵循 `@metis`（方案前置分析）→ `@momus`（方案质量检查）→ `execute` 的协议：`@momus` 返回 `REJECT` 时回到 plan 修订后重新检查，`OKAY` 才放行 execute；简单任务可明确跳过并说明理由。该门禁是 **prompt 工作流门禁**（由 sisyphus/oceanus 提示词强制执行），不是插件注册的自动运行时 supervisor。`metis`、`momus` 默认启用、只读，不写文件、不委派、不执行 task。
+工作流以上下文为先；仅在 Intake 与澄清完成后仍有未决方案且主 Agent 明确需要时条件委派 `@metis`，再遵循 `@momus`（方案质量检查）→ `execute` 的协议：`@momus` 返回 `REJECT` 时回到 plan 修订后重新检查，`OKAY` 才放行 execute；简单任务可明确跳过并说明理由。该门禁是 **prompt 工作流门禁**（由 sisyphus/oceanus 提示词强制执行），不是插件注册的自动运行时 supervisor。`metis`、`momus` 默认启用、只读，不写文件、不委派、不执行 task。
 
 ### 4.2 配置与 preset
 
@@ -102,6 +102,8 @@
 - 配置变更支持原子写入。
 
 ### 4.3 内置 Skill 与 TUI
+
+> **历史对比文档**：本文记录能力快照；当前六阶段 Skill、Ledger/Review schema 与 Finish 约束以 README 和运行时 Skill 为准。
 
 - 通过 `ctx.skill.transform` 注入 Skill，不需要额外复制 Skill 文件。
 - Sisyphus 各阶段拥有独立 Skill。

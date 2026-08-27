@@ -11,6 +11,11 @@ import { registerOceanusTools } from './tools';
 import { registerOceanusHooks } from './hooks';
 import { buildCbmSharedDeps, type CbmWiringInjections } from './cbm/wiring';
 import type { PluginSetupContext } from './runtime/types';
+import { registerAutoUpdate } from './update';
+import { installStaged } from './update/cache';
+import { updateManagedEntry, type ConfigEntry } from './update/config-entry';
+import { startTaskSupervisor } from './runtime/task-supervisor';
+import { JobBoard } from './tools/task/job-board';
 
 function toPermissions(
   permission: NonNullable<AgentOverrideConfig['permission']>,
@@ -76,6 +81,9 @@ async function applyAgentDefinitions(
         }
         if (def.model) {
           agent.model = def.model as unknown as typeof agent.model;
+        } else {
+          // 新 preset 未定义该 agent 的 model 时清除旧值，避免上一 preset 残留。
+          delete agent.model;
         }
         if (def.temperature !== undefined) {
           agent.request.settings.temperature = def.temperature;
@@ -96,6 +104,8 @@ export interface RunSetupOptions {
   loadConfig?: (opts: { directory: string }) => PluginConfig;
   /** CBM 接线注入（测试替换网络/进程；缺省走真实实现）。 */
   cbm?: CbmWiringInjections;
+  /** 可选任务生命周期观测器；缺省不改变任务接线行为。 */
+  taskLifecycleObserver?: (source: 'supervisor' | 'tools' | 'hooks', board: JobBoard) => void;
 }
 
 /**
@@ -119,9 +129,18 @@ export interface RunSetupOptions {
 export async function runSetup(
   ctx: PluginSetupContext,
   options: RunSetupOptions = {},
-): Promise<void> {
+): Promise<(() => void) | undefined> {
   const log = options.cbm?.logger ?? (() => {});
   const config = (options.loadConfig ?? loadPluginConfig)({ directory: process.cwd() });
+  let taskBoard: JobBoard | undefined;
+  // 启动即恢复任务事实；失败不阻塞插件其它能力。
+  try {
+    const parentSessionId = String((ctx.session as any).sessionID ?? (ctx.session as any).id ?? '');
+      taskBoard = await JobBoard.open({ workspaceRoot: process.cwd(), parentSessionId });
+      options.taskLifecycleObserver?.('supervisor', taskBoard);
+      // 先完成恢复再注册依赖该 board 的工具，避免恢复写回与首个工具调用发生 CAS 竞态。
+      await startTaskSupervisor({ board: taskBoard, session: ctx.session, ownerAgent: 'sisyphus' }).catch(() => undefined);
+  } catch { /* fail-open */ }
 
   // 1) 共享 CBM 依赖：cacheRoot = 显式 cacheDir ?? 默认；供 provision/MCP/CLI/UI/commands 复用。
   const shared = buildCbmSharedDeps(config, options.cbm);
@@ -190,13 +209,17 @@ export async function runSetup(
         startBackgroundInstall: (opts) => shared.startBackground(opts),
         ensureInstalled: (opts) => shared.ensureInstalled(opts),
         repair: (opts) => shared.repair(opts),
-        registerMcp: (opts) => registerCbmMcp(ctx, config, { ...opts, cacheRoot: shared.cacheRoot }),
+        registerMcp: (opts) => registerCbmMcp(ctx, config, {
+          ...opts,
+          cacheRoot: shared.cacheRoot,
+          ensureInstalled: shared.ensureInstalled,
+        }),
         removeMcp: () => removeCbmMcp(ctx),
         indexer: shared.indexer,
         startUi: (opts) =>
-          startUi({ cacheRoot: shared.cacheRoot, ...opts, ensureInstalled: shared.uiEnsureInstalled }),
-        stopUi: (opts) => stopUi({ cacheRoot: shared.cacheRoot, ...opts }),
-        getUiStatus: (opts) => getUiStatus({ cacheRoot: shared.cacheRoot, ...opts }),
+          startUi({ ...opts, cacheRoot: shared.cacheRoot, ensureInstalled: shared.uiEnsureInstalled }),
+        stopUi: (opts) => stopUi({ ...opts, cacheRoot: shared.cacheRoot }),
+        getUiStatus: (opts) => getUiStatus({ ...opts, cacheRoot: shared.cacheRoot }),
         getCacheRoot: () => shared.cacheRoot,
         getWorkspaceRoot: () => process.cwd(),
         reply: replyToSession,
@@ -210,7 +233,11 @@ export async function runSetup(
 
   // 6) 非阻塞注册 codebase-memory-mcp（占位→安装完成启用，不阻塞插件启动）。
   try {
-    registerCbmMcp(ctx, config, { cacheRoot: shared.cacheRoot, logger: log }).catch((e) =>
+    registerCbmMcp(ctx, config, {
+      cacheRoot: shared.cacheRoot,
+      logger: log,
+      ensureInstalled: shared.ensureInstalled,
+    }).catch((e) =>
       log('[oceanus] CBM MCP 注册失败(fail-open)', { error: messageOf(e) }),
     );
   } catch (e) {
@@ -223,6 +250,9 @@ export async function runSetup(
     await registerOceanusTools(ctx, config, {
       cbmRunDeps: shared.runDeps,
       cbmIndexer: shared.indexer,
+      cbmCacheRoot: shared.cacheRoot,
+      board: taskBoard,
+      taskLifecycleObserver: taskBoard ? (board) => options.taskLifecycleObserver?.('tools', board) : undefined,
     });
   } catch (e) {
     log('[oceanus] 注册工具失败(fail-open)', { error: messageOf(e) });
@@ -233,10 +263,36 @@ export async function runSetup(
     await registerOceanusHooks(ctx, config, {
       runDeps: shared.runDeps,
       indexer: shared.indexer,
+      board: taskBoard,
+      taskLifecycleObserver: taskBoard ? (board) => options.taskLifecycleObserver?.('hooks', board) : undefined,
     });
   } catch (e) {
     log('[oceanus] 注册 hooks 失败(fail-open)', { error: messageOf(e) });
   }
+
+  // 9) 插件自身自动升级：基础注册完成后再订阅，失败不阻塞 setup。
+  const updateCleanup = (ctx as unknown as { event?: unknown }).event
+    ? registerAutoUpdate(ctx as unknown as any, config, {
+    logger: (event) => {
+      const { event: kind, error, ...meta } = event;
+      const message = error === undefined ? '' : ` error=${String(error)}`;
+      console.warn(`[oceanus:update] ${String(kind)}${message}`, meta);
+    },
+    installer: async (version: string, entry?: ConfigEntry) => {
+      if (!entry || (entry.kind === 'string' && String(entry.value).endsWith('@latest'))) return;
+      const packageRoot = `${shared.cacheRoot}/oceanus-plugin`;
+      await installStaged({
+        cacheRoot: packageRoot,
+        version,
+        packageSpec: `opencode-oceanus@${version}`,
+        sourceDir: process.cwd(),
+      });
+      if (entry.managed) updateManagedEntry(entry.file, version);
+    },
+      })
+    : undefined;
+
+  return updateCleanup;
 }
 
 /**
@@ -244,11 +300,12 @@ export async function runSetup(
  *
  * 通过 ctx.agent.transform 注册一组参考 oh-my-opencode-slim 的 agent：
  * - oceanus（主 agent，颜色 #0FFFFF）
- * - sisyphus（主 agent，superpowers 五阶段工作流）
+   * - sisyphus（主 agent，superpowers 六阶段工作流）
  * - explorer / librarian / oracle / designer / fixer / observer / metis / momus（子 agent，observer 默认禁用）
  *
- * 同时通过 ctx.skill.transform 注入 sisyphus 工作流的四个阶段 skill
- * （sisyphus-brainstorm / sisyphus-plan / sisyphus-execute / sisyphus-review），
+ * 同时通过 ctx.skill.transform 注入 sisyphus 工作流的六个阶段 Skill
+ * （sisyphus-intake / sisyphus-brainstorm / sisyphus-plan / sisyphus-execute /
+ * sisyphus-review），
  * 安装插件即可使用，无需拷贝任何 skill 文件。
  *
  * 每个 agent 的模型可通过配置文件独立指定
@@ -259,6 +316,6 @@ export default Plugin.define({
   id: 'opencode-oceanus',
   tui: true,
   async setup(ctx) {
-    await runSetup(ctx as unknown as PluginSetupContext);
+    return runSetup(ctx as unknown as PluginSetupContext);
   },
 });

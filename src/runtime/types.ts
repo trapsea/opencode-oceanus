@@ -37,6 +37,19 @@ export interface SessionLike {
    * - 显式 `{ interrupted: false }` 视为失败。
    */
   interrupt?(input: { sessionID: string; continue?: boolean }): Promise<void | { interrupted?: boolean }>;
+  /**
+   * 官方 v2 插件文档 `SessionContext.prompt(input)`：向既有会话追加用户输入。
+   * 对已完成 subagent 子会话继续 prompt 是插件续用会话的候选路径（是否被宿主
+   * 接受/是否保留上下文为运行时能力，插件据此 fail-open 降级）。
+   */
+  prompt?(input: {
+    sessionID: string;
+    text: string;
+    delivery?: 'steer' | 'queue';
+    id?: string;
+  }): Promise<unknown>;
+  /** 官方 v2 插件文档 `SessionContext.wait(input)`：等待会话空闲/结束。 */
+  wait?(input: { sessionID: string }): Promise<unknown>;
 }
 
 /** Tool execute 上下文的最小契约（对应 v2 `ToolContext`）。 */
@@ -146,4 +159,10 @@ export interface PluginSetupContext {
   };
   tool: ToolingContext['tool'];
   mcp: MCPDomainLike;
+}
+
+/** v2 事件总线中 session.created 的真实 payload 形状。 */
+export interface SessionCreatedEvent {
+  type: 'session.created';
+  data: { sessionID: string; parentID?: string };
 }

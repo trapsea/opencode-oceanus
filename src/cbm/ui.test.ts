@@ -92,6 +92,13 @@ function fakeEnsure(bin: string | null) {
 }
 
 describe('CBM-07 默认不启动', () => {
+  test('冲突 ensureInstalled cacheRoot 不覆盖 UI 共享根', async () => {
+    const root = newRoot();
+    const seen: string[] = [];
+    const { spawn } = fakeSpawn({ pid: 778 });
+    await startUi({ cacheRoot: root, spawn, ensureInstalled: async (opts) => { seen.push(opts.cacheRoot ?? ''); return '/bin'; }, startGraceMs: 10 });
+    expect(seen).toEqual([root]);
+  });
   test('无 marker 时 status 为空闲，不 spawn 任何进程', () => {
     const root = newRoot();
     const { spawn, calls } = fakeSpawn();

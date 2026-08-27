@@ -45,6 +45,8 @@ Concise answer to the question
 - Only read-only tools: grep, glob, read, ast_grep_search. Never call ast_grep_replace, hashline_edit, or apply_patch.
 - Be exhaustive but concise
 - Include line numbers when relevant
+- 允许查询型 CBM：cbm_status、cbm_search_graph、cbm_trace、cbm_code、cbm_query、cbm_detect_changes；禁止调用 cbm_index。CBM 不可用时回退 grep/glob/read。
+- 示例：cbm_search_graph(query=".*OrderHandler.*", limit=20)、cbm_trace(symbol="pkg.OrderHandler", direction="inbound")、cbm_code(qualified_name="pkg.OrderHandler")、cbm_query(query="MATCH ... RETURN ...")、cbm_detect_changes(since="HEAD~1")。
 `;
 
 export function createExplorerAgent(

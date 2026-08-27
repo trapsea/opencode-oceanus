@@ -138,6 +138,20 @@ const findTool = (tools: ToolDefinition[], name: string): ToolDefinition => {
 // ─────────────────────────── buildCbmSharedDeps（共享依赖） ───────────────────────────
 
 describe('CBM-13 buildCbmSharedDeps：共享缓存根/安装/索引器', () => {
+  test('所有入口即使收到冲突 cacheRoot 也记录同一个快照根', async () => {
+    const root = '/tmp/cbm-shared-root';
+    const seen: string[] = [];
+    const shared = buildCbmSharedDeps({ codebaseMemory: { cacheDir: root } }, {
+      startBackgroundInstall: async (opts) => { seen.push(opts?.cacheRoot ?? ''); return null; },
+      ensureInstalled: async (opts) => { seen.push(opts?.cacheRoot ?? ''); return null; },
+    });
+    await shared.startBackground({ cacheRoot: '/wrong/background' });
+    await shared.ensureInstalled({ cacheRoot: '/wrong/install' });
+    await shared.uiEnsureInstalled({ cacheRoot: '/wrong/ui' });
+    await shared.runDeps.ensureInstalled!({ cacheRoot: '/wrong/cli' });
+    expect(seen).toEqual([root, root, root, root]);
+  });
+
   test('显式 cacheDir 同时用于 provision/CLI/UI：ensureInstalled 注入收到同一 cacheRoot', async () => {
     const seen: string[] = [];
     const shared = buildCbmSharedDeps(

@@ -48,14 +48,24 @@ export function validateProjectPath(
 }
 
 /** 从工具 JSON args 中提取项目/仓库路径字段（防御：即使调用方只传 args 也能校验越界）。 */
-export function extractProjectPath(args: unknown): string | undefined {
-  if (typeof args !== 'object' || args === null) return undefined;
+export function extractProjectPaths(args: unknown): string[] {
+  if (typeof args !== 'object' || args === null) return [];
   const record = args as Record<string, unknown>;
-  for (const key of ['repository_path', 'project_path', 'path', 'workspace_root']) {
+  const paths: string[] = [];
+  for (const key of ['projectPath', 'repository_path', 'repo_path', 'project_path', 'path', 'workspace_root']) {
     const value = record[key];
-    if (typeof value === 'string' && value.trim() !== '') return value;
+    if (typeof value === 'string' && value.trim() !== '') paths.push(value);
   }
-  return undefined;
+  return paths;
+}
+
+export function extractProjectPath(args: unknown): string | undefined {
+  return extractProjectPaths(args)[0];
+}
+
+export function deriveProjectName(workspaceRoot: string): string {
+  const resolved = path.resolve(workspaceRoot);
+  return path.basename(resolved) || 'workspace';
 }
 
 /** 归一化工具名：trace_call_path → trace_path（canonical）。 */

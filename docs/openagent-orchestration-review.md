@@ -7,13 +7,15 @@
 
 > **范围声明**：本文是只读研究报告，**不代表本轮已经实现任何优化**。所有对现状的描述均基于 `src/**` 源码静态证据；涉及"真实 opencode v2 host 行为"的结论（尤其是 preset reload 的应用范围）一律标注为"静态代码显示存在重建风险 / 需 host smoke 最终确认"，不作绝对断言。
 
+> **历史文档**：本文是 2026-08-26 的只读评审快照；当前六阶段契约以 README 与 Skill 为准。
+
 ---
 
 ## 1. 执行摘要
 
 Oceanus 当前是一个**轻量、原生 v2、以"prompt 纪律 + 宿主观察"为主的 Agent 编排插件**。它的编排能力绝大部分落在两处：
 
-- **注册层**（`src/index.ts` + `src/agents/**`）：一次性把 `oceanus / sisyphus / explorer / librarian / oracle / designer / fixer / observer` 的定义写入 v2 `agent.transform`，并把编排规则写进系统提示词（`buildOceanusPrompt`、五阶段 workflow 注入）。
+- **注册层**（`src/index.ts` + `src/agents/**`）：一次性把 `oceanus / sisyphus / explorer / librarian / oracle / designer / fixer / observer` 的定义写入 v2 `agent.transform`，并把编排规则写进系统提示词（`buildOceanusPrompt`、六阶段 workflow 注入）。
 - **运行时层**（`src/runtime/**` + `src/tools/**` + `src/hooks/**`）：通过 `execute.before/after` Hook 观察宿主 `task`/`subagent` 调用，把信息写入本地 `TaskRegistry`，再由 `task_status / task_result / task_cancel` 三件套结合宿主 session 事实返回状态。
 
 与 `oh-my-openagent`（下称 OpenAgent）对比的核心差异：
@@ -60,7 +62,7 @@ Oceanus 当前是一个**轻量、原生 v2、以"prompt 纪律 + 宿主观察"�
 | 主 agent | `oceanus`（primary）+ `sisyphus`（primary），`draft.default('oceanus')`（`index.ts:95`） | `sisyphus/hephaestus/prometheus/atlas` 等 | 均有多个 primary，均支持"工作流 lead"角色 |
 | 子 agent | `explorer/librarian/oracle/designer/fixer/observer`（`constants.ts:8-15`），observer 默认禁用 | 增加 `multimodal-looker/metis/momus/sisyphus-junior` | OpenAgent 通过 **category→统一 Sisyphus-Junior、subagent_type 直调** 做规模化调度；Oceanus 无 category 机制 |
 | 路由机制 | **纯 prompt 纪律**：`AGENT_DESCRIPTIONS` + `buildOceanusPrompt`（`oceanus.ts:61-145`）把"何时委派给谁"写进系统提示词；并行调度靠 `<Workflow>` 文字规则 | IntentGate keyword detector + 显式 task/subagent 直调 | OpenAgent 有**确定性意图门控**（keyword detector），Oceanus 完全依赖模型遵循 prompt，无确定性强路由 |
-| 调度编排 | 五阶段 workflow 通过字符串标记替换注入（`sisyphus.ts:8-67`，`<Role>`/`</Workflow>` 替换） | category/planning 体系 + task 依赖 | Oceanus 调度是"文字约束"，OpenAgent 有可执行的 plan/依赖数据 |
+| 调度编排 | 六阶段 workflow 通过字符串标记替换注入（`sisyphus.ts:8-67`，`<Role>`/`</Workflow>` 替换） | category/planning 体系 + task 依赖 | Oceanus 调度是"文字约束"，OpenAgent 有可执行的 plan/依赖数据 |
 
 ### 3.2 任务（task）
 
@@ -147,7 +149,7 @@ Oceanus 当前是一个**轻量、原生 v2、以"prompt 纪律 + 宿主观察"�
 ┌─ 运行期（一次会话）─────────────────────────────────────────────────┐
 │  oceanus/sisyphus 系统提示词                                         │
 │      │  buildOceanusPrompt：路由规则 + 并行示例 + 委派契约           │
-│      │  sisyphus：<Role>替换 + <Workflow>五阶段注入（字符串标记）    │
+│      │  sisyphus：<Role>替换 + <Workflow>六阶段注入（字符串标记）    │
 │      ▼                                                              │
 │  宿主 task(run_in_background=true) / subagent                       │
 │      │  (并行、依赖由 prompt 纪律 + 模型自觉维护)                    │

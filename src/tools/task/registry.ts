@@ -130,6 +130,7 @@ export class TaskRegistry {
       status: task.status ?? 'running',
       createdAt,
       lastActivityAt: createdAt,
+      generation: task.generation ?? 1,
       label: task.label,
     };
 
