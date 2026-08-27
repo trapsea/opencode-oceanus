@@ -302,7 +302,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
     "tool_loop_guard": { "enabled": true, "warnAt": 3, "blockAt": 5 },
     "task_registry_observer": { "enabled": true }
   },
-  "taskReuse": { "enabled": false }
+  "taskReuse": { "enabled": true }
 }
 ```
 
@@ -318,7 +318,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 - `disabled_hooks`：禁用的 Hook 名称数组，对 Hook 拥有最终禁用权。
 - `tools`：按工具名深合并的结构化配置（见下方「新增工具与运行时保护」）。
 - `hooks`：按 Hook 名深合并的结构化配置（见下方「新增工具与运行时保护」）。
-- `taskReuse`：subagent 会话复用配置，见「subagent 会话复用」小节。字段：`enabled`（默认 `false`）、`ttlMs`（默认 2h）、`maxRetained`（默认 16）。
+- `taskReuse`：subagent 会话复用配置，见「subagent 会话复用」小节。字段：`enabled`（默认 `true`，显式 `false` 可关闭）、`ttlMs`（默认 2h）、`maxRetained`（默认 16）。
 
 `presets.<name>.<agent>` 或 `agents.<agent>` 支持的完整字段：
 

@@ -54,7 +54,10 @@ export const findConfigEntries = discoverConfigEntries
 export function isSandboxPath(path: string): boolean { return path.includes("/.cache/opencode/packages/") || path.includes("\\opencode\\packages\\") }
 export function entryVersion(entry: ConfigEntry): string | undefined {
   const raw = typeof entry.value === "string" ? entry.value : entry.value.version
-  return typeof raw === "string" && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(raw) ? raw : undefined
+  if (typeof raw !== "string") return undefined
+  // 字符串形态支持 "opencode-oceanus@1.2.3"；对象形态直接读取 version 字段。
+  const candidate = typeof entry.value === "string" ? raw.slice(raw.lastIndexOf("@") + 1) : raw
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(candidate) ? candidate : undefined
 }
 export function updateManagedEntry(file: string, nextVersion: string): void {
   const original = readFileSync(file, "utf8")

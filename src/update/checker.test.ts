@@ -8,10 +8,10 @@ describe("update checker", () => {
     expect(decide("1.2.0", "1.3.0-beta")).toBe("prerelease")
     expect(canUpdate("1.2.0", "1.3.0")).toBe(true)
   })
-  test("识别 latest/file/sandbox", () => {
+  test("识别 latest/file；OpenCode cache（sandbox）路径不再拒绝", () => {
     expect(decide("1.0.0", "1.1.0", { file: "x", path: "", value: "@latest", kind: "string", managed: true })).toBe("latest")
     expect(decide("1.0.0", "1.1.0", { file: "x", path: "", value: "file:x", kind: "string", managed: true })).toBe("file")
-    expect(decide("1.0.0", "1.1.0", { file: "/a/.cache/opencode/packages/x", path: "", value: "x", kind: "string", managed: true })).toBe("sandbox")
+    expect(decide("1.0.0", "1.1.0", { file: "/a/.cache/opencode/packages/opencode-oceanus@latest", path: "", value: "opencode-oceanus", kind: "string", managed: false })).toBe("update")
   })
   test("registry timeout propagates", async () => {
     const fetcher = (() => new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("timeout")), 1))) as typeof fetch

@@ -52,7 +52,8 @@ describe('Job Board schema v1 与持久化', () => {
     await board.replace(task(), { expectedRevision: 0, operationId: 'seed' });
     await writeFile(f.path, '{truncated');
     const restored = await JobBoard.open({ workspaceRoot: f.root, parentSessionId: 'parent' });
-    expect(restored.tasks()[0].task_id).toBe('t1');
+    // degraded 读取不暴露可能不完整或过期的持久化数据
+    expect(restored.tasks()).toEqual([]);
     expect(restored.degraded).toBe(true);
   });
 });

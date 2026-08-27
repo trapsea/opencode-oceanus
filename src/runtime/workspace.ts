@@ -16,6 +16,7 @@ export async function getSessionInfo(
   sessionID: string,
 ): Promise<SessionInfoLike | undefined> {
   try {
+    if (typeof session.get !== 'function') return undefined;
     const info = await session.get({ sessionID });
     return info as SessionInfoLike | undefined;
   } catch {
@@ -25,7 +26,8 @@ export async function getSessionInfo(
 
 /**
  * 解析 v2 sessionID 对应的工作区根目录。
- * 无法解析（get 失败、location.directory 缺失）返回 null。
+ * 无法解析（get 失败、location.directory 缺失）返回 null；需要回退时由调用方使用
+ * resolveWorkspaceRootOrCwd，避免改变既有路径校验语义。
  */
 export async function resolveWorkspaceRoot(
   session: SessionLike,
@@ -34,6 +36,15 @@ export async function resolveWorkspaceRoot(
   const info = await getSessionInfo(session, sessionID);
   const directory = info?.location?.directory;
   return typeof directory === 'string' && directory.length > 0 ? directory : null;
+}
+
+/** 仅供需要继续运行的入口显式使用 cwd 回退。 */
+export async function resolveWorkspaceRootOrCwd(
+  session: SessionLike,
+  sessionID: string,
+  fallback = process.cwd(),
+): Promise<string> {
+  return (await resolveWorkspaceRoot(session, sessionID)) ?? fallback;
 }
 
 /**

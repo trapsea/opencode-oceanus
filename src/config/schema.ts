@@ -108,6 +108,9 @@ export const ToolsConfigSchema = z
     ast_grep_replace: ToolConfigSchema.optional(),
     hashline_edit: ToolConfigSchema.optional(),
     task_status: ToolConfigSchema.optional(),
+    task_message: ToolConfigSchema.optional(),
+    task_revive: ToolConfigSchema.optional(),
+    task_reuse: ToolConfigSchema.optional(),
     task_result: ToolConfigSchema.optional(),
     task_cancel: ToolConfigSchema.optional(),
     cbm_status: ToolConfigSchema.optional(),
@@ -178,12 +181,12 @@ export const AutoUpdateConfigSchema = z
 
 /**
  * subagent 会话复用配置（`task_revive` / `task_message` 的真实续用能力）。
- * 默认关闭：不自动把完成的任务标为可复用，避免无限保留子会话与副作用重跑风险。
+ * 默认开启：允许完成任务保留 child session 供显式复用；显式 false 可关闭。
  * 开启后仅保留成功（completed）任务的 child session 用于复用。
  */
 export const TaskReuseConfigSchema = z
   .object({
-    /** 是否启用已完成 subagent 会话复用；默认 false。 */
+    /** 是否启用已完成 subagent 会话复用；默认 true。 */
     enabled: z.boolean().optional(),
     /** 复用前保留会话的 TTL（ms）；默认 2 小时。 */
     ttlMs: z.number().int().positive().optional(),

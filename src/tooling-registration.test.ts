@@ -107,7 +107,7 @@ describe('Tool transform 注册', () => {
     expect(input.properties.rename).toMatchObject({ type: 'string' });
   });
 
-  test('默认注册全部 15 个新增工具（8 常规 + 7 CBM 兜底）', async () => {
+  test('默认注册全部 16 个新增工具（9 常规 + 7 CBM 兜底）', async () => {
     const { ctx, addedTools } = createMockCtx();
     await registerOceanusTools(ctx, {});
     const names = addedTools.map((t) => t.name).sort();
@@ -120,7 +120,8 @@ describe('Tool transform 注册', () => {
         'task_result',
          'task_status',
          'task_message',
-         'task_revive',
+          'task_revive',
+          'task_reuse',
         'cbm_status',
         'cbm_index',
         'cbm_search_graph',

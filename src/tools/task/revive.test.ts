@@ -6,12 +6,13 @@ const ctx = { sessionID: 'parent' } as any;
 const board = (task: any) => ({ get: () => ({ parent_session_id: 'parent', child_session_id: 'child', task_id: 't', task_version: 2, generation: 3, board_revision: 4, last_board_revision: 4, ...task }), revive: async (_id: string, o: any) => ({ ...task, state: 'starting', generation: o.expectedGeneration + 1 }) }) as any;
 const input = (extra: any = {}) => ({ taskId: 't', resume_id: 'r', brief: 'brief', expected_board_revision: 4, expected_task_version: 2, expected_generation: 3, operation_id: 'op', ...extra });
 const adapter = { resumeChild: async (_: any) => undefined };
+const okAdapter = { resumeChild: async () => ({ ok: true as const, status: 'succeeded' as const }) };
 
 describe('task_revive 服务契约（T6）', () => {
   test('blocked continuation、reusable 终态及不可恢复边界', async () => {
-    expect(parse(await buildTaskReviveTool(board({ state: 'blocked' }), adapter).execute(input(), ctx)).status).toBe('revived');
+    expect(parse(await buildTaskReviveTool(board({ state: 'blocked' }), adapter).execute(input(), ctx)).status).toBe('uncertain');
     for (const state of ['running', 'stopped']) expect(parse(await buildTaskReviveTool(board({ state })).execute({ taskId: 't' }, ctx)).error).toBeTruthy();
-    for (const state of ['completed', 'failed', 'cancelled']) expect(parse(await buildTaskReviveTool(board({ state, reusable: true }), adapter).execute(input(), ctx)).status).toBe('revived');
+    for (const state of ['completed', 'failed', 'cancelled']) expect(parse(await buildTaskReviveTool(board({ state, reusable: true }), okAdapter).execute(input(), ctx)).status).toBe('revived');
   });
   test('generation/CAS、unsupported/degraded、越权与缺失 resume_id', async () => {
     const calls: any[] = []; const b = board({ state: 'blocked' }); b.revive = async (_: string, o: any) => { calls.push(o); return {}; };
@@ -24,13 +25,12 @@ describe('task_revive 服务契约（T6）', () => {
   test('adapter ok:false → uncertain，ok:true → revived 带 delivery', async () => {
     const failAdapter = { resumeChild: async () => ({ ok: false as const, reason: 'unsupported' }) };
     expect(parse(await buildTaskReviveTool(board({ state: 'blocked' }), failAdapter).execute(input(), ctx)).status).toBe('uncertain');
-    const okAdapter = { resumeChild: async () => ({ ok: true as const, status: 'succeeded' as const }) };
     const ok = parse(await buildTaskReviveTool(board({ state: 'blocked' }), okAdapter).execute(input(), ctx));
     expect(ok.status).toBe('revived');
     expect(ok.delivery).toBe('succeeded');
-    // 旧语义：resumeChild 返回 undefined（未抛错）仍视为成功，保持向后兼容。
+    // malformed adapter result 不得伪造恢复成功。
     const legacyAdapter = { resumeChild: async () => undefined };
-    expect(parse(await buildTaskReviveTool(board({ state: 'blocked' }), legacyAdapter).execute(input(), ctx)).status).toBe('revived');
+    expect(parse(await buildTaskReviveTool(board({ state: 'blocked' }), legacyAdapter).execute(input(), ctx)).status).toBe('uncertain');
   });
 
   test('revive 后仅 host active=true 确认才 starting→running，generation+1', async () => {
@@ -59,18 +59,13 @@ describe('task_revive 服务契约（T6）', () => {
     expect(denied.confirmed).toBe(false);
   });
 
-  test('uncertain 任务可 revive 重开（adapter 失败回落 uncertain，可再次重试）', async () => {
-    let calls = 0;
-    const adapter = { resumeChild: async () => { calls++; return calls === 1 ? { ok: false, reason: 'timeout' } : { ok: true, status: 'delivered' }; }, confirmActive: async () => false };
+  test('uncertain 任务明确拒绝 revive', async () => {
+    const adapter = { resumeChild: async () => ({ ok: true, status: 'delivered' }), confirmActive: async () => false };
     const b = statefulReviveBoard('uncertain');
     b.transition = async (_id: string, state: string) => { b.store.task = { ...b.store.task, state }; };
-    const first = parse(await buildTaskReviveTool(b, adapter).execute(input(), ctx));
-    expect(first.status).toBe('uncertain');
+    const result = parse(await buildTaskReviveTool(b, adapter).execute(input(), ctx));
+    expect(result.error).toBe('NOT_REVIVEABLE');
     expect(b.store.task.state).toBe('uncertain');
-    // 再次重开：input revision/version 按当前任务
-    const retry = parse(await buildTaskReviveTool(b, adapter).execute(input({ expected_board_revision: b.store.task.last_board_revision, expected_task_version: b.store.task.task_version, expected_generation: b.store.task.generation, operation_id: 'op2' }), ctx));
-    expect(retry.status).toBe('revived');
-    expect(retry.task.generation).toBe(5);
   });
 });
 

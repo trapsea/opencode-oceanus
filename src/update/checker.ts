@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { isSandboxPath, entryVersion, type ConfigEntry } from "./config-entry"
+import type { ConfigEntry } from "./config-entry"
 
-export type UpdateDecision = "update" | "latest" | "file" | "sandbox" | "major" | "prerelease" | "current" | "skipped" | "error"
+export type UpdateDecision = "update" | "latest" | "file" | "major" | "prerelease" | "current" | "skipped" | "error"
 export function compareVersions(a: string, b: string): number {
   const x = a.split("-")[0].split(".").map(Number), y = b.split("-")[0].split(".").map(Number)
   for (let i=0;i<3;i++) if ((x[i]||0)!==(y[i]||0)) return (x[i]||0)-(y[i]||0)
@@ -12,7 +12,7 @@ export function canUpdate(current: string, next: string): boolean { return !next
 export function decide(current: string, next: string, entry?: ConfigEntry): UpdateDecision {
   if (entry && typeof entry.value === "string" && (entry.value === "@latest" || entry.value.endsWith("@latest"))) return "latest"
   if (entry && typeof entry.value === "string" && entry.value.startsWith("file:")) return "file"
-  if (entry && isSandboxPath(entry.file)) return "sandbox"
+  // 注意：OpenCode cache（sandbox）路径不再是拒绝理由——那正是自动更新应发布的 install root。
   if (next.includes("-")) return "prerelease"
   if (current.split(".")[0] !== next.split(".")[0]) return "major"
   return canUpdate(current, next) ? "update" : "current"

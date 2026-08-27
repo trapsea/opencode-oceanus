@@ -164,6 +164,11 @@ export interface ConfigLoadOptions {
   directory?: string;
 }
 
+export function getProjectPresetConfigPath(directory: string): string {
+  const basePath = path.join(directory, '.opencode', 'opencode-oceanus');
+  return findConfigPath(basePath) ?? `${basePath}.jsonc`;
+}
+
 /**
  * 加载插件配置。
  * 优先级：项目配置 > 用户配置。

@@ -1,14 +1,19 @@
-import { loadPluginConfig } from '../config/loader';
+import { getProjectPresetConfigPath, loadPluginConfig } from '../config/loader';
 import { getUserPresetConfigPath, readUserConfig, updateUserPreset, type UserPresetOptions } from '../config/presets';
 import type { CommandDefinition, CommandInvocation } from './types';
 
-export interface PresetCommandOptions extends UserPresetOptions {}
+export interface PresetCommandOptions extends UserPresetOptions {
+  /** 当前 location；指定后切换写入项目级配置。 */
+  directory?: string;
+}
 
 export async function runPresetCommand(
   args: readonly string[] = [],
   options: PresetCommandOptions = {},
 ): Promise<{ current: string | undefined; presets: string[] } | { preset: string }> {
-  const config = (options.configDir || options.configPath
+  const config = (options.directory
+    ? loadPluginConfig({ directory: options.directory })
+    : options.configDir || options.configPath
     ? readUserConfig(options.configPath ?? getUserPresetConfigPath(options.configDir))
     : loadPluginConfig({ directory: process.cwd() })) as {
       preset?: string;
@@ -20,7 +25,12 @@ export async function runPresetCommand(
   if (!presets.includes(argument)) {
     throw new Error(`Unknown preset: ${argument}（未知 preset）`);
   }
-  updateUserPreset(argument, options);
+  updateUserPreset(
+    argument,
+    options.directory
+      ? { configPath: getProjectPresetConfigPath(options.directory) }
+      : options,
+  );
   return { preset: argument };
 }
 
@@ -46,7 +56,8 @@ export interface PresetCommandHandlers {
    * 实现方必须只透传 sessionID / text / delivery，禁止转发 `invocation.prompt.skills`
    * 等其他字段，避免在响应消息中重复触发用户原 prompt 的 skill 引用。
    */
-  reply: (
+  /** 兼容旧注入方；preset 不再调用该回调，避免触发新的模型 turn。 */
+  reply?: (
     text: string,
     invocation: CommandInvocation,
   ) => Promise<void>;
@@ -54,35 +65,30 @@ export interface PresetCommandHandlers {
 
 /**
  * 构造 preset command：
- * - 切换成功 → `reloadAgents()` 一次 + `reply(成功消息)`
- * - 查询路径 → 仅 `reply(...)`
- * - 未知 / 写入失败 → 仅 `reply(失败消息)`，不 reload、不抛
+ * - 切换成功 → `reloadAgents()` 一次后直接返回，不创建新的模型 turn
+ * - 查询路径 → 直接返回，不写配置、不 reload
+ * - 未知 / 写入失败 → 抛出诊断错误，不 reload
  */
 export function createPresetCommand(handlers: PresetCommandHandlers): CommandDefinition {
   return {
     name: 'preset',
-    description: '查看或切换 Oceanus preset',
+    description: '查看或切换 Oceanus preset。/preset 查询；/preset <name> 切换当前目录 preset，立即刷新 agent，不中断当前任务，也不会创建新的模型任务。',
     async execute(invocation) {
       try {
         const argument = invocation.prompt.text.split(/\s+/).filter(Boolean);
         const result = await handlers.runPreset(argument);
         if ('preset' in result) {
-          // 切换成功：先刷新 agent registry，再回写消息。
+          // 切换成功：只刷新 registry，不把反馈作为新 prompt 投递给模型。
           await handlers.reloadAgents();
-          await handlers.reply(
-            `已刷新 agent registry 为 preset: ${result.preset}。当前 session 可能仍需新建会话以应用更改。`,
-            invocation,
-          );
           return;
         }
-        // 查询路径：仅读取，不 reload。
-        await handlers.reply(
-          `Current preset: ${result.current ?? '(none)'}; available: ${result.presets.join(', ')}。此命令仅读取配置；项目级 preset 可能覆盖最终生效值。请 reload 或开启新会话使配置生效。`,
-          invocation,
-        );
+        // 查询路径：仅读取，不 reload，也不触发模型 turn。
+        return;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        await handlers.reply(`Preset command failed: ${message}`, invocation);
+        throw new Error(`Preset command failed（preset 命令执行失败）: ${message}`, {
+          cause: error,
+        });
       }
     },
   };

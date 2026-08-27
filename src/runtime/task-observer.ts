@@ -23,6 +23,7 @@ import type { TaskReuseResolvedConfig } from '../config/utils';
 import { notifyTerminalTask } from './task-notification';
 void notifyTerminalTask; // 保留导出引用，供未来显式调用（T1 默认关闭）
 import type { SessionLike } from './types';
+import { runDispatchGuards, deriveObjectiveKey } from './dispatch-guard';
 
 /** 被观察的宿主工具名集合。 */
 export const OBSERVED_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -94,6 +95,15 @@ function extractLabel(input: unknown): string | undefined {
   return value ? truncate(value, OBSERVER_LABEL_MAX_CHARS) : undefined;
 }
 
+/** 只接受 description 中恰好一个合法的 lane:<stable-key> 标记。 */
+export function extractLaneKey(input: unknown): string | undefined {
+  const description = pickString(input, ['description']);
+  if (!description) return undefined;
+  const matches = [...description.matchAll(/(?:^|\s)lane:([^\s]+)/g)];
+  if (matches.length !== 1 || !/^[A-Za-z0-9._\/-]+$/.test(matches[0][1])) return undefined;
+  return matches[0][1];
+}
+
 /** 递归访问任意值（含嵌套对象/数组），带深度上限。 */
 function walk(value: unknown, visit: (v: unknown) => void, depth = 0): void {
   if (depth > OBSERVER_WALK_MAX_DEPTH) return;
@@ -113,8 +123,6 @@ function walk(value: unknown, visit: (v: unknown) => void, depth = 0): void {
 const CHILD_SESSION_KEYS: ReadonlyArray<{ key: string; priority: number }> = [
   { key: 'childSessionId', priority: 1 },
   { key: 'child_session_id', priority: 2 },
-  { key: 'sessionID', priority: 3 },
-  { key: 'sessionId', priority: 4 },
 ];
 
 /**
@@ -281,12 +289,22 @@ export function createTaskObserver(
   const observer: TaskObserver = {
     'execute.before': async (event: any) => {
       if (!event || !OBSERVED_TOOL_NAMES.has(event.tool)) return;
+      // 派发纪律守卫（dispatch-guard）：角色冒名 / 同目标终态未消费重派。
+      // 必须 try 之外直接抛出——错误文本经宿主回流给编排模型实现自我纠正；
+      // 此处 throw 会中止本次工具调用，后续 registry/board 均不写入。
+      runDispatchGuards(event, { board });
       try {
         const taskId = resolveTaskId(event.input, event.id);
         const parentSessionId =
           typeof event.sessionID === 'string' ? event.sessionID : undefined;
         if (!taskId || !parentSessionId) return;
-        const label = extractLabel(event.input);
+         const label = extractLabel(event.input);
+         const laneKey = extractLaneKey(event.input);
+         const inputRecord = isRecord(event.input) ? event.input : undefined;
+         const agent = typeof inputRecord?.agent === 'string' ? inputRecord.agent : undefined;
+         const objective = typeof inputRecord?.objective === 'string' ? inputRecord.objective : label;
+         const workspaceRoot = typeof inputRecord?.workspace_root === 'string' ? inputRecord.workspace_root :
+           (typeof inputRecord?.workspaceRoot === 'string' ? inputRecord.workspaceRoot : undefined);
         try {
           registry.create({
             id: taskId,
@@ -323,6 +341,19 @@ export function createTaskObserver(
                 task_version: existing?.task_version ?? 0,
                 generation: existing?.generation ?? 1,
                 ownership: { parent_session_id: parentSessionId },
+                agent, lane_key: laneKey, workspace_root: workspaceRoot, objective,
+                // dispatch-guard 断路器的目标键（与守卫同源推导）；可缺省。
+                ...(deriveObjectiveKey(
+                  (event.input as any)?.description,
+                  (event.input as any)?.prompt,
+                )
+                  ? {
+                      objective_key: deriveObjectiveKey(
+                        (event.input as any)?.description,
+                        (event.input as any)?.prompt,
+                      )!,
+                    }
+                  : {}),
               },
               { expectedRevision: board.revision, operationId: `observe-before-${event.id ?? taskId}` },
             );
@@ -450,11 +481,18 @@ export function createTaskObserver(
                 result: text ? { status: kind === 'completed' ? 'success' : 'failure', summary: text } : undefined,
                 at: Date.now(),
               });
-              // 复用标记沿用既有策略（仅 completed + reuse.enabled）。
-              if (reuse?.enabled && kind === 'completed') {
-                const after = board.get(taskId);
-                if (after.reusable === true) await pruneReusable(board, reuse).catch(() => undefined);
-              }
+               // 完成且已明确绑定 child 后，以 replace 做一次 CAS 标记；
+               // reconciliation 仍由启动恢复链路确认，故这里不伪造 reconciled。
+               if (reuse?.enabled && kind === 'completed') {
+                 const after = board.get(taskId);
+                 if (after.child_session_id && after.reconciliation === 'reconciled') {
+                   await board.replace(
+                     { ...after, reusable: true },
+                     { expectedRevision: after.last_board_revision ?? board.revision, operationId: `reuse-${taskId}-${after.generation}` },
+                   ).catch(() => undefined);
+                 }
+                 await pruneReusable(board, reuse).catch(() => undefined);
+               }
             } catch (e: any) {
               log('task-observer.after 事件应用失败(fail-open)', { eventId, error: e?.message ?? messageOf(e) });
             }

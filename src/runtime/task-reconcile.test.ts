@@ -8,7 +8,8 @@ describe('task-reconcile 确定性恢复', () => {
   test('startup rehydrate 分类 active/stopped/uncertain/lost/reusable，并隔离 foreign owner', async () => {
     const host = { get: async ({ sessionID }: any) => sessionID === 'live' ? {} : sessionID === 'stop' ? { outcome: 'interrupted' } : undefined, active: async () => ({}) } as any;
     const result = await reconcileTasks({ board: board(task('live', { child_session_id: 'live' }), task('stop', { state: 'stopped', child_session_id: 'stop' }), task('old', { child_session_id: 'missing', last_activity_at: 0 }), task('reuse', { state: 'completed', reusable: true }), task('foreign', { ownership: { owner_agent: 'other' } })), session: host, ownerAgent: 'a', now: () => 1000, timeoutMs: 500 });
-    expect(result.map((x) => [x.task_id, x.kind])).toEqual([['live', 'active'], ['stop', 'stopped'], ['old', 'lost'], ['reuse', 'reusable']]);
+    // 无 child 或未确认 outcome 的终态不标 reusable
+    expect(result.map((x) => [x.task_id, x.kind])).toEqual([['live', 'active'], ['stop', 'stopped'], ['old', 'lost'], ['reuse', 'unreconciled']]);
     expect(result.find((x) => x.task_id === 'old')?.certainty).toBe('uncertain');
   });
 

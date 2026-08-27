@@ -20,14 +20,13 @@ import type {
  * - `createCommands` 以最小注入依赖为参数，返回 `CommandDefinition[]`；每个 command
  *   的依赖按命令名命名空间隔离（本次仅 `preset`）。
  * - 返回数组必须包含名为 `preset` 的定义，形状为 `{ name, description, execute }`。
- * - `preset.execute` 必须通过注入的 handlers 触发 reload / reply，而非直接持有插件 ctx：
- *   切换成功 → `reloadAgents()` + `reply(...)`；查询路径 → 仅 `reply(...)`；
- *   未知/失败 → 仅 `reply(...)`，不 reload、不抛。
+  * - `preset.execute` 必须通过注入的 handlers 触发 reload，而非直接持有插件 ctx；
+  *   成功/查询不创建模型 turn，未知/失败抛出诊断错误。
  *
  * 注意：本文件不依赖旧的 `./commands`（即 `src/commands.ts`）导出，仅面向未来目录 API。
  */
 
-/** 由最小 preset handlers 构造 spy 化依赖，用于断言 reload / reply 触发情况。 */
+/** 由最小 preset handlers 构造 spy 化依赖，用于断言 reload 触发情况。 */
 function makePresetDeps(runPreset: PresetCommandHandlers['runPreset']) {
   const reload = { calls: 0 };
   const replies: string[] = [];
@@ -91,7 +90,7 @@ describe('commands 聚合与 v2 注册契约（commands-directory-injection）',
     expect(typeof preset.execute).toBe('function');
   });
 
-  test('preset.execute 切换成功时通过注入依赖触发 reload 与 reply', async () => {
+  test('preset.execute 切换成功时通过注入依赖触发 reload 且无 reply', async () => {
     const { deps, reload, replies } = makePresetDeps(async () => ({ preset: 'fast' }));
     const preset = presetDefinition(deps);
     const invocation: CommandInvocation = {
@@ -103,11 +102,10 @@ describe('commands 聚合与 v2 注册契约（commands-directory-injection）',
     await preset.execute(invocation);
 
     expect(reload.calls).toBe(1);
-    expect(replies).toHaveLength(1);
-    expect(replies[0]).toMatch(/fast/);
+    expect(replies).toHaveLength(0);
   });
 
-  test('preset.execute 查询路径仅 reply，不触发 reload', async () => {
+  test('preset.execute 查询路径不触发 reply/reload', async () => {
     const { deps, reload, replies } = makePresetDeps(async () => ({
       current: 'fast',
       presets: ['fast'],
@@ -122,10 +120,10 @@ describe('commands 聚合与 v2 注册契约（commands-directory-injection）',
     await preset.execute(invocation);
 
     expect(reload.calls).toBe(0);
-    expect(replies).toHaveLength(1);
+    expect(replies).toHaveLength(0);
   });
 
-  test('preset.execute 未知/失败路径仅 reply，不 reload、不抛异常', async () => {
+  test('preset.execute 未知/失败路径抛出错误且不触发 reply/reload', async () => {
     const { deps, reload, replies } = makePresetDeps(async () => {
       throw new Error('Unknown preset（未知 preset）');
     });
@@ -136,10 +134,9 @@ describe('commands 聚合与 v2 注册契约（commands-directory-injection）',
       delivery: 'steer',
     };
 
-    await expect(preset.execute(invocation)).resolves.toBeUndefined();
+    await expect(preset.execute(invocation)).rejects.toThrow();
 
     expect(reload.calls).toBe(0);
-    expect(replies).toHaveLength(1);
-    expect(replies[0]).toMatch(/unknown|未知|failed/i);
+    expect(replies).toHaveLength(0);
   });
 });

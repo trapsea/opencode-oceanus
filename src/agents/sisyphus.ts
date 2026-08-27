@@ -23,6 +23,7 @@ State file: maintain one markdown task ledger per plan under \`.oceanus/progress
 
 const TASK_CONTINUITY = `
 ## Background Job Board 注入与连续性
+每个调度 lane 使用稳定描述 \`lane:<stable-key>\`。调度前先调用 \`task_reuse\` 复用已有 child session；只有 task_reuse 明确失败时，才允许对该 lane 做一次 native subagent fallback，不得再次 fallback 或重复 spawn。
 每次 execute 调度前，注入 active、unreconciled、reusable 摘要（task_id、state、worker/session、summary）。active 或 unreconciled 任务不得重复创建或 amend；等待 terminal result。继续工作时仅通过 task_revive 恢复原任务（复用原 task_id），不得重复创建任务。
 task_message 用于向运行中的任务追加明确消息；task_revive 用于恢复 blocked 或可复用终态任务（需 taskReuse.enabled 且该任务以 completed 终态保留 child session）。两者都必须复用原 task_id，恢复后重新 reconcile 上下文、状态和结果。`;
 
@@ -43,6 +44,9 @@ function buildMetisMomusGate(disabledAgents?: Set<string>): string {
     lines.push(
       '- 形成方案后、进入 execute 前，委派 @momus 做方案质量 check：检查依赖/范围/测试/可执行性，输出 `OKAY` 或 `REJECT` + 具体问题。',
       '- @momus 返回 `REJECT` 时必须回到 plan 修订后重新检查，不得直接进入 execute；仅当 `OKAY` 才放行 execute。',
+      '- 门禁审查必须使用原生专家名派发（subagent 的 agent 参数为 `"momus"`）。严禁用 general 或其它 agent 冒充专家——例如 prompt 写“你是 Momus”而 agent 不是 momus 属于违规派发，运行时 dispatch-guard 会直接拒绝。',
+      '- 避免“重复新建 Momus 会话”的正确方式是复用既有 child：优先 task_reuse / task_revive 按 lane 续用原 session，而不是更换 agent 绕过新建。',
+      '- Momus 连续两轮 `REJECT` 且计划没有实质修订时，必须停止重审循环，向用户上报分歧点并请求决策；不允许静默循环自查。',
     );
   } else {
     lines.push('- Momus 已禁用；不得声称完成了执行前方案质量 check。');

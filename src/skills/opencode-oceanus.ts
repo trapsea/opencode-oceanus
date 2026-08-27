@@ -50,9 +50,9 @@ Agent 覆盖支持 \`model\`、\`temperature\`、\`variant\`、\`prompt\`、\`or
 ## 使用 /preset
 
 - \`/preset\`：查看当前 preset 和所有可用 preset，并标记当前项。
-- \`/preset <name>\`：校验并切换到指定的 preset。
+- \`/preset <name>\`：校验并切换当前目录的 preset，立即刷新当前 session 的 agent registry；不会创建新的模型任务，也不会主动中断当前任务。
 
-切换只会原子更新用户级配置的顶层 \`preset\`，不会改写 \`presets\`、\`agents\` 或项目配置。没有 preset、名称不存在或写入失败时会显示提示。成功切换后请执行 \`reload\`，或新建会话；配置只会应用到之后新注册的 agents。若项目配置覆盖了 \`preset\`，用户级选择不会改变项目最终生效的 preset。
+切换会原子更新当前目录项目配置的顶层 \`preset\`，保留其它配置；没有 preset、名称不存在或写入失败时由命令层报告错误。命令成功后当前 session 的 agent registry 会立即刷新，状态可在 sidebar 或再次执行 \`/preset\` 查询；该命令不会把反馈作为新的模型 prompt 投递。
 `,
 };
 

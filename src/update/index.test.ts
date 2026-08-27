@@ -45,6 +45,17 @@ describe("registerAutoUpdate", () => {
     expect(checks).toBe(1)
   })
 
+  test("读取 OpenCode v2 event.properties.info，根会话触发而子会话不触发", async () => {
+    const stream = context([
+      { type: "session.created", properties: { info: { id: "child", parentID: "root" } } },
+      { type: "session.created", properties: { info: { id: "root" } } },
+    ])
+    let checks = 0
+    const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({ checker: async () => { checks++; return "1.1.0" } }))
+    await tick(); await tick(); await cleanup()
+    expect(checks).toBe(1)
+  })
+
   test("重复根会话事件只运行一次", async () => {
     const stream = context([
       { type: "session.created", data: { sessionID: "a" } },
@@ -69,6 +80,43 @@ describe("registerAutoUpdate", () => {
     const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({ discover: () => [], storage: { read: async () => { reads++; return null }, write: async () => {} }, checker: async () => { checks++; return "1.1.0" }, installer: async () => { installs++ } }))
     await tick(); await cleanup()
     expect(reads).toBe(0); expect(checks).toBe(0); expect(installs).toBe(0)
+  })
+
+  test("已锁普通（非 managed）入口不自动覆盖", async () => {
+    let checks = 0; let installs = 0
+    const stream = context([{ type: "session.created", data: { sessionID: "root" } }])
+    const pinned = { file: "/tmp/opencode.json", path: "plugins.0", value: "opencode-oceanus@1.0.0", kind: "string" as const, managed: false }
+    const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({ discover: () => [pinned], checker: async () => { checks++; return "1.1.0" }, installer: async () => { installs++ } }))
+    await tick(); await cleanup()
+    expect(checks).toBe(0); expect(installs).toBe(0)
+  })
+
+  test("未锁入口（v2 默认 plugins: [\"opencode-oceanus\"]）会调用 checker 与 installer", async () => {
+    const installed: string[] = []
+    const stream = context([{ type: "session.created", data: { sessionID: "root" } }])
+    const unlocked = { file: "/tmp/opencode.json", path: "plugins.0", value: "opencode-oceanus", kind: "string" as const, managed: false }
+    const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({ discover: () => [unlocked], installer: async (version) => { installed.push(version) } }))
+    await tick(); await tick(); await cleanup()
+    expect(installed).toEqual(["1.1.0"])
+  })
+
+  test("未锁入口：file:/@latest 跳过、major/prerelease 不安装", async () => {
+    for (const [value, next, shouldInstall] of [
+      ["file:../local", "1.1.0", false],
+      ["opencode-oceanus@latest", "1.1.0", false],
+      ["opencode-oceanus", "2.0.0", false],
+      ["opencode-oceanus", "1.2.0-beta", false],
+    ] as const) {
+      const installed: string[] = []
+      const stream = context([{ type: "session.created", data: { sessionID: "root" } }])
+      const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({
+        discover: () => [{ file: "/tmp/opencode.json", path: "plugins.0", value, kind: "string" as const, managed: false }],
+        checker: async () => next,
+        installer: async (v) => { installed.push(v) },
+      }))
+      await tick(); await tick(); await cleanup()
+      expect(installed).toEqual(shouldInstall ? ["1.1.0"] : [])
+    }
   })
 
   test("节流状态命中时不调用 checker", async () => {

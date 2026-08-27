@@ -459,11 +459,11 @@ describe('task_status/task_result 宿主事实优先级（T5）', () => {
 // ─────────────────────────── Hook 顺序 / 配置开关 / 失败隔离 ───────────────────────────
 
 describe('Hook 顺序、配置开关与失败隔离', () => {
-  test('默认注册计数：15 工具、4 before + 6 after hooks', async () => {
+  test('默认注册计数：16 工具、4 before + 6 after hooks', async () => {
     const mock = createMockCtx();
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
-    expect(mock.addedTools).toHaveLength(15);
+    expect(mock.addedTools).toHaveLength(16);
     expect(mock.beforeHooks).toHaveLength(4);
     expect(mock.afterHooks).toHaveLength(6);
   });
@@ -479,6 +479,7 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
         'task_cancel',
         'task_message',
         'task_revive',
+        'task_reuse',
         'cbm_status',
         'cbm_index',
         'cbm_search_graph',
@@ -520,7 +521,7 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
     expect(names).toContain('task_result');
     expect(names).toContain('task_cancel');
     // 未禁用 4 个常规工具 + 默认 7 个 CBM 工具
-    expect(mock.addedTools).toHaveLength(13);
+    expect(mock.addedTools).toHaveLength(14);
     // json 被禁用 → after 只剩 truncator + loop-guard + observer + cbm-guidance
     expect(mock.afterHooks).toHaveLength(5);
     expect(mock.beforeHooks).toHaveLength(4); // apply_patch + loop-guard + observer + cbm-guidance

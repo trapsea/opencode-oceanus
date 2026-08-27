@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createPresetCommand, runPresetCommand } from './commands';
+import { loadPluginConfig } from './config/loader';
 
 /**
  * 本地最小 command 类型契约：仅镜像 OpenCode v2 `CommandDefinition` / `CommandInvocation`
@@ -62,6 +63,30 @@ describe('原生 preset command', () => {
       preset: 'safe',
       presets: { safe: {} },
     });
+  });
+
+  test('指定当前目录时切换项目级 preset，并使最终配置采用该选择', async () => {
+    const configDir = await temporaryDirectory();
+    const directory = await temporaryDirectory();
+    await writeFile(
+      join(configDir, 'opencode-oceanus.jsonc'),
+      '{ "preset": "fast", "presets": { "safe": { "explorer": { "model": "safe/model" } }, "fast": {} } }\n',
+    );
+    await writeFile(
+      join(directory, '.opencode', 'opencode-oceanus.jsonc'),
+      '{ "preset": "fast", "presets": { "safe": { "explorer": { "model": "safe/model" } }, "fast": {} }, "agents": { "oceanus": { "temperature": 0.2 } } }\n',
+    ).catch(async () => {
+      await mkdir(join(directory, '.opencode'), { recursive: true });
+      await writeFile(
+        join(directory, '.opencode', 'opencode-oceanus.jsonc'),
+        '{ "preset": "fast", "presets": { "safe": { "explorer": { "model": "safe/model" } }, "fast": {} }, "agents": { "oceanus": { "temperature": 0.2 } } }\n',
+      );
+    });
+
+    await runPresetCommand(['safe'], { configDir, directory });
+
+    expect(loadPluginConfig({ directory }).preset).toBe('safe');
+    expect(loadPluginConfig({ directory }).agents?.explorer?.model).toBe('safe/model');
   });
 
   test('未知 preset 被拒绝且不写入配置', async () => {
@@ -155,7 +180,7 @@ describe('preset command agent reload (AUTO-RELOAD-001)', () => {
     return { command, reload, reply, invoke };
   }
 
-  test('切换到已存在 preset 时触发一次 agent reload 并发出成功消息', async () => {
+  test('切换到已存在 preset 时触发一次 agent reload 且不创建模型 turn', async () => {
     const configDir = await temporaryDirectory();
     await writeFile(
       join(configDir, 'opencode-oceanus.jsonc'),
@@ -166,8 +191,20 @@ describe('preset command agent reload (AUTO-RELOAD-001)', () => {
     await harness.invoke('safe');
 
     expect(harness.reload.calls).toBe(1);
-    expect(harness.reply.messages).toHaveLength(1);
-    expect(harness.reply.messages[0]).toMatch(/safe/);
+    expect(harness.reply.messages).toHaveLength(0);
+  });
+
+  test('切换成功不应通过 reply 创建新的模型 turn', async () => {
+    const configDir = await temporaryDirectory();
+    await writeFile(
+      join(configDir, 'opencode-oceanus.jsonc'),
+      '{ "preset": "fast", "presets": { "safe": {}, "fast": {} } }\n',
+    );
+    const harness = buildHarness(configDir);
+
+    await harness.invoke('safe');
+
+    expect(harness.reply.messages).toHaveLength(0);
   });
 
   test('无参数（查询）路径不触发 agent reload，仅回写当前 preset 列表', async () => {
@@ -181,8 +218,7 @@ describe('preset command agent reload (AUTO-RELOAD-001)', () => {
     await harness.invoke('');
 
     expect(harness.reload.calls).toBe(0);
-    expect(harness.reply.messages).toHaveLength(1);
-    expect(harness.reply.messages[0]).toMatch(/fast/);
+    expect(harness.reply.messages).toHaveLength(0);
   });
 
   test('未知 preset 不触发 agent reload，并将错误消息回写', async () => {
@@ -193,11 +229,10 @@ describe('preset command agent reload (AUTO-RELOAD-001)', () => {
     );
     const harness = buildHarness(configDir);
 
-    await harness.invoke('does-not-exist');
+    await expect(harness.invoke('does-not-exist')).rejects.toThrow(/preset.*失败|failed/i);
 
     expect(harness.reload.calls).toBe(0);
-    expect(harness.reply.messages).toHaveLength(1);
-    expect(harness.reply.messages[0]).toMatch(/unknown|未知|failed/i);
+    expect(harness.reply.messages).toHaveLength(0);
   });
 
   test('写入失败时不触发 agent reload，底层异常被回写而非抛出', async () => {
@@ -222,14 +257,13 @@ describe('preset command agent reload (AUTO-RELOAD-001)', () => {
         reply.fn(text, invocation),
     });
 
-    await command.execute({
+    await expect(command.execute({
       sessionID: 'session-test',
       prompt: { text: 'safe' },
       delivery: 'steer',
-    });
+    })).rejects.toThrow(/preset.*失败|failed/i);
 
     expect(reload.calls).toBe(0);
-    expect(reply.messages).toHaveLength(1);
-    expect(reply.messages[0]).toMatch(/failed|错误|异常/i);
+    expect(reply.messages).toHaveLength(0);
   });
 });

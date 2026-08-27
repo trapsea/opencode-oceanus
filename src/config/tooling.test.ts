@@ -83,7 +83,7 @@ describe('工具/Hook 结构化配置 schema', () => {
     expect(PluginConfigSchema.safeParse({ taskReuse: { enabled: true, bogus: 1 } }).success).toBe(false);
     const resolved = getTaskReuseConfig(PluginConfigSchema.parse({ taskReuse: { enabled: true } }));
     expect(resolved).toMatchObject({ enabled: true, ttlMs: DEFAULT_TASK_REUSE_CONFIG.ttlMs, maxRetained: DEFAULT_TASK_REUSE_CONFIG.maxRetained });
-    expect(getTaskReuseConfig(PluginConfigSchema.parse({})).enabled).toBe(false);
+    expect(getTaskReuseConfig(PluginConfigSchema.parse({})).enabled).toBe(true);
   });
 });
 

@@ -24,7 +24,12 @@ export interface AutoUpdateDeps {
 export interface AutoUpdateContext {
   event: { subscribe(options?: { signal?: AbortSignal }): AsyncIterable<AutoUpdateEvent> }
 }
-export interface AutoUpdateEvent { type?: string; data?: { sessionID?: string; parentID?: string } }
+export interface AutoUpdateEvent {
+  type?: string
+  /** OpenCode v2 实际事件载荷位于 properties.info；data 保留兼容旧测试/适配器。 */
+  properties?: { info?: { id?: string; sessionID?: string; parentID?: string } }
+  data?: { sessionID?: string; parentID?: string }
+}
 export type AutoUpdateResult = { lastCheckedAt?: number; lastResult?: string }
 
 function packageVersion(loadedPackagePath?: string): string {
@@ -60,7 +65,15 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
     if (checked || !resolved.enabled) return
     checked = true // 抢占必须发生在任何异步启动之前
     try {
-      const entries = (deps.discover ?? discoverConfigEntries)().filter(entry => entry.managed && entryVersion(entry) !== undefined)
+      const all = (deps.discover ?? discoverConfigEntries)()
+      // 入口筛选：未锁版本（如裸 "opencode-oceanus"）允许自动更新；
+      // 已锁（固定 semver）入口仅限 installer managed，避免覆盖用户显式 pin；
+      // file: / @latest / 本地开发按既有安全策略跳过。
+      const entries = all.filter(entry => {
+        const raw = entry.kind === "string" ? entry.value : String((entry.value as Record<string, unknown>).package ?? "")
+        if (typeof raw === "string" && (raw.startsWith("file:") || raw === "@latest" || raw.endsWith("@latest"))) return false
+        return entryVersion(entry) !== undefined ? entry.managed : true
+      })
       // 没有可管理入口时不能触碰状态存储或启动网络检查。
       if (!entries.length) { log({ decision: "skipped", reason: "no_entry" }); return }
       const raw = await storage.read?.(path)
@@ -98,8 +111,12 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
       iterator = ctx.event.subscribe({ signal: controller.signal })[Symbol.asyncIterator]()
       while (!controller.signal.aborted) {
          const item = await iterator.next(); if (item.done || controller.signal.aborted) break
-        const data = item.value?.data
-        if (item.value?.type === "session.created" && data?.sessionID && !data.parentID) void run()
+        const event = item.value as AutoUpdateEvent
+        const info = event.properties?.info
+        const data = event.data
+        const sessionID = info?.id ?? info?.sessionID ?? data?.sessionID
+        const parentID = info?.parentID ?? data?.parentID
+        if (event.type === "session.created" && sessionID && !parentID) void run()
       }
     } catch (error) { if (!controller.signal.aborted) log({ decision: "error", error }) }
   })()

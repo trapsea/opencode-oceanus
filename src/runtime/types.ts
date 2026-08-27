@@ -27,7 +27,7 @@ export interface SessionInfoLike {
 
 /** 会话 API 的最小契约（宿主 `ctx.session` 结构兼容）。 */
 export interface SessionLike {
-  get(input: { sessionID: string }): Promise<SessionInfoLike | undefined>;
+  get?(input: { sessionID: string }): Promise<SessionInfoLike | undefined>;
   /** beta 类型未暴露 `active`；用可选字段 + 运行时探测。 */
   active?(): Promise<Record<string, unknown> | { data?: Record<string, unknown> }>;
   /**

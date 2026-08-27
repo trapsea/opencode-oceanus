@@ -66,6 +66,10 @@ export interface NewTask {
   label?: string;
   /** 任务 generation（revive 递增）。缺省 1。 */
   generation?: number;
+  agent?: string;
+  lane_key?: string;
+  workspace_root?: string;
+  objective?: string;
 }
 
 /** registry 中存储的单条任务记录。 */
@@ -81,6 +85,11 @@ export interface TaskRecord {
   label?: string;
   /** 观察到的结果摘要（受限大小，仅 observer 写入）。 */
   observation?: TaskObservation;
+  agent?: string;
+  lane_key?: string;
+  workspace_root?: string;
+  objective?: string;
+  reusable?: boolean;
 }
 
 /** 任务协议中可跨 agent 传递的委派摘要。 */

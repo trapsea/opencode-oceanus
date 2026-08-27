@@ -21,7 +21,9 @@ import { TaskRegistry, TaskAccessDeniedError } from './task/registry';
 import type { JobBoard } from './task/job-board';
 import { buildTaskMessageTool } from './task/message';
 import { buildTaskReviveTool } from './task/revive';
+import { buildTaskReuseTool } from './task/reuse';
 import { isTerminalStatus, type TaskRecord } from './task/types';
+import { markResultConsumed } from '../runtime/dispatch-guard';
 import { buildCbmTools } from './cbm';
 import type { IndexerHandle, IndexerRunCli } from '../cbm/indexer';
 import type { CbmRunDeps } from './cbm/types';
@@ -423,6 +425,8 @@ function buildTaskResultTool(
       }
       if (hostTerminal) {
         const outcome = await readSessionOutcome(wctx.session, rec.childSessionId);
+        // 终态结果已被读取：打消费标记，放行 dispatch-guard 的同目标重斷路器。
+        if (opts.board) void markResultConsumed(opts.board, taskId);
         return contentResult(
           taskRecordView(rec, {
             status: host.status,
@@ -436,6 +440,8 @@ function buildTaskResultTool(
           }),
         );
       }
+      // 观察态终态结果被读取：同样打消费标记（fail-open）。
+      if (opts.board) void markResultConsumed(opts.board, taskId);
       return contentResult(
         taskRecordView(rec, {
           status: rec.observation!.status!,
@@ -449,7 +455,6 @@ function buildTaskResultTool(
     },
   });
 }
-
 function buildTaskCancelTool(
   wctx: ToolingContext,
   config: PluginConfig,
@@ -544,6 +549,7 @@ const TOOL_BUILDERS: ReadonlyArray<{
   { name: 'task_cancel', build: buildTaskCancelTool },
   { name: 'task_message', build: (ctx, _config, opts) => buildTaskMessageTool(opts.board, createV2SessionAdapter(ctx.session)) },
   { name: 'task_revive', build: (ctx, _config, opts) => buildTaskReviveTool(opts.board, createV2SessionAdapter(ctx.session)) },
+  { name: 'task_reuse', build: (ctx, config, opts) => buildTaskReuseTool(opts.board, createV2SessionAdapter(ctx.session), config.taskReuse?.enabled ?? true) },
 ];
 
 /**

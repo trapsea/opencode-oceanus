@@ -12,10 +12,11 @@ import { registerOceanusHooks } from './hooks';
 import { buildCbmSharedDeps, type CbmWiringInjections } from './cbm/wiring';
 import type { PluginSetupContext } from './runtime/types';
 import { registerAutoUpdate } from './update';
-import { installStaged } from './update/cache';
+import { installStaged, resolveOpenCodeInstallContext } from './update/cache';
 import { updateManagedEntry, type ConfigEntry } from './update/config-entry';
 import { startTaskSupervisor } from './runtime/task-supervisor';
 import { JobBoard } from './tools/task/job-board';
+import { resolveWorkspaceRootOrCwd } from './runtime/workspace';
 
 function toPermissions(
   permission: NonNullable<AgentOverrideConfig['permission']>,
@@ -45,6 +46,11 @@ function toPermissions(
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+interface AgentRefreshState {
+  registration?: { dispose?: () => Promise<void> };
+  managedNames: Set<string>;
+  configuredSettings: Map<string, Set<string>>;
+}
 
 /**
  * 应用 agent 定义到宿主（transform + reload）。
@@ -55,9 +61,15 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 async function applyAgentDefinitions(
   ctx: PluginSetupContext,
   config: PluginConfig,
+  state: AgentRefreshState,
 ): Promise<void> {
-  await ctx.agent.transform((draft) => {
+  await state.registration?.dispose?.();
+  const registration = await ctx.agent.transform((draft) => {
     const definitions = getAgentDefinitions(config);
+    const activeNames = new Set(definitions.map((definition) => definition.name));
+    for (const name of state.managedNames) {
+      if (!activeNames.has(name)) draft.remove(name);
+    }
     if (draft.get('build')) {
       draft.remove('build');
     }
@@ -66,6 +78,9 @@ async function applyAgentDefinitions(
     }
     for (const def of definitions) {
       draft.update(def.name, (agent: any) => {
+        for (const key of state.configuredSettings.get(def.name) ?? []) {
+          delete agent.request?.settings?.[key];
+        }
         if (def.displayName) {
           agent.name = def.displayName as unknown as typeof agent.name;
         }
@@ -92,10 +107,16 @@ async function applyAgentDefinitions(
         if (def.permission !== undefined) {
           agent.permissions = toPermissions(def.permission) as typeof agent.permissions;
         }
+        const settings = new Set(Object.keys(def.options ?? {}));
+        if (def.temperature !== undefined) settings.add('temperature');
+        state.configuredSettings.set(def.name, settings);
       });
     }
     draft.default('oceanus');
-  });
+    state.managedNames = activeNames;
+  }) as { dispose?: () => Promise<void> };
+  // 当前宿主会保留 transform registration；避免每次切换叠加旧闭包。
+  state.registration = registration;
   await ctx.agent.reload();
 }
 
@@ -132,11 +153,16 @@ export async function runSetup(
 ): Promise<(() => void) | undefined> {
   const log = options.cbm?.logger ?? (() => {});
   const config = (options.loadConfig ?? loadPluginConfig)({ directory: process.cwd() });
+  const agentRefreshState: AgentRefreshState = {
+    managedNames: new Set(),
+    configuredSettings: new Map(),
+  };
   let taskBoard: JobBoard | undefined;
   // 启动即恢复任务事实；失败不阻塞插件其它能力。
   try {
     const parentSessionId = String((ctx.session as any).sessionID ?? (ctx.session as any).id ?? '');
-      taskBoard = await JobBoard.open({ workspaceRoot: process.cwd(), parentSessionId });
+       const workspaceRoot = await resolveWorkspaceRootOrCwd(ctx.session, parentSessionId);
+       taskBoard = await JobBoard.open({ workspaceRoot: workspaceRoot ?? process.cwd(), parentSessionId });
       options.taskLifecycleObserver?.('supervisor', taskBoard);
       // 先完成恢复再注册依赖该 board 的工具，避免恢复写回与首个工具调用发生 CAS 竞态。
       await startTaskSupervisor({ board: taskBoard, session: ctx.session, ownerAgent: 'sisyphus' }).catch(() => undefined);
@@ -159,7 +185,7 @@ export async function runSetup(
   }
 
   // 3) 注册 agents（v2 agent.transform）。
-  await applyAgentDefinitions(ctx, config);
+  await applyAgentDefinitions(ctx, config, agentRefreshState);
 
   // 4) 注册 skills（sisyphus 阶段）。
   await ctx.skill.transform((draft) => {
@@ -193,16 +219,15 @@ export async function runSetup(
     };
     const commands = createCommands({
       preset: {
-        runPreset: (args) => runPresetCommand(args),
+        runPreset: (args) => runPresetCommand(args, { directory: process.cwd() }),
         reloadAgents: async () => {
           // /preset 切换后必须基于重新加载的配置重建 agent 定义，再 reload；
           // 仅 ctx.agent.reload() 会沿用 setup 时旧配置构建的定义，导致当前窗口不生效。
           const fresh = (options.loadConfig ?? loadPluginConfig)({
             directory: process.cwd(),
           });
-          await applyAgentDefinitions(ctx, fresh);
+          await applyAgentDefinitions(ctx, fresh, agentRefreshState);
         },
-        reply: replyToSession,
       },
       cbm: {
         getInstallStatus: (cacheRoot) => defaultInstallStatus(cacheRoot),
@@ -280,12 +305,16 @@ export async function runSetup(
     },
     installer: async (version: string, entry?: ConfigEntry) => {
       if (!entry || (entry.kind === 'string' && String(entry.value).endsWith('@latest'))) return;
-      const packageRoot = `${shared.cacheRoot}/oceanus-plugin`;
+      // 从运行时 package.json 推导 OpenCode 实际使用的 install root，把更新发布到
+      // OpenCode cache（而非 Oceanus 独立 cache），否则新版本不会被加载。
+      const oc = resolveOpenCodeInstallContext();
+      if (!oc) throw new Error('无法解析 OpenCode 安装上下文（非 node_modules 安装或本地开发）');
       await installStaged({
-        cacheRoot: packageRoot,
+        cacheRoot: shared.cacheRoot,
         version,
         packageSpec: `opencode-oceanus@${version}`,
         sourceDir: process.cwd(),
+        installRoot: oc.installRoot,
       });
       if (entry.managed) updateManagedEntry(entry.file, version);
     },

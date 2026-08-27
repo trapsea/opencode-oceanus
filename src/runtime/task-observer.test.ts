@@ -28,9 +28,8 @@ describe('task-observer 结果解析', () => {
         'parent-1',
       ),
     ).toBe('child-1');
-    expect(extractChildSessionId({ sessionID: 'child-1' }, 'parent-1')).toBe(
-      'child-1',
-    );
+    // 模糊的 sessionID 不足以确认 child session
+    expect(extractChildSessionId({ sessionID: 'child-1' }, 'parent-1')).toBeUndefined();
     // 父 session 不当 child
     expect(extractChildSessionId({ sessionID: 'parent-1' }, 'parent-1')).toBeUndefined();
     expect(extractChildSessionId({ output: 'no object' }, 'parent-1')).toBeUndefined();

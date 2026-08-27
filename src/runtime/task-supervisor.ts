@@ -16,11 +16,11 @@ export function createTaskSupervisor(opts: TaskSupervisorOptions): TaskSuperviso
   return {
     rehydrate,
     async cancel(taskId) {
-      await rehydrate();
       const task: any = opts.board.get(taskId);
       if (opts.ownerAgent && task.ownership?.owner_agent && task.ownership.owner_agent !== opts.ownerAgent) return 'uncertain';
       // 终态任务：cancel 是 no-op，不触碰宿主、不降级终态。
       if (TERMINAL.includes(task.state)) return 'delivered';
+      await rehydrate();
       if (task.state === 'running' && typeof (opts.board as any).transition === 'function') {
         try {
           await opts.board.transition(taskId, 'cancel_requested', {
@@ -42,6 +42,7 @@ export function createTaskSupervisor(opts: TaskSupervisorOptions): TaskSuperviso
         try {
           const current: any = opts.board.get(taskId);
           if (!TERMINAL.includes(current.state)) {
+            if (typeof opts.session.get !== 'function') return 'unsupported';
             const info = await opts.session.get({ sessionID: current.child_session_id });
             const oc = info?.outcome;
             const target = oc === 'succeeded' ? 'completed' : oc === 'failed' ? 'failed' : oc === 'interrupted' ? 'cancelled' : undefined;

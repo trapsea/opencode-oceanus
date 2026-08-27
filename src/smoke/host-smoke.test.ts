@@ -106,7 +106,7 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
     expect(mock.afterHooks).toHaveLength(6);
   });
 
-   test('默认注册 15 个工具 + 10 个 hooks（4 before + 6 after）', async () => {
+   test('默认注册 16 个工具 + 10 个 hooks（4 before + 6 after）', async () => {
     const mock = createMockCtx();
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
@@ -120,7 +120,8 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
         'task_result',
          'task_status',
          'task_message',
-         'task_revive',
+          'task_revive',
+          'task_reuse',
         'cbm_status',
         'cbm_index',
         'cbm_search_graph',
@@ -146,6 +147,7 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
          'task_cancel',
          'task_message',
          'task_revive',
+         'task_reuse',
         'cbm_status',
         'cbm_index',
         'cbm_search_graph',

@@ -229,7 +229,7 @@ export interface TaskReuseResolvedConfig {
 }
 
 export const DEFAULT_TASK_REUSE_CONFIG: TaskReuseResolvedConfig = {
-  enabled: false,
+  enabled: true,
   ttlMs: 2 * 60 * 60 * 1000,
   maxRetained: 16,
 };

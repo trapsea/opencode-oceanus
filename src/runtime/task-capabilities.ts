@@ -16,6 +16,7 @@ export async function interruptV2(session: SessionLike, sessionID: string): Prom
 
 export async function inspectV2(session: SessionLike, sessionID: string) {
   if (typeof session.get !== 'function') return { outcome: 'unsupported' as CapabilityOutcome };
+  if (typeof session.get !== 'function') return { outcome: 'uncertain' as CapabilityOutcome };
   try { return { outcome: 'delivered' as CapabilityOutcome, info: await session.get({ sessionID }) }; }
   catch { return { outcome: 'uncertain' as CapabilityOutcome }; }
 }
@@ -32,7 +33,7 @@ export function isUncertain(outcome: CapabilityOutcome): boolean {
  *
  * 语义边界（诚实 fail-open，不把"请求被宿主接受"当成"续用成功"）：
  * - `resumeChild`：prompt 后 wait，再 `session.get` 读取 outcome 验证；无法验证时
- *   只报 `ok:true, status:'delivered'`（已投递/已入队），不伪造终态。
+ *   无法验证时返回 uncertain，不伪造终态。
  * - `sendMessage`：仅入队投递，返回 `queued`，不声称子 agent 已收到/已执行。
  * - 宿主缺 `prompt` / `wait`，或调用失败/超时，返回 `{ ok:false, reason }`。
  */
@@ -58,6 +59,16 @@ function classifyReason(e: unknown): string {
   return text.includes('timeout') || text.includes('timed out') ? 'timeout' : raw;
 }
 
+const CAPABILITY_TIMEOUT_MS = 30_000;
+async function bounded<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([work, new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('timeout')), CAPABILITY_TIMEOUT_MS);
+    })]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
 export function createV2SessionAdapter(session: SessionLike): SessionResumeAdapter {
   const hasPrompt = typeof session.prompt === 'function';
   const hasWait = typeof session.wait === 'function';
@@ -66,17 +77,18 @@ export function createV2SessionAdapter(session: SessionLike): SessionResumeAdapt
       if (!childSessionId) return { ok: false, reason: 'missing_child_session' };
       if (!hasPrompt || !hasWait) return { ok: false, reason: 'unsupported' };
       try {
-        await session.prompt!({ sessionID: childSessionId, text: brief, delivery: 'queue' });
-        await session.wait!({ sessionID: childSessionId });
+         await bounded(session.prompt!({ sessionID: childSessionId, text: brief, delivery: 'queue' }));
+         await bounded(session.wait!({ sessionID: childSessionId }));
         // 续用是否真正到达终态只能通过 session.get 验证；拿不到 outcome 时不伪造。
         try {
-          const info = await session.get({ sessionID: childSessionId });
+           if (typeof session.get !== 'function') return { ok: false, reason: 'uncertain' };
+           const info = await bounded(session.get({ sessionID: childSessionId }));
           const outcome = (info as { outcome?: 'succeeded' | 'failed' | 'interrupted' } | undefined)?.outcome;
-          return outcome
-            ? { ok: true, status: outcome }
-            : { ok: true, status: 'delivered' };
-        } catch {
-          return { ok: true, status: 'delivered' };
+            return outcome && ['succeeded', 'failed', 'interrupted'].includes(outcome)
+             ? { ok: true, status: outcome }
+             : { ok: false, reason: 'uncertain' };
+         } catch {
+           return { ok: false, reason: 'uncertain' };
         }
       } catch (e) {
         return { ok: false, reason: classifyReason(e) };
@@ -86,7 +98,7 @@ export function createV2SessionAdapter(session: SessionLike): SessionResumeAdapt
       if (!childSessionId) return { ok: false, reason: 'missing_child_session' };
       if (!hasPrompt) return { ok: false, reason: 'unsupported' };
       try {
-        await session.prompt!({ sessionID: childSessionId, text: message, delivery: 'queue' });
+         await bounded(session.prompt!({ sessionID: childSessionId, text: message, delivery: 'queue' }));
         return { ok: true, status: 'queued' };
       } catch (e) {
         return { ok: false, reason: classifyReason(e) };

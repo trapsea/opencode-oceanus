@@ -19,14 +19,14 @@ describe('createV2SessionAdapter（真实 v2 会话续用/投递）', () => {
     expect(calls).toEqual(['prompt:c1:继续', 'wait:c1', 'get:c1']);
   });
 
-  test('resumeChild：wait 后拿不到 outcome → delivered（不伪造终态）', async () => {
+  test('resumeChild：wait 后拿不到 outcome → uncertain（不伪造终态）', async () => {
     const session = {
       prompt: async () => {},
       wait: async () => {},
       get: async () => ({}),
     } as unknown as SessionLike;
     const res = await createV2SessionAdapter(session).resumeChild({ childSessionId: 'c1', brief: 'b', generation: 1 });
-    expect(res).toEqual({ ok: true, status: 'delivered' });
+    expect(res).toEqual({ ok: false, reason: 'uncertain' });
   });
 
   test('resumeChild：缺 wait 能力 → unsupported', async () => {

@@ -553,4 +553,14 @@ describe('CBM-12：agent prompt CBM 调度最终审计', () => {
     expect(sys).toMatch(/高风险|公共|public/);
     expect(sys).toMatch(/修改前|before/);
   });
+
+  test('门禁派发纪律：原生名派发禁冒充、复用优先、REJECT 循环上报（dispatch-guard 配套契约）', () => {
+    const sys = sysOf('sisyphus');
+    expect(sys).toMatch(/原生专家名/);
+    expect(sys).toMatch(/冒充/);
+    expect(sys).toMatch(/agent 参数为 `"momus"`/);
+    expect(sys).toMatch(/task_reuse \/ task_revive/);
+    expect(sys).toMatch(/连续两轮 `?REJECT`?/);
+    expect(sys).toMatch(/请求决策|上报分歧点/);
+  });
 });
