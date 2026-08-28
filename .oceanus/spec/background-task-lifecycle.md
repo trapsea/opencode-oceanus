@@ -1,5 +1,12 @@
 # 后台任务生命周期能力分层
 
+> **设计演进（2026-08-28）**：本文档「能力分层 2（标准 subagent 降级模式）」与「非目标 3（不使 raw subagent 自动拥有完整 task 生命周期）」**已被本节取代**。实测推翻了原前提：
+>
+> 1. 宿主 V2 `Tool.Result` 形状为 `{ output?, content?: string | Content[], metadata? }`（无 `sessionID` 字段）——原实现只认 `result.sessionID` 导致真实宿主上登记从未发生（`.oceanus/tasks.json` 不生成、`task_status` 报「task 不存在」）。
+> 2. 宿主实际支持 raw `subagent` 任务的登记与复用：subagent 工具支持 `sessionID` 参数续会话（实测可用），后台返回文本即含 `sessionID: ses_x` 标记并引导 `task_status` 轮询。
+>
+> **现行设计**：subagent-bridge 经兼容链从 `Tool.Result` 提取 child sessionID——`result.sessionID` → `result.metadata.sessionID/taskID` → 文本标记（`task_id: ses_x`、`sessionID: ses_x`、`sessionID="ses_x"`）→ 兜底首个 `ses_` ID（≠ parent）。提取失败记录诊断日志并保持不登记（fail-open 不变）。「受控后台任务模式」与「受限 revive/reuse」的其余语义不变。
+
 ## 目标
 
 让 Oceanus 仅对拥有稳定原生 `taskId` 的后台任务提供消息、状态、结果、取消与受限复用；标准 OpenCode V2 `subagent` 不再被误认为可控后台任务。
@@ -42,8 +49,9 @@
 
 ## 验收标准
 
-1. raw `subagent` 的 session ID 不再导致误导性的 `TASK_NOT_FOUND`，而是明确报告不受支持。
+1. ~~raw `subagent` 的 session ID 不再导致误导性的 `TASK_NOT_FOUND`，而是明确报告不受支持。~~ **（2026-08-28 修订）** raw `subagent` 后台任务经 bridge 自动登记；宿主 result 无法提取 sessionID 时记录诊断日志且不登记。
 2. 受控任务的 `taskId` 可用于消息、状态、结果与取消。
 3. revive/reuse 的终态不会遗留在 `starting`，generation 语义保持正确。
 4. 重启后可从 JobBoard 查询受控任务状态/结果。
 5. 类型检查和任务生命周期单元测试通过；真实宿主 smoke 在能力存在时覆盖消息与终态收敛。
+6. **（2026-08-28 新增）** 单测覆盖宿主真实 result 形状（content 文本内嵌 sessionID / Content[] / metadata），不再仅依赖 `result.sessionID` fake 形状。

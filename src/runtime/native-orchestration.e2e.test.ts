@@ -64,7 +64,7 @@ describe('native-session-orchestration 端到端', () => {
     });
     await bridgeAfter({
       tool: 'subagent', sessionID: 'parent-1', id: 'call-1', status: 'completed',
-      result: { sessionID: 'ses_child_1', content: 'job result text' },
+      result: { content: 'The subagent is working in the background (sessionID: ses_child_1). Continue your current work and call task_status when you need the result.' },
     });
     // 验收1：立即登记（bridge 同步 registerLaunch），可立即查询
     const st1 = json(await tool(fake.tools, 'task_status').execute({ taskId: 'ses_child_1' }, { sessionID: 'parent-1' }));
@@ -80,7 +80,7 @@ describe('native-session-orchestration 端到端', () => {
     });
     await bridgeAfter({
       tool: 'subagent', sessionID: 'parent-1', id: 'call-dup', status: 'completed',
-      result: { sessionID: 'ses_child_dup', content: 'dup result' },
+      result: { content: 'Background task started (sessionID: ses_child_dup). dup result' },
     });
     const board = coordinator.formatBoard('parent-1');
     expect(board).toContain('ses_child_1');

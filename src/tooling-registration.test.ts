@@ -579,7 +579,7 @@ describe('subagent-bridge 宿主登记链路', () => {
   test('subagent before/after 登记任务，task_status/task_result 可查询', async () => {
     const mock = createMockCtx({
       active: {},
-      get: { id: 'child-9', projectID: 'p1', location: { directory: '/ws' }, outcome: 'succeeded' },
+      get: { id: 'ses_child_9', projectID: 'p1', location: { directory: '/ws' }, outcome: 'succeeded' },
     });
     // coordinator 用临时目录的真实实现（含 listTasks 供工具查询）。
     const { mkdtempSync } = require('node:fs');
@@ -606,16 +606,17 @@ describe('subagent-bridge 宿主登记链路', () => {
       sessionID: 'parent-1',
       id: 'call-1',
       status: 'completed',
-      result: { sessionID: 'child-9', content: 'done ok' },
+      // 宿主真实形状：Tool.Result 无 sessionID 字段，ID 内嵌于 content 文本。
+      result: { content: 'The subagent is working in the background (sessionID: ses_child_9). done ok' },
     });
 
     const statusTool = findTool(mock.addedTools, 'task_status');
-    const st = parsed(await statusTool.execute({ taskId: 'child-9' }, { sessionID: 'parent-1' }));
+    const st = parsed(await statusTool.execute({ taskId: 'ses_child_9' }, { sessionID: 'parent-1' }));
     expect(st.status).toBe('completed');
     expect(st.verified).toBe(true);
 
     const resultTool = findTool(mock.addedTools, 'task_result');
-    const rr = parsed(await resultTool.execute({ taskId: 'child-9' }, { sessionID: 'parent-1' }));
+    const rr = parsed(await resultTool.execute({ taskId: 'ses_child_9' }, { sessionID: 'parent-1' }));
     expect(rr.status).toBe('completed');
     expect(rr.outcome).toBe('succeeded');
   });

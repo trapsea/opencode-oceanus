@@ -2,6 +2,8 @@
  * subagent-bridge：原生 `subagent` 工具调用的元数据桥（spec: native-session-orchestration）。
  *
  * - 登记发生在工具结果返回 child sessionID 时（同步路径），不再事后推断。
+ *   宿主 V2 `Tool.Result` 为 `{ output?, content?, metadata? }`（无 sessionID 字段），
+ *   因此 child sessionID 经兼容链提取：result.sessionID → result.metadata → 文本标记。
  * - laneKey 结构化优先（input.lane_key / input.lane / input.laneKey），
  *   回退 description 唯一 `lane:<key>` 正则标记。
  * - 全链路 fail-open：bridge 任何异常只吞掉，绝不阻断宿主工具。
@@ -55,8 +57,44 @@ function resultText(result: unknown): string | undefined {
   for (const key of ['content', 'output', 'text']) {
     const v = result[key];
     if (typeof v === 'string' && v.length > 0) return v.slice(0, 2000);
+    // 宿主 content 亦可为 Content[]（{type:'text',text} 段拼接）。
+    if (Array.isArray(v)) {
+      const joined = v
+        .map((seg) => (isRecord(seg) && typeof seg.text === 'string' ? seg.text : ''))
+        .filter(Boolean)
+        .join('\n');
+      if (joined) return joined.slice(0, 2000);
+    }
   }
   return undefined;
+}
+
+const SESSION_ID_RE = /ses_[A-Za-z0-9_]+/;
+
+/**
+ * 从宿主 Tool.Result 提取 child sessionID（兼容链，取首个命中且 ≠ parent 的候选）：
+ * 1. result.sessionID 直传（向后兼容未来宿主字段）；
+ * 2. result.metadata.sessionID / taskID（progress 上报）；
+ * 3. 文本标记：`task_id: ses_x` / `sessionID: ses_x` / `sessionID="ses_x"`；
+ * 4. 兜底：文本中第一个 session ID 且 ≠ parentSessionID。
+ */
+export function extractTaskID(result: unknown, parentSessionID: string): string | undefined {
+  if (!isRecord(result)) return undefined;
+  const candidate = (v: unknown): string | undefined =>
+    typeof v === 'string' && v && v !== parentSessionID ? v : undefined;
+  const direct = candidate(result.sessionID);
+  if (direct) return direct;
+  if (isRecord(result.metadata)) {
+    const viaMeta = candidate(result.metadata.sessionID) ?? candidate(result.metadata.taskID);
+    if (viaMeta) return viaMeta;
+  }
+  const text = resultText(result);
+  if (!text) return undefined;
+  const marked = text.match(new RegExp(`task_id:\\s*(${SESSION_ID_RE.source})`))
+    ?? text.match(new RegExp(`sessionID[=:]\\s*"?(${SESSION_ID_RE.source})`));
+  if (marked && marked[1] !== parentSessionID) return marked[1];
+  const loose = text.match(SESSION_ID_RE)?.[0];
+  return loose && loose !== parentSessionID ? loose : undefined;
 }
 
 export function createSubagentBridge(opts: SubagentBridgeOptions): SubagentBridge {
@@ -95,11 +133,19 @@ export function createSubagentBridge(opts: SubagentBridgeOptions): SubagentBridg
         if (id) pending.delete(id);
         if (!meta || meta.parentSessionID !== parentSessionID) return;
         const result = event.result;
-        if (!isRecord(result)) return;
-        const taskID = typeof result.sessionID === 'string' && result.sessionID && result.sessionID !== parentSessionID
-          ? result.sessionID
-          : undefined;
-        if (!taskID) return;
+        if (!isRecord(result)) {
+          log('subagent-bridge.after result 非对象，无法提取 child sessionID(未登记)', {
+            status: typeof event.status === 'string' ? event.status : String(event?.status),
+          });
+          return;
+        }
+        const taskID = extractTaskID(result, meta.parentSessionID);
+        if (!taskID) {
+          log('subagent-bridge.after 未能从 result 提取 child sessionID(未登记)', {
+            resultKeys: Object.keys(result),
+          });
+          return;
+        }
         const laneKey = meta.laneKey ?? '';
         await coordinator.registerLaunch({
           taskID,
