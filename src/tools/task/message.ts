@@ -34,7 +34,12 @@ export function buildTaskMessageTool(coordinator: TaskCoordinator, session?: Tas
         return { content: JSON.stringify({ error: 'MESSAGE_SIZE' }) };
       }
       try {
-        const rec = coordinator.listTasks(ctx.sessionID).find((t) => t.taskID === taskId);
+        const rec = coordinator.listTasks(ctx.sessionID).find((t) => t.taskID === taskId)
+          // 登记缺失（bridge 未登记）时以宿主事实兜底登记后再查；parentID 校验保持在 coordinator 内。
+          // 防御性调用：stub coordinator 可能不含 ensureRegistered。
+          ?? (typeof coordinator.ensureRegistered === 'function'
+            ? await coordinator.ensureRegistered(taskId, ctx.sessionID).catch(() => undefined)
+            : undefined);
         if (!rec) return { content: JSON.stringify({ error: 'TASK_NOT_FOUND', taskId }) };
         if (!session || typeof session.prompt !== 'function') {
           return { content: JSON.stringify({ error: 'UNSUPPORTED', detail: '宿主缺少 session.prompt 能力' }) };

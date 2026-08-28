@@ -34,6 +34,10 @@ export function buildTaskReviveTool(coordinator: TaskCoordinator, session?: Sess
       try {
         // 先以宿主事实收敛本地状态（只读任务可能停留在 running）。
         await coordinator.reconcile(ctx.sessionID).catch(() => undefined);
+        // 登记缺失（bridge 未登记）时以宿主事实兜底登记，保持可复用性。
+        if (typeof coordinator.ensureRegistered === 'function') {
+          await coordinator.ensureRegistered(taskId, ctx.sessionID).catch(() => undefined);
+        }
         const revived = await coordinator.registerRevive({ taskID: taskId, parentSessionID: ctx.sessionID, brief: prompt });
         await session.prompt({ sessionID: taskId, text: prompt, delivery: 'queue' });
         await session.wait({ sessionID: taskId });

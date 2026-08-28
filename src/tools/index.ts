@@ -310,6 +310,24 @@ function findTask(coordinator: TaskCoordinator, taskId: string, sessionID: strin
   }
 }
 
+/**
+ * 查任务；登记缺失（bridge 未登记）时以宿主事实兜底登记后再查。
+ * ensureRegistered 内部严格校验 parentID，保持按父过滤的安全边界。
+ */
+async function findTaskWithHostFallback(
+  coordinator: TaskCoordinator,
+  taskId: string,
+  sessionID: string,
+): Promise<any | undefined> {
+  const direct = findTask(coordinator, taskId, sessionID);
+  if (direct) return direct;
+  // 防御性调用：测试/注入方可能提供不含 ensureRegistered 的 stub coordinator。
+  if (typeof coordinator.ensureRegistered === 'function') {
+    await coordinator.ensureRegistered(taskId, sessionID).catch(() => undefined);
+  }
+  return findTask(coordinator, taskId, sessionID);
+}
+
 function buildTaskStatusTool(
   wctx: ToolingContext,
   _config: PluginConfig,
@@ -328,7 +346,7 @@ function buildTaskStatusTool(
       if (!taskId) return errorResult('taskId 必填');
       const coordinator = opts.coordinator;
       if (!coordinator) return errorResult('coordinator 未接线', 'UNSUPPORTED');
-      const rec = findTask(coordinator, taskId, tctx.sessionID);
+      const rec = await findTaskWithHostFallback(coordinator, taskId, tctx.sessionID);
       if (!rec) return errorResult(`task 不存在: ${taskId}`);
       const host = await resolveTaskHostStatus(wctx.session, {
         childSessionId: rec.taskID,
@@ -363,7 +381,7 @@ function buildTaskResultTool(
       if (!taskId) return errorResult('taskId 必填');
       const coordinator = opts.coordinator;
       if (!coordinator) return errorResult('coordinator 未接线', 'UNSUPPORTED');
-      const rec = findTask(coordinator, taskId, tctx.sessionID);
+      const rec = await findTaskWithHostFallback(coordinator, taskId, tctx.sessionID);
       if (!rec) return errorResult(`task 不存在: ${taskId}`);
       const host = await resolveTaskHostStatus(wctx.session, {
         childSessionId: rec.taskID,
@@ -421,7 +439,7 @@ function buildTaskCancelTool(
       if (!taskId) return errorResult('taskId 必填');
       const coordinator = opts.coordinator;
       if (!coordinator) return errorResult('coordinator 未接线', 'UNSUPPORTED');
-      const rec = findTask(coordinator, taskId, tctx.sessionID);
+      const rec = await findTaskWithHostFallback(coordinator, taskId, tctx.sessionID);
       if (!rec) return errorResult(`task 不存在: ${taskId}`);
       if (!rec.taskID) return errorResult('task 没有关联的子 session，无法取消');
       try {

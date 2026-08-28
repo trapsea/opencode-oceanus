@@ -90,4 +90,63 @@ describe('TaskCoordinator 契约', () => {
     await c.markResultConsumed('ses_child_1', 'ses_parent');
     expect(c.findDuplicateObjective('ses_parent', 'find api entry')).toBe(false);
   });
+
+  test('ensureRegistered：已有记录 → 幂等返回（不触发宿主校验）', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'coord-'));
+    let getCalls = 0;
+    const session = {
+      get: async () => { getCalls += 1; return { id: 'x', parentID: 'ses_parent' }; },
+    } as unknown as SessionLike;
+    const c = createTaskCoordinator({ workspaceRoot: dir, session });
+    await c.registerLaunch(launch);
+    const rec = await c.ensureRegistered('ses_child_1', 'ses_parent');
+    expect(rec?.taskID).toBe('ses_child_1');
+    expect(getCalls).toBe(0);
+  });
+
+  test('ensureRegistered：登记缺失 + 宿主 parentID 匹配 + outcome → 补偿登记并收敛终态', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'coord-'));
+    const c = createTaskCoordinator({ workspaceRoot: dir, session: fakeSession({ outcomes: { ses_child_9: 'succeeded' } }) });
+    expect(c.listTasks('ses_parent').find((t) => t.taskID === 'ses_child_9')).toBeUndefined();
+    const rec = await c.ensureRegistered('ses_child_9', 'ses_parent');
+    expect(rec?.state).toBe('completed');
+    expect(rec?.terminal).toBe(true);
+    // 登记后对本会话可见（task_status/task_message 兜底查询依赖此行为）
+    expect(c.listTasks('ses_parent').find((t) => t.taskID === 'ses_child_9')?.state).toBe('completed');
+  });
+
+  test('ensureRegistered：宿主 outcome 不可确认 → 登记 running，不伪造终态', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'coord-'));
+    const c = createTaskCoordinator({ workspaceRoot: dir, session: fakeSession({}) });
+    const rec = await c.ensureRegistered('ses_child_2', 'ses_parent');
+    expect(rec?.state).toBe('running');
+    expect(rec?.terminal).toBeUndefined();
+  });
+
+  test('ensureRegistered：跨父访问（parentID 不匹配）与 parentID 缺失 → 拒绝登记', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'coord-'));
+    const stranger = {
+      get: async ({ sessionID }: any) => ({ id: sessionID, parentID: 'ses_other' }),
+    } as unknown as SessionLike;
+    const noParent = {
+      get: async ({ sessionID }: any) => ({ id: sessionID }),
+    } as unknown as SessionLike;
+    const c1 = createTaskCoordinator({ workspaceRoot: dir, session: stranger });
+    expect(await c1.ensureRegistered('ses_child_1', 'ses_parent')).toBeUndefined();
+    const c2 = createTaskCoordinator({ workspaceRoot: dir, session: noParent });
+    expect(await c2.ensureRegistered('ses_child_1', 'ses_parent')).toBeUndefined();
+    expect(c1.listTasks('ses_parent')).toHaveLength(0);
+    expect(c2.listTasks('ses_parent')).toHaveLength(0);
+  });
+
+  test('ensureRegistered：宿主 get 失败/无 session → undefined', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'coord-'));
+    const broken = {
+      get: async () => { throw new Error('boom'); },
+    } as unknown as SessionLike;
+    const c1 = createTaskCoordinator({ workspaceRoot: dir, session: broken });
+    expect(await c1.ensureRegistered('ses_child_1', 'ses_parent')).toBeUndefined();
+    const c2 = createTaskCoordinator({ workspaceRoot: dir });
+    expect(await c2.ensureRegistered('ses_child_1', 'ses_parent')).toBeUndefined();
+  });
 });

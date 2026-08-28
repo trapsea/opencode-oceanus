@@ -7,7 +7,7 @@
  * - reusable = completed + 结果已消费（resultConsumedAt）+ 指定 agent/lane 匹配。
  */
 import { TaskIndex, type TaskRecord } from './task-index';
-import { sessionActive, sessionOutcome } from './workspace';
+import { getSessionInfo, sessionActive, sessionOutcome } from './workspace';
 import type { SessionLike } from './types';
 
 export interface TaskCoordinatorOptions {
@@ -71,6 +71,44 @@ export function createTaskCoordinator(opts: TaskCoordinatorOptions) {
         laneKey: rec.laneKey,
         objective: input.brief,
       });
+    },
+
+    /**
+     * 登记兜底：bridge 登记缺失时以宿主事实补偿登记（spec: background-task-lifecycle 2026-08-28 修订）。
+     *
+     * - 已有记录 → 原样返回，幂等。
+     * - 无记录 → `session.get` 验证该子会话存在且 `parentID === parentSessionID`，
+     *   通过则 registerLaunch 并按宿主 outcome 立即收敛终态（不伪造：不可确认保持 running）。
+     * - 宿主不可确认 / parentID 缺失或不匹配 → undefined（调用方报 TASK_NOT_FOUND）。
+     * 安全：严格 parentID 校验，保持「coordinator 按父过滤」的跨父访问边界。
+     */
+    async ensureRegistered(taskID: string, parentSessionID: string): Promise<TaskRecord | undefined> {
+      const index = await this.ready();
+      const existing = index.get(taskID, parentSessionID);
+      if (existing) return existing;
+      if (!opts.session) return undefined;
+      const info = await getSessionInfo(opts.session, taskID);
+      if (!info) return undefined;
+      if (typeof info.parentID !== 'string' || info.parentID !== parentSessionID) return undefined;
+      const rec = await index.registerLaunch({
+        taskID,
+        parentSessionID,
+        agent: 'unknown',
+        // TaskIndex 强制 laneKey 非空；host-fallback 为兜底登记保留 lane（不与真实 lane 冲突）。
+        laneKey: 'host-fallback',
+        objective: 'host-verified fallback registration',
+      });
+      const outcome = info.outcome;
+      if (outcome === 'succeeded') {
+        return index.markTerminal(taskID, parentSessionID, 'completed');
+      }
+      if (outcome === 'failed') {
+        return index.markTerminal(taskID, parentSessionID, 'failed');
+      }
+      if (outcome === 'interrupted') {
+        return index.markTerminal(taskID, parentSessionID, 'cancelled');
+      }
+      return rec;
     },
 
     /** 以宿主事实覆盖本地状态；不可确认 → uncertain（不伪造终态）。 */

@@ -289,6 +289,8 @@ export async function runSetup(
       runDeps: shared.runDeps,
       indexer: shared.indexer,
       coordinator: taskCoordinator,
+      // bridge 登记失败/事件异常必须可见（此前 logger 缺省为 noop，诊断被静默丢弃）。
+      logger: (message, meta) => log(`[oceanus] ${message}`, meta),
       taskLifecycleObserver: taskCoordinator ? (c) => options.taskLifecycleObserver?.('hooks', c) : undefined,
     });
   } catch (e) {

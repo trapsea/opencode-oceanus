@@ -411,6 +411,53 @@ describe('task_status/task_result 宿主事实优先级', () => {
     const st = parsed(await statusTool.execute({ taskId: 'child-1' }, { sessionID: 'stranger' }));
     expect(st.error).toContain('task 不存在');
   });
+
+  test('登记缺失（bridge 未登记）→ 宿主 parentID 校验通过 → 兜底登记后可查/可消费', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'task-fallback-'));
+    tempDirs.push(dir);
+    // 真实 coordinator + 模拟宿主：child-9 是 parent-1 的已完成子会话，但从未被 bridge 登记。
+    const session: SessionLike = {
+      get: async ({ sessionID }: any) => ({ id: sessionID, parentID: 'parent-1', outcome: 'succeeded' }),
+      active: async () => ({ data: {} }),
+    };
+    const { createTaskCoordinator } = await import('./runtime/task-coordinator');
+    const coordinator = createTaskCoordinator({ workspaceRoot: dir, session });
+    const mock = createMockCtx({
+      active: {},
+      get: { id: 'x', projectID: 'p1', location: { directory: '/ws' }, parentID: 'parent-1', outcome: 'succeeded' } as SessionInfoLike,
+    });
+    await registerOceanusTools(mock.ctx, {}, { coordinator } as any);
+    const statusTool = findTool(mock.addedTools, 'task_status');
+
+    const st = parsed(await statusTool.execute({ taskId: 'child-9' }, { sessionID: 'parent-1' }));
+    expect(st.error).toBeUndefined();
+    expect(st.status).toBe('completed'); // 兜底登记 + 宿主 outcome 收敛，不伪造
+
+    // 本会话可见性落库：再次查询直接命中（不再依赖兜底）。
+    const st2 = parsed(await statusTool.execute({ taskId: 'child-9' }, { sessionID: 'parent-1' }));
+    expect(st2.error).toBeUndefined();
+    expect(st2.status).toBe('completed');
+  });
+
+  test('登记缺失 + 宿主 parentID 不匹配 → 仍报 task 不存在（跨父兜底拒绝）', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'task-fallback-deny-'));
+    tempDirs.push(dir);
+    const session: SessionLike = {
+      get: async ({ sessionID }: any) => ({ id: sessionID, parentID: 'parent-1', outcome: 'succeeded' }),
+      active: async () => ({ data: {} }),
+    };
+    const { createTaskCoordinator } = await import('./runtime/task-coordinator');
+    const coordinator = createTaskCoordinator({ workspaceRoot: dir, session });
+    const mock = createMockCtx({
+      active: {},
+      get: { id: 'x', projectID: 'p1', location: { directory: '/ws' }, parentID: 'parent-1', outcome: 'succeeded' } as SessionInfoLike,
+    });
+    await registerOceanusTools(mock.ctx, {}, { coordinator } as any);
+    const statusTool = findTool(mock.addedTools, 'task_status');
+    // stranger 的 parentID 与宿主登记的 parent-1 不匹配 → 兜底拒绝，保持按父过滤。
+    const st = parsed(await statusTool.execute({ taskId: 'child-9' }, { sessionID: 'stranger' }));
+    expect(st.error).toContain('task 不存在');
+  });
 });
 
 // ─────────────────────────── Hook 顺序 / 配置开关 / 失败隔离 ───────────────────────────

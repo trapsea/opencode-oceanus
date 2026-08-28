@@ -6,6 +6,8 @@
 > 2. 宿主实际支持 raw `subagent` 任务的登记与复用：subagent 工具支持 `sessionID` 参数续会话（实测可用），后台返回文本即含 `sessionID: ses_x` 标记并引导 `task_status` 轮询。
 >
 > **现行设计**：subagent-bridge 经兼容链从 `Tool.Result` 提取 child sessionID——`result.sessionID` → `result.metadata.sessionID/taskID` → 文本标记（`task_id: ses_x`、`sessionID: ses_x`、`sessionID="ses_x"`）→ 兜底首个 `ses_` ID（≠ parent）。提取失败记录诊断日志并保持不登记（fail-open 不变）。「受控后台任务模式」与「受限 revive/reuse」的其余语义不变。
+>
+> **第三次修订（2026-08-28，宿主事实兜底登记）**：实测发现 bridge 登记在真实宿主上仍未发生（静态排查：dist=源码、hook API 与事件形状同宿主 `Tool.trigger` 实现一致、工具名 `subagent` 匹配、coordinator 已接线，断点未实证）。据此把登记表降级为**缓存/护栏**，宿主 session 事实为终极事实源：`TaskCoordinator.ensureRegistered(taskID, parentSessionID)` 在登记缺失时以 `session.get` 严格校验子会话存在且 `parentID === parentSessionID`（保持跨父过滤边界），通过则补偿登记（保留 lane `host-fallback`）并按宿主 outcome 收敛终态；`task_status`/`task_result`/`task_cancel`/`task_message`/`task_revive` 全部接入兜底（防御性可选，兼容 stub 注入）。`runSetup` 补传 logger 使 bridge 诊断可见（此前 `opts.logger ?? noop` 静默丢弃）。已知上游缺口：oh-my-opencode-slim 登记桥硬编码只认工具名 `task`（其 `server.js` `tool.toLowerCase() !== "task"`），对当前宿主注册名 `subagent` 永不登记。
 
 ## 目标
 
