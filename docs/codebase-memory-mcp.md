@@ -24,7 +24,7 @@ CBM 子进程使用受限环境变量白名单，不继承 provider token；调�
 
 ## 工具与 `/cbm` 命令
 
-注册的 Oceanus 工具名为：`cbm_status`、`cbm_index`、`cbm_search_graph`、`cbm_trace`、`cbm_code`、`cbm_query`、`cbm_detect_changes`。其中 `cbm_trace` 使用 canonical `trace_path`；遇到仅支持旧版 `trace_call_path` 的二进制时才回退。`cbm_query` 仅接受只读 Cypher。
+注册的 Oceanus 工具名为：`cbm_status`、`cbm_index`、`cbm_search_graph`、`cbm_trace`、`cbm_code`、`cbm_query`、`cbm_detect_changes`；该清单的唯一来源是 `src/cbm/registry.ts` 的 `CBM_TOOLS`。其中 `cbm_trace` 使用 canonical `trace_path`；遇到仅支持旧版 `trace_call_path` 的二进制时才回退。`cbm_query` 仅接受只读 Cypher。
 
 内置命令：
 
@@ -71,7 +71,13 @@ Windows 支持下载 `.zip`、`.exe` 二进制及缓存路径；若 Windows 上 
 
 ## Agent 调度矩阵
 
-代码或混合任务在 Intake 阶段由 Sisyphus 直接调用一次 `cbm_index` 初始化；非代码任务跳过。Review 开始时再次调用 `cbm_index` 刷新索引；Brainstorm/Plan 不重复初始化。失败、超时或 in-progress 均 fail-open；查询型工具可由需要的 agent 使用。CBM 仅提供 advisory 证据，不是依赖门控、权限边界或完成事实；Ledger/Review schema 不得伪造宿主状态。
+CBM 沿六阶段工作流形成三阶段主线：
+
+1. **Intake 初始化**：代码或混合任务由 Sisyphus 直接调用一次 `cbm_index`（非代码任务跳过）；失败、超时或 in-progress 均 fail-open 并记录。这是全工作流唯一初始化点，Brainstorm/Plan 不重复初始化，普通文本探索不触发全量索引。
+2. **Momus 影响面预估（plan 门禁）**：`@momus` 审查计划时，对计划声明的修改文件/公共符号用查询型 CBM 排查影响面——`cbm_search_graph` 定位符号 → `cbm_trace` 查调用方/被调用方 → 必要时 `cbm_code` 读源码；发现计划未声明的受影响调用方/契约 → REJECT 并列出具体符号。预估结论（受影响符号与差异）记入 plan status，供 Review 阶段对比。momus 只做查询、不重建索引；CBM 不可用时标注不确定性、不虚构影响面，简单任务跳过预估需记录理由。
+3. **Review 影响面复查**：开始即调用 `cbm_index` 重建索引（execute 已修改代码），再对实际 diff 用 `cbm_trace`/`cbm_detect_changes` 再次排查影响面，并与 plan status 中 momus 的预估对比：一致 → 记为验证证据；不一致（新调用方受影响/预估遗漏）→ 解释或退回 execute；CBM 不可用时明确记录降级证据。
+
+查询型工具可由需要的 agent 使用；finish 阶段不调用 CBM，只读 Review 报告汇总。CBM 仅提供 advisory 证据，不是依赖门控、权限边界或完成事实；Ledger/Review schema 不得伪造宿主状态。
 
 | Agent | CBM 使用建议 | 不可用时 |
 |---|---|---|

@@ -8,8 +8,10 @@ import { createFixerAgent } from './fixer';
 import { createAgents } from './index';
 import { SISYPHUS_BRAINSTORM_SKILL } from '../skills/sisyphus-brainstorm';
 import { SISYPHUS_REVIEW_SKILL } from '../skills/sisyphus-review';
+import { CBM_LIFECYCLE, CBM_TOOLS, cbmSection } from '../cbm/registry';
 
-const registered = ['cbm_status', 'cbm_index', 'cbm_search_graph', 'cbm_trace', 'cbm_code', 'cbm_query', 'cbm_detect_changes'];
+/** 注册工具名来自注册表单一来源（src/cbm/registry.ts）。 */
+const registered = CBM_TOOLS;
 
 describe('CBM-GATE-01 静态提示词契约', () => {
   test('sisyphus prompt 声明五阶段并包含 finish', () => {
@@ -87,7 +89,38 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(explorer).toContain('禁止');
     expect(explorer).toContain('query=".*OrderHandler.*"');
     expect(createOracleAgent().system).toContain('since="HEAD~1"');
-    expect(createLibrarianAgent().system).toContain('fallback');
+    // 注册表 librarian 段以“外部资料仍使用 websearch/webfetch”表达降级语义
+    //（原硬编码 fallback 措辞已收敛进注册表，见报告中的放宽说明）。
+    expect(createLibrarianAgent().system).toContain('websearch/webfetch');
     expect(createFixerAgent().system).toContain('fallback');
+  });
+
+  test('角色 agent prompt 从注册表拼装 CBM 段落（单一来源）', () => {
+    expect(createExplorerAgent().system).toContain(cbmSection('explorer'));
+    expect(createOracleAgent().system).toContain(cbmSection('oracle'));
+    expect(createLibrarianAgent().system).toContain(cbmSection('librarian'));
+    expect(createFixerAgent().system).toContain(cbmSection('fixer'));
+    expect(createAgents().find((a) => a.name === 'momus')!.system).toContain(
+      cbmSection('momus'),
+    );
+    expect(createAgents().find((a) => a.name === 'metis')!.system).toContain(
+      cbmSection('metis'),
+    );
+  });
+
+  test('CBM_LIFECYCLE.full 只注入 sisyphus 一次，oceanus 基座不重复注入', () => {
+    expect(buildOceanusPrompt()).not.toContain(CBM_LIFECYCLE.full);
+    const sys = createSisyphusAgent().system!;
+    expect(sys).toContain(CBM_LIFECYCLE.full);
+    expect(sys.split(CBM_LIFECYCLE.full).length - 1).toBe(1);
+  });
+
+  test('momus prompt 含查询型影响面预估与 REJECT 门禁', () => {
+    const sys = createAgents().find((a) => a.name === 'momus')!.system!;
+    expect(sys).toMatch(/影响面/);
+    expect(sys).toContain('cbm_search_graph');
+    expect(sys).toContain('cbm_trace');
+    expect(sys).toMatch(/REJECT/);
+    expect(sys).toMatch(/plan status/);
   });
 });

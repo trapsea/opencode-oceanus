@@ -1,58 +1,51 @@
-# `/preset` 无模型 Turn Review
+# Review v1 — cbm-registry-lifecycle
 
-日期：2026-08-27
+- 日期：2026-08-28
+- 范围：CBM 规则注册表 + 三阶段主线闭环（spec: `.oceanus/spec/cbm-registry-lifecycle.md`）
+- 门禁记录：Momus OKAY（Round 1，ses_fb90b2fbcffeUPQ6VW835zISYw）+ 人工 APPROVED（双门禁齐备）
 
-## CBM
+## Step 1-3 影响面复查（CBM 主线自应用）
 
-Review 阶段重建 CBM 失败（daemon 30 秒不可连接），已降级为源码、API 类型、测试和构建产物审查。
+**降级证据（必须记录）**：Review 开始执行 `cbm_index` 重建索引失败——CBM daemon 超时（"could not accept this client within 30000 ms"，复测 `cbm_status` 同错误，exit_nonzero）。按主线规则 fail-open，改用 grep/git 降级路径完成影响面复查，未伪造索引成功。
 
-## Completion Audit
+降级路径复查结果（实际 diff vs 计划声明）：
 
-| 验收标准 | 证据 | 结论 |
+| 复查项 | 命令/证据 | 结论 |
 |---|---|---|
-| 成功切换不触发新模型 turn | `createPresetCommand` 不再调用 `reply`；commands 测试断言 reply 为 0；RED 旧实现收到 1 条、GREEN 16 pass | ✅ |
-| 查询不触发模型 turn/副作用 | 查询路径直接 return；测试断言 reply/reload 均为 0 | ✅ |
-| 失败不触发模型 turn且可诊断 | execute 抛出带 preset 命令上下文的异常；测试断言 reject、reply/reload 为 0 | ✅ |
-| 成功仍完成切换与 reload | 现有项目级配置测试、reload 测试和聚合测试通过 | ✅ |
-| command/skill 语义一致 | command description 与 `src/skills/opencode-oceanus.ts` 已删除旧 reload/新会话语义 | ✅ |
-| 回归与构建 | typecheck 通过；全量 950 pass/8 skip/0 fail；build 通过；dist 含新文案 | ✅ |
+| 变更文件范围 | `git diff --name-only`（23 文件）逐一对照 plan T1-T6 Files | 全部在声明范围内，无越界 |
+| 权限矩阵零改动 | `git diff src/config/constants.ts` = 0 行 | ✅ 与约束一致 |
+| 注册表单一来源 | `grep CBM_TOOL_NAMES src/` 无残留；`grep OrderHandler src/agents/*.ts` 零 prompt 硬编码 | ✅ |
+| 双重注入防范 | sisyphus prompt `## CBM 阶段边界` 恰好 1 次；`grep -c CBM_LIFECYCLE src/agents/oceanus.ts` = 0 | ✅ |
+| 运行时行为 | `bun test` 921 pass / 8 skip / 0 fail（8 skip 为环境探测设计内跳过） | ✅ |
+| 类型完整 | `bun run typecheck`（tsc --noEmit）exit=0 | ✅ |
 
-## Findings
+**与 momus 预估对比**：Momus Round 1 的 4 个留意点全部落实——① oceanus 未嵌入 `CBM_LIFECYCLE.full`（grep=0）；② T3 未动 Review Ownership 段（diff 仅上下文出现）且 brainstorm/plan 无 `cbm_index` 字面量（grep=0，负向断言保持）；③ T4 未触碰 index.ts/types.ts/constants.ts/schema.ts/hooks；④ CBM-12 审计列表已扩为 8 agent（补 momus/metis）。一致 → 记为验证证据，无需退回 execute。
 
-- 已确认根因：原 `replyToSession` 使用 `ctx.session.prompt`，反馈文本会启动新的模型 turn。
-- 已修复：成功/查询不再调用 reply；错误改为抛出，由宿主命令层处理。
-- 已修复：运行时 skill 不再指导模型执行 reload/新会话或误解配置写入位置。
-- 开放项：服务端 command execute 抛错后，真实 OpenCode host 的具体 UI 展示未在本地 host smoke 验证；不能声称已有 toast。
-- 用户已有 `package.json`、`src/update/*` 等变更保持未回滚。
+## 契约测试证据（摘要）
 
-## Gate
+- `src/cbm/registry.test.ts`：16 pass（注册清单/示例/主线三阶段/六角色段落）
+- `src/agents/cbm-usage.test.ts` + `src/agents/index.test.ts`：106 pass（momus 影响面+REJECT、主线唯一注入、CBM-12 八 agent 审计、负向前瞻）
+- `src/skills/stages.test.ts`：53 pass（既有 CBM-04 全保 + 新增 plan 影响面项/review 三步复查断言）
+- T4 相关（builders/tooling/smoke）：140 pass
+- 全量：921 pass / 0 fail
 
-PASS；核心验收证据完整，真实 host 的错误展示作为明确剩余不确定性记录。
+## 断言调整记录（可审计）
 
-## 通用 subagent 会话复用 Review
+1. cbm-usage.test.ts：librarian `toContain('fallback')` → `toContain('websearch/webfetch')`（语义等价迁移：注册表 librarian 段降级语义由 websearch/webfetch 表达）。
+2. stages.test.ts / index.test.ts / cbm-usage.test.ts：仅新增断言，无既有断言删除；既有正则（含负向前瞻、次数断言）全部保持通过。
+3. sisyphus-review.ts 顺带修复原有重复步骤编号（3、3 → 顺延 4-7），属同文件显式笔误修复。
 
-日期：2026-08-27
+## Completion Audit（覆盖率矩阵）
 
-### CBM
-
-Review 阶段重建 CBM 失败（daemon 30 秒不可连接），已降级为源码、测试和构建审查。
-
-### Completion Audit
-
-| 验收标准 | 证据 | 结论 |
+| 验收标准（spec） | 证据 | 状态 |
 |---|---|---|
-| JobBoard lane/reusable 基础能力 | R1 定向测试 40 pass；隔离、旧 generation、CAS 与 observer/reconcile 回归通过 | ✅ |
-| v2 child session 续用 | R2 定向测试 12 pass；adapter prompt/wait/get 缺能力和 uncertain 不伪造通过 | ✅ |
-| 工具注册、默认开启与 workspace 回退 | 相关测试通过；全量测试 978 pass/8 skip/0 fail；typecheck/build 通过 | ✅ |
-| 所有 specialist 的真实同 lane 端到端复用 | 当前仅有 task_reuse 无候选契约测试，未完成八类真实 host 场景验证 | ⚠️ |
-| 真实 OpenCode host 行为 | 本地无 OpenCode host，smoke 仅 mock；CBM 不可用 | ⚠️ |
+| 1. bun test 全绿 | 921 pass / 0 fail（本机终态复跑） | ✅ |
+| 2a. momus prompt 含影响面预估 checklist 与 REJECT | momus.ts Checklist 新增项 + `cbmSection('momus')`；cbm-usage 断言通过 | ✅ |
+| 2b. plan skill momus 清单含影响面项与记录要求 | sisyphus-plan.ts L40/41/59；stages.test 断言通过 | ✅ |
+| 2c. review skill 重建→复查→对比三步 | sisyphus-review.ts Step 1-3；stages.test 断言通过 | ✅ |
+| 2d. 注册表单一来源 | grep 验证（无字面量残留）+ 契约测试 | ✅ |
+| 2e. sisyphus/oceanus 同源不重复注入 | `## CBM 阶段边界` 唯一性断言 + oceanus 零引用 | ✅ |
+| 3. 权限回归（momus deny 查询 allow） | constants.ts diff=0；权限契约测试通过 | ✅ |
+| 4. typecheck 通过 | tsc --noEmit exit=0 | ✅ |
 
-### Findings
-
-- 已实现并接通 `task_reuse`、lane 元数据、child session v2 续用、默认配置和调度提示。
-- 已将模糊 child/session 绑定、degraded board 读取、终态 reconciliation 和 uncertain revive 收紧。
-- 剩余风险：`task_reuse` 的完整成功/replay/多候选/配置关闭/八类 specialist 端到端覆盖仍不足；不能声称这些场景已全部达到验收。
-
-### Gate
-
-CONDITIONAL PASS：核心实现、回归测试、类型检查和构建通过；保留上述端到端覆盖与真实 host 验证不确定性。
+**矩阵全绿，无缺口。** 遗留不确定性：CBM daemon 本轮不可用（环境性，非本次改动引入），review 影响面复查以 git/grep 降级证据替代；daemon 恢复后可复跑 `cbm_index` + `cbm_detect_changes` 做二次确认，但不构成缺口。

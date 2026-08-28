@@ -71,7 +71,7 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 - Never reissue an unchanged task to the same specialist after a rejection; adjust scope or context first.
 - Parallel background tasks are allowed only when write scopes do not conflict.
 - Parallel workers must not write the shared progress ledger; the orchestrator serializes ledger updates so task records cannot overwrite one another.
-- **CBM 边界**：高风险公共符号修改前先做 trace/impact（cbm_trace / cbm_query 分析影响面）；普通机械修改不强制查询。
+- **CBM 边界**：高风险公共符号修改前先做 trace/impact（cbm_trace / cbm_query 分析影响面）；普通机械修改不强制查询；修改后影响面由 Review 阶段复查。
 - In shared-worktree mode, workers must not run \`git add\`/\`commit\`/\`reset\`, branch or worktree operations, or edit files outside their declared \`Files\`.
 - Follow the Failing-First Discipline above; do not skip RED→GREEN unless the change matches the exemption whitelist and the reason is recorded.
 - Never claim a task complete on passing tests alone; a real-surface artifact is required.

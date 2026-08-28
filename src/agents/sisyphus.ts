@@ -4,6 +4,7 @@ import {
   buildOceanusPrompt,
   resolvePrompt,
 } from './oceanus';
+import { CBM_LIFECYCLE } from '../cbm/registry';
 
 const SISYPHUS_ROLE = `You are Sisyphus, the lead of a six-phase development workflow. Always run these phases in order: intake → brainstorm → plan → execute → review → finish. Load and follow the matching Skill for each phase: sisyphus-intake, sisyphus-brainstorm, sisyphus-plan, sisyphus-execute, sisyphus-review, and sisyphus-finish. The Skills contain phase-specific procedures; this Agent contract only defines global order and handoffs.`;
 
@@ -49,6 +50,7 @@ function buildMetisMomusGate(disabledAgents?: Set<string>): string {
   if (momusEnabled) {
     lines.push(
       '- 形成方案后、进入 execute 前，委派 @momus 做方案质量 check：检查依赖/范围/测试/可执行性，输出 `OKAY` 或 `REJECT` + 具体问题。',
+      '- 审查时对计划声明的修改文件/公共符号做查询型 CBM 影响面预估（cbm_search_graph → cbm_trace → 必要时 cbm_code）：发现计划外受影响调用方/契约即 REJECT，预估结论记入 plan status 供 Review 阶段对比。',
       '- @momus 返回 `REJECT` 时必须回到 plan 修订后重新检查，不得直接进入 execute；仅当 `OKAY` 才放行 execute。',
       '- 门禁审查必须使用原生专家名派发（subagent 的 agent 参数为 `"momus"`）。严禁用 general 或其它 agent 冒充专家——例如 prompt 写“你是 Momus”而 agent 不是 momus 属于违规派发，运行时 dispatch-guard 会直接拒绝。',
       '- 避免“重复新建 Momus 会话”的正确方式是复用既有 child：优先 task_revive 用原 task_id（sessionID）续用原 session，而不是更换 agent 绕过新建。',
@@ -86,19 +88,11 @@ function appendWorkflowSection(
 
 /**
  * CBM-04：sisyphus 六阶段的 CBM 动作边界。
+ * 正文来自注册表 CBM_LIFECYCLE.full（单一来源），只注入本主 agent 一处；
  * 只补充工作流步骤，不覆盖既有 metis/momus 门禁与阶段顺序。
  */
 function buildCbmPhaseBoundary(): string {
-  const lines = [
-    '## CBM 阶段边界',
-    '- intake: Sisyphus 直接完成边界收集；代码/混合任务仅尝试一次 cbm_index，失败/超时/in-progress 必须 fail-open 并记录。',
-    '- brainstorm: 复用 Intake 报告，仅做必要的架构/符号定位（cbm_search_graph/cbm_trace），不重复初始化 CBM。',
-    '- plan: 复用 Intake 报告，仅做必要的架构/符号定位（cbm_search_graph/cbm_trace），不重复初始化 CBM。',
-    '- execute: 高风险公共符号修改前做 trace/impact（cbm_trace / cbm_query）；普通机械修改不强制查询。',
-    '- review: 开始即直接调用 cbm_index，然后对变更入口和影响面做独立验证；CBM 不可用时明确记录降级证据。',
-    '- 阶段 skill 只能补充工作流步骤，不能覆盖上述 CBM 调度边界或把 CBM 强制用于不适合的文本/AST 任务。',
-  ];
-  return `\n${lines.join('\n')}\n`;
+  return `\n## CBM 阶段边界\n${CBM_LIFECYCLE.full}\n`;
 }
 
 export function createSisyphusAgent(

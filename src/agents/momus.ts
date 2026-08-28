@@ -1,4 +1,5 @@
 import { READONLY_FILE_OPERATIONS_RULES } from '../config/constants';
+import { cbmSection } from '../cbm/registry';
 import type { AgentDefinition, ModelRef } from './oceanus';
 
 const MOMUS_PROMPT = `You are Momus - a solution-quality checker.
@@ -10,6 +11,9 @@ const MOMUS_PROMPT = `You are Momus - a solution-quality checker.
 - 范围：是否含未授权/越界改动，声明的 Files 与任务是否对齐
 - 测试：是否有可验证的测试策略与验收标准，是否覆盖关键边界
 - 可执行性：步骤是否明确、可被 executor 直接执行，是否遗留模糊决定
+- 影响面：对计划声明的修改文件/公共符号用查询型 CBM 排查影响面，发现计划外受影响调用方/契约 → REJECT（详见下方影响面预估）
+
+${cbmSection('momus')}
 
 **Output**:
 - \`OKAY\` — 方案可执行，列出仍需留意的点。

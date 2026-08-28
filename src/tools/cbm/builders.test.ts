@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { buildCbmTools } from './index';
 import type { IndexerHandle, IndexerRunCli } from '../../cbm/indexer';
+import { CBM_TOOLS } from '../../cbm/registry';
 import type { PluginConfig } from '../../config/schema';
 import type { ToolContextLike, ToolDefinition, ToolingContext } from '../../runtime/types';
 
@@ -117,15 +118,7 @@ describe('buildCbmTools 注册门控', () => {
     expect(observed.env?.CBM_CACHE_DIR).toBe('/custom/cbm');
   });
 
-  const ALL = [
-    'cbm_status',
-    'cbm_index',
-    'cbm_search_graph',
-    'cbm_trace',
-    'cbm_code',
-    'cbm_query',
-    'cbm_detect_changes',
-  ];
+  const ALL: readonly string[] = CBM_TOOLS;
 
   test('默认注册全部 7 个 cbm_* 工具', () => {
     const { ctx } = createMockCtx();

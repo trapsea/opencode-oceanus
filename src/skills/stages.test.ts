@@ -287,4 +287,33 @@ describe('CBM 阶段边界契约', () => {
       expect(review).toMatch(/CBM 不可用[\s\S]{0,80}(降级|degrade)/);
     });
   });
+
+  describe('plan — momus 影响面预估（门禁必查项）', () => {
+    test('Momus must check 清单包含影响面预估项', () => {
+      expect(plan).toMatch(/影响面预估|Impact surface/i);
+      expect(plan).toContain('cbm_trace');
+      expect(plan).toContain('REJECT');
+      expect(plan).toMatch(/plan status|plan 状态/);
+    });
+
+    test('预估结论记入 plan status 供 Review 对比', () => {
+      expect(plan).toMatch(/预估结论[\s\S]{0,160}plan status|plan status[\s\S]{0,160}预估结论/);
+    });
+  });
+
+  describe('review — 影响面复查三步（重建索引 → 再查 diff → 对比预估）', () => {
+    test('Step 1：开始即 cbm_index 重建索引', () => {
+      expect(review).toMatch(/cbm_index[\s\S]{0,120}(rebuild|重建)/i);
+    });
+
+    test('Step 2：对实际 diff 再次排查影响面', () => {
+      expect(review).toMatch(/cbm_detect_changes|再次排查/);
+      expect(review).toMatch(/实际 diff|actual diff/i);
+    });
+
+    test('Step 3：与 plan status 中 momus 的预估对比', () => {
+      expect(review).toMatch(/momus[\s\S]{0,80}预估|预估[\s\S]{0,80}momus/i);
+      expect(review).toMatch(/预估[\s\S]{0,60}对比|对比[\s\S]{0,60}预估/);
+    });
+  });
 });

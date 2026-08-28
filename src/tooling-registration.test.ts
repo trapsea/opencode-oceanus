@@ -19,6 +19,7 @@ import type {
   ToolingContext,
 } from './runtime/types';
 import type { IndexerHandle } from './cbm/indexer';
+import { CBM_TOOLS } from './cbm/registry';
 
 // ─────────────────────────── 测试辅助 ───────────────────────────
 
@@ -118,13 +119,7 @@ describe('Tool transform 注册', () => {
          'task_status',
          'task_message',
           'task_revive',
-        'cbm_status',
-        'cbm_index',
-        'cbm_search_graph',
-        'cbm_trace',
-        'cbm_code',
-        'cbm_query',
-        'cbm_detect_changes',
+        ...CBM_TOOLS,
       ].sort(),
     );
   });

@@ -37,7 +37,8 @@ Turn the approved spec into a bite-sized, dependency-aware implementation plan, 
    - **Test / acceptance coverage** — does every task carry a testable success criterion and validation evidence that covers it?
    - **Step executability** — is every step small, independently completable, and concretely actionable by a worker?
    - **Unresolved decisions** — are any blocking decisions still open that would block or invert a task?
- Record Momus's verdict (\`OKAY\` or \`REJECT\`), the issue list, the revision round number, and the verification timestamp into \`.oceanus/plan/<name>.md\` (or the matching plan status). Momus \`OKAY\` is necessary but insufficient: obtain explicit human approval (人工批准) as \`APPROVED\`; only then may execute begin. Both gates are mandatory.
+   - **Impact surface（影响面预估）** — 对计划声明的修改文件/公共符号，用查询型 CBM 排查计划外受影响面：cbm_search_graph 定位符号 → cbm_trace 查调用方/被调用方 → 必要时 cbm_code 读源码；发现计划未声明的受影响调用方/契约 → REJECT 并列出具体符号；预估结论（受影响符号与差异）记入 plan status 供 Review 对比。momus 只查询、不重建索引；CBM 不可用时标注不确定性，不虚构影响面。
+ Record Momus's verdict (\`OKAY\` or \`REJECT\`), the issue list, the revision round number, the verification timestamp, and the impact-surface estimate conclusion（影响面预估结论：受影响符号与差异）into \`.oceanus/plan/<name>.md\` (or the matching plan status). Momus \`OKAY\` is necessary but insufficient: obtain explicit human approval (人工批准) as \`APPROVED\`; only then may execute begin. Both gates are mandatory.
  7. **Re-analyze changed inputs** — if the Plan phase discovers a new requirement, new risk, or changed acceptance criterion, return to @metis analysis first; incorporate its results into the revised plan, then have @momus check that revision before execute.
  8. **Confirm strategy with the user** — agree on the TDD strategy (write tests first) and the Worktree strategy (per-task isolation vs. shared worktree). Respect the user's explicit choices.
 
@@ -55,6 +56,7 @@ Turn the approved spec into a bite-sized, dependency-aware implementation plan, 
 - [ ] Plan saved under \`.oceanus/plan/\`
 - [ ] \`@momus\` review run on complex tasks before execute
 - [ ] OKAY / REJECT verdict, issues, revision round, and verification time recorded in plan status
+- [ ] Momus 影响面预估结论（受影响符号与差异）已记入 plan status，供 Review 复查对比
 - [ ] REJECT sent back to revision and re-reviewed; only OKAY passes to execute
 - [ ] TDD strategy confirmed
 - [ ] Worktree strategy confirmed

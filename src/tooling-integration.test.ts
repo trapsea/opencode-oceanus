@@ -19,6 +19,7 @@ import path from 'node:path';
 import { registerOceanusTools } from './tools';
 import { registerOceanusHooks } from './hooks';
 import type { PluginConfig } from './config/schema';
+import { CBM_TOOLS } from './cbm/registry';
 import { computeLineHash } from './tools/hashline-edit';
 import type {
   SessionInfoLike,
@@ -484,13 +485,7 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
         'task_message',
         'task_revive',
         'task_reuse',
-        'cbm_status',
-        'cbm_index',
-        'cbm_search_graph',
-        'cbm_trace',
-        'cbm_code',
-        'cbm_query',
-        'cbm_detect_changes',
+        ...CBM_TOOLS,
       ],
       disabled_hooks: [
         'apply_patch',

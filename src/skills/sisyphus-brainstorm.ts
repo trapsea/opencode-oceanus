@@ -25,7 +25,7 @@ Turn a vague request into an approved design spec before any code is written.
 
 ## Steps
 1. **Consume Intake** — load the completed Intake handoff and use its goal, scope, acceptance criteria, risks, constraints, and open questions as the starting contract; do not silently rewrite Intake decisions.
-2. **Explore context** — search the codebase, read relevant files, and identify what already exists before proposing anything. 仅做必要的架构/符号定位（cbm_search_graph/cbm_trace）；不因普通文本探索触发全量索引（brainstorm 不做全量索引初始化）。
+2. **Explore context** — search the codebase, read relevant files, and identify what already exists before proposing anything. 仅做必要的架构/符号定位（cbm_search_graph/cbm_trace）；不因普通文本探索触发全量索引（brainstorm 不做全量索引初始化，复用 Intake 已建索引）。
 2. **Clarify one question at a time** — use the \`question\` tool with a small bounded set of options (and custom input) to pin down requirements. Resolve one ambiguity per turn; do not batch-load the user with questions.
  3. **条件使用 @metis** — 完成 Intake 且澄清后仍存在未决方案选择时，只有 Sisyphus 明确需要独立分析才委派 \`@metis\`，使用 \`SOLUTION_ANALYSIS\` 模式。复杂度、多文件或高风险本身不触发；否则记录跳过原因。
 4. **Propose 2-3 approaches** — each with a clear recommendation and the trade-offs (quality, speed, cost, risk), revised in light of @metis's analysis.

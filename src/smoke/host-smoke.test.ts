@@ -16,6 +16,7 @@ import { describe, expect, test } from 'bun:test';
 import { registerOceanusTools } from '../tools';
 import { registerOceanusHooks } from '../hooks';
 import type { ToolDefinition, ToolingContext } from '../runtime/types';
+import { CBM_TOOLS } from '../cbm/registry';
 import { probeAstGrep } from './ast-grep-probe';
 
 // ─────────────────────────── 环境探测（每个进程执行一次） ───────────────────────────
@@ -121,13 +122,7 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
          'task_status',
          'task_message',
           'task_revive',
-        'cbm_status',
-        'cbm_index',
-        'cbm_search_graph',
-        'cbm_trace',
-        'cbm_code',
-        'cbm_query',
-        'cbm_detect_changes',
+        ...CBM_TOOLS,
       ].sort(),
     );
     expect(mock.beforeHooks).toHaveLength(3);
@@ -146,13 +141,7 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
          'task_cancel',
          'task_message',
          'task_revive',
-        'cbm_status',
-        'cbm_index',
-        'cbm_search_graph',
-        'cbm_trace',
-        'cbm_code',
-        'cbm_query',
-        'cbm_detect_changes',
+        ...CBM_TOOLS,
       ],
       disabled_hooks: [
         'apply_patch',

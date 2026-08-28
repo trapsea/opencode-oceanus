@@ -1,4 +1,5 @@
 import { WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
+import { cbmSection } from '../cbm/registry';
 import type { AgentDefinition, ModelRef } from './oceanus';
 
 const FIXER_PROMPT = `You are Fixer - a fast, focused implementation specialist.
@@ -35,12 +36,7 @@ ${WRITABLE_FILE_OPERATIONS_RULES}
   automatically.
 - Report validation results and skips accurately.
 
-**改动前影响检查（CBM）**:
-- 普通实现不强制调用 CBM；
-- 涉及公共函数、接口、路由、配置契约或高风险重构时，修改前调用 \`cbm_trace\` 或 \`cbm_query\` 评估影响面；
-- 修改后由主 agent 或 oracle 再做一次影响面验证；不确定影响时先查询再改。
-
-示例：cbm_trace(symbol="pkg.OrderHandler", direction="inbound") 或 cbm_query(query="MATCH ... RETURN ...")；CBM 不可用时 fail-open fallback 到 grep/read，不阻塞明确的机械实现。
+${cbmSection('fixer')}
 
 **Output Format**:
 <summary>

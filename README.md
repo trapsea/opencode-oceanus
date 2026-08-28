@@ -41,7 +41,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 
 ### CBM 调度约定
 
-代码或混合任务在 Intake 阶段由 Sisyphus 直接调用一次 `cbm_index` 初始化；非代码任务跳过。Review 开始时再次调用 `cbm_index` 刷新索引；Brainstorm/Plan 不重复初始化。失败、超时或 in-progress 均 fail-open；查询型工具可由需要的 agent 使用。详见 `docs/codebase-memory-mcp.md`。
+CBM 沿六阶段工作流形成三阶段主线。**Intake 初始化**：代码或混合任务由 Sisyphus 直接调用一次 `cbm_index`（非代码任务跳过），失败、超时或 in-progress 均 fail-open 并记录；这是全工作流唯一初始化点，Brainstorm/Plan 不重复初始化。**Momus 影响面预估**：plan 门禁审查时，`@momus` 对计划声明的修改文件/公共符号用查询型 CBM（`cbm_search_graph` → `cbm_trace` → 必要时 `cbm_code`）排查影响面，发现计划未声明的受影响调用方/契约则 REJECT，预估结论记入 plan status。**Review 影响面复查**：开始即 `cbm_index` 重建索引（execute 已修改代码），再对实际 diff 用 `cbm_trace`/`cbm_detect_changes` 再次排查并与 momus 预估对比——一致记为验证证据，不一致则解释或退回 execute；CBM 不可用时记录降级证据。查询型工具可由需要的 agent 使用，finish 阶段不调用 CBM。详见 `docs/codebase-memory-mcp.md`。
 
 ## 安装
 

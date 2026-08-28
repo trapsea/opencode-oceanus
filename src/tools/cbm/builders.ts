@@ -1,4 +1,5 @@
 import type { IndexerHandle, IndexerRunCli } from '../../cbm/indexer';
+import { CBM_TOOLS } from '../../cbm/registry';
 import { getToolConfig } from '../../config/utils';
 import type { PluginConfig } from '../../config/schema';
 import { resolveWorkspaceRoot } from '../../runtime/workspace';
@@ -56,17 +57,8 @@ export interface CbmToolEnv {
   cacheRoot?: string;
 }
 
-/** cbm_* 工具 canonical 名称。 */
-export const CBM_TOOL_NAMES = [
-  'cbm_status',
-  'cbm_index',
-  'cbm_search_graph',
-  'cbm_trace',
-  'cbm_code',
-  'cbm_query',
-  'cbm_detect_changes',
-] as const;
-export type CbmToolName = (typeof CBM_TOOL_NAMES)[number];
+/** cbm_* 工具 canonical 名称（唯一来源：`../../cbm/registry` 的 `CBM_TOOLS`）。 */
+export type CbmToolName = (typeof CBM_TOOLS)[number];
 
 /** 全量 cbm_index 的独立较长超时（10 分钟）。 */
 const CBM_INDEX_TIMEOUT_MS = 600_000;

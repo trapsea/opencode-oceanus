@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createAgents, getAgentDefinitions } from './index';
 import type { AgentDefinition } from './oceanus';
+import { CBM_TOOLS } from '../cbm/registry';
 
 describe('agent override 映射', () => {
   test('映射 v2 AgentDefinition 支持的字段', () => {
@@ -464,6 +465,27 @@ describe('CBM-04：agent 调度契约（代码知识图谱）', () => {
     expect(sys).toContain('cbm_query');
     expect(sys).toMatch(/公共|public|高风险/);
   });
+
+  test('momus prompt 包含查询型影响面预估门禁', () => {
+    const sys = sysOf('momus');
+    expect(sys).toMatch(/影响面/);
+    expect(sys).toContain('cbm_search_graph');
+    expect(sys).toContain('cbm_trace');
+    expect(sys).toMatch(/REJECT/);
+    expect(sys).toMatch(/plan status/);
+  });
+
+  test('metis prompt 包含查询型 CBM 检索段', () => {
+    const sys = sysOf('metis');
+    expect(sys).toContain('cbm_search_graph');
+    expect(sys).toMatch(/查询型/);
+  });
+
+  test('sisyphus 的 momus 门禁声明查询型影响面预估', () => {
+    const sys = sysOf('sisyphus');
+    expect(sys).toMatch(/影响面预估/);
+    expect(sys).toMatch(/plan status/);
+  });
 });
 
 describe('CBM-12：agent prompt CBM 调度最终审计', () => {
@@ -473,22 +495,14 @@ describe('CBM-12：agent prompt CBM 调度最终审计', () => {
     return agent!.system!;
   };
 
-  // 与 src/tools/cbm/builders.ts 注册的工具一致，禁止虚构 cbm_* 工具名
-  const REGISTERED_CBM_TOOLS = [
-    'cbm_status',
-    'cbm_index',
-    'cbm_search_graph',
-    'cbm_trace',
-    'cbm_code',
-    'cbm_query',
-    'cbm_detect_changes',
-  ];
+  // 与注册表（src/cbm/registry.ts 的 CBM_TOOLS）一致，禁止虚构 cbm_* 工具名
+  const REGISTERED_CBM_TOOLS = CBM_TOOLS;
 
   const cbmToolsIn = (sys: string) =>
     [...sys.matchAll(/\bcbm_[a-z_]+/g)].map((m) => m[0]);
 
   test('所有 agent 引用的 cbm_* 工具名均在注册集合内', () => {
-    const agents = ['oceanus', 'sisyphus', 'explorer', 'oracle', 'librarian', 'fixer'];
+    const agents = ['oceanus', 'sisyphus', 'explorer', 'oracle', 'librarian', 'fixer', 'momus', 'metis'];
     for (const name of agents) {
       for (const t of cbmToolsIn(sysOf(name))) {
         expect(REGISTERED_CBM_TOOLS).toContain(t);

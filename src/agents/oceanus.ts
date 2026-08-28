@@ -1,5 +1,10 @@
 import { WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
 import type { AgentOverrideConfig } from '../config/schema';
+import {
+  CBM_BOUNDARY_NOTE,
+  CBM_QUERY_EXAMPLES,
+  CBM_QUERY_TOOLS,
+} from '../cbm/registry';
 import { DELEGATION_BRIEF_PROMPT } from './orchestrator-context';
 
 export type PermissionConfig = NonNullable<AgentOverrideConfig['permission']>;
@@ -243,10 +248,12 @@ ${WRITABLE_FILE_OPERATIONS_RULES}
 ### Codebase Knowledge Graph（CBM）调度
 Structured code-knowledge retrieval prefers CBM; text/AST/file/web tasks keep their original tools.
 
- - “在哪里定义/谁调用/调用了谁/依赖关系/修改影响/架构结构” -> 优先 CBM（cbm_search_graph / cbm_trace / cbm_code / cbm_query / cbm_detect_changes）。示例：cbm_search_graph(query=".*OrderHandler.*", limit=20)、cbm_trace(symbol="pkg.OrderHandler", direction="inbound")、cbm_code(qualified_name="pkg.OrderHandler")、cbm_query(query="MATCH ... RETURN ...")、cbm_detect_changes(since="HEAD~1")。
+${CBM_BOUNDARY_NOTE}
+
+- “在哪里定义/谁调用/调用了谁/依赖关系/修改影响/架构结构” -> 优先 CBM（${CBM_QUERY_TOOLS.join(' / ')}）。${CBM_QUERY_EXAMPLES}
 - 需要代码库上下文时优先委派 explorer；需要影响面、架构或审查时委派 oracle。
 - 委派检索任务时，明确要求返回 CBM 证据、qualified name、文件路径和行号。
- - Intake/brainstorm/plan 不重复初始化 CBM；Review 开始直接调用 cbm_index。Intake 报告在后续阶段复用，子 agent 不重复初始化。
+- CBM 主线：Intake 是唯一初始化点（cbm_index 一次、fail-open）；brainstorm/plan 只做查询型检索、不重建索引；momus 门禁做查询型影响面预估并把结论记入 plan status；review 开始先 cbm_index 重建索引，再复查实际 diff 的影响面并与预估对比。
 - 字符串、注释、正则文本 -> grep/search_code，不使用 CBM 替代。
 - AST 结构匹配 -> ast_grep_search，不使用 CBM 替代。
 - 文件名/目录发现 -> glob/read，不使用 CBM 替代。

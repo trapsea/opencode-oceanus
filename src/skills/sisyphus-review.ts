@@ -26,11 +26,13 @@ Sisyphus 主 Agent 持有 spec/plan/diff/evidence 上下文与最终门禁；仅
 Catch defects and design drift with evidence, not vibes, between phases.
 
 ## Steps
-1. **Rebuild the CBM index before review queries** — at the start of Review, directly call \`cbm_index\` to rebuild the current project index; complete this before any CBM query or impact verification (do not rely on a stale index).
-2. **Run review gates** — after each phase, review the actual output against the spec and plan before moving on.
-3. **Verify before accepting** — for any finding, confirm it with evidence (read the code, run the check) before acting on it.
-3. **Escalate heavy review to @oracle** — route high-risk architecture decisions, persistent bugs, or security-sensitive review to @oracle.
-4. **Gate, don't skip** — review is a gate between phases, not an optional extra. Do not advance to execute or finish with known-unverified claims.
+1. **Rebuild the CBM index before review queries** — at the start of Review, directly call \`cbm_index\` to rebuild the current project index; execute 已修改代码，不得依赖陈旧索引，重建完成后再进入后续影响面复查与 CBM 查询。
+2. **Re-check the impact surface on the actual diff** — 用 \`cbm_trace\`/\`cbm_detect_changes\` 对实际 diff 再次排查影响面（受影响调用方/被调用方/契约）；以实际代码为准，不用 plan 期预估替代复查。
+3. **Compare against the momus estimate** — 将复查结果与 plan status 中 momus 的影响面预估对比：一致 → 记为验证证据；不一致（新调用方受影响/预估遗漏）→ 解释差异或退回 execute。
+4. **Run review gates** — after each phase, review the actual output against the spec and plan before moving on.
+5. **Verify before accepting** — for any finding, confirm it with evidence (read the code, run the check) before acting on it.
+6. **Escalate heavy review to @oracle** — route high-risk architecture decisions, persistent bugs, or security-sensitive review to @oracle.
+7. **Gate, don't skip** — review is a gate between phases, not an optional extra. Do not advance to execute or finish with known-unverified claims.
 
 ## Review Ownership
 
@@ -64,7 +66,7 @@ Before accepting any task or scenario as truly done, run a completion audit: tre
 - A terminal claim is credible only when backed by \`task_status\` / \`task_result\` host facts (verified); do not accept completion claims based on queue notifications or silence.
 - Do not repeat evidence you already have unless the final state changed.
 - If a finding cannot be verified, state that uncertainty explicitly instead of assuming.
-- **CBM 边界**：对变更入口与影响面做独立验证；CBM 不可用时明确记录降级证据。
+- **CBM 边界**：对变更入口与影响面做独立验证——按 Steps 1-3 复查流程执行（重建索引 → 对实际 diff 再次排查 → 与 momus 预估对比，一致记为验证证据、不一致解释或退回 execute）；CBM 不可用时明确记录降级证据。
 - Run the Completion Audit before marking any task truly done; a gap (uncovered criterion) is sent back to execute, not accepted.
 `,
 };

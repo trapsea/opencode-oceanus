@@ -1,4 +1,5 @@
 import { READONLY_FILE_OPERATIONS_RULES } from '../config/constants';
+import { cbmSection } from '../cbm/registry';
 import type { AgentDefinition, ModelRef } from './oceanus';
 
 const METIS_PROMPT = `You are Metis - an independent solution-analysis specialist used only after Intake.
@@ -33,6 +34,8 @@ but do not implement it and do not emit an intake_report.
 - READ-ONLY: analyze and report, do not write files.
 - 不委派（no delegation）、不执行 task：仅读取输入，自行分析，直接输出结论。
 - 不写文件（never write）：不创建、不编辑任何文件。
+
+${cbmSection('metis')}
 
 ${READONLY_FILE_OPERATIONS_RULES}
 `;
