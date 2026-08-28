@@ -103,10 +103,10 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
     const hashline = mock.addedTools.find((tool) => tool.name === 'hashline_edit') as any;
     expect(hashline).toBeDefined();
     expect(hashline.input.properties.filePath).toBeDefined();
-    expect(mock.afterHooks).toHaveLength(6);
+    expect(mock.afterHooks).toHaveLength(5);
   });
 
-   test('默认注册 16 个工具 + 10 个 hooks（4 before + 6 after）', async () => {
+   test('默认注册 15 个工具 + 9 个 hooks（3 before + 5 after）', async () => {
     const mock = createMockCtx();
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
@@ -121,7 +121,6 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
          'task_status',
          'task_message',
           'task_revive',
-          'task_reuse',
         'cbm_status',
         'cbm_index',
         'cbm_search_graph',
@@ -131,8 +130,8 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
         'cbm_detect_changes',
       ].sort(),
     );
-    expect(mock.beforeHooks).toHaveLength(4);
-    expect(mock.afterHooks).toHaveLength(6);
+    expect(mock.beforeHooks).toHaveLength(3);
+    expect(mock.afterHooks).toHaveLength(5);
   });
 
   test('禁用矩阵：disabled_tools / disabled_hooks 全部生效后为 0', async () => {
@@ -147,7 +146,6 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
          'task_cancel',
          'task_message',
          'task_revive',
-         'task_reuse',
         'cbm_status',
         'cbm_index',
         'cbm_search_graph',

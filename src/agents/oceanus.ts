@@ -209,7 +209,7 @@ Choose the path that optimizes all four.
 
 ## 3. Delegation Check
 ${DELEGATION_BRIEF_PROMPT}
-所有调度必须使用稳定 \`lane:<stable-key>\` 描述；先检查 Job Board 并调用 \`task_reuse\`：只有返回 \`NO_REUSABLE_TASK\` 且无同 lane 受控任务时，才可做一次 native \`subagent/task\` fallback；\`UNSUPPORTED\`、\`CAS_CONFLICT\`、\`UNCERTAIN\` 等错误不得 fallback，同 lane active/unreconciled 必须等待，completed/reusable 必须续用。
+所有调度必须使用结构化 \`lane_key: <stable-key>\`；派发前查看 Task Board 摘要：同 lane Active/Unknown 不得重复派发；Completed 未消费先 \`task_result\` 读取；Reusable 任务用 \`task_revive\` 以原 task_id（sessionID）续用；无匹配任务才用原生 \`subagent\`（\`background: true\`）新建，返回的 sessionID 即 task_id。终态只信宿主 session 事实，插件元数据不伪造终态。
 Review available agents and lane rules. Before beginning non-trivial work, identify which parts can proceed independently.
 
 **Routing threshold:**

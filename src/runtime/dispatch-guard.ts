@@ -4,16 +4,16 @@
  * 背景（2026-08-27 复盘）：长会话压缩后编排模型曾出现两类漂移——
  * ① 角色冒名：prompt 以「你是 Momus…」开头但 input.agent="general"，
  *    用通用 agent 冒充专家伪造质量门禁（13 连发）；
- * ② 同目标重复派发：既有终态任务未被读取/确认时按相同目标再 spawn 新任务。
+ * ② 同目标重复派发：既有终态任务结果未被读取/消费时按相同目标再派发新任务。
  *
  * 设计对齐 oh-my-opencode-slim `task-session-manager/tool-execute-hooks` 范式：
  * - 在 tool.execute.before 阶段直接 throw，错误文本作为 tool failure 回流给
  *   编排模型 —— “报错即提示词”：文本必须点名违规并给出正确替代动作。
- * - 只拦截这两类明确违规；其余一律放行。inspectDispatch 自身不做 IO，
- *   board 匹配依赖注入的 JobBoard 只读视图。
+ * - 只拦截这两类明确违规；其余一律放行。inspectDispatch 自身不做 IO、
+ *   绝不抛错；duplicate 匹配依赖注入的 coordinator 只读视图（鸭子类型，
+ *   与 createTaskCoordinator().listTasks 语义一致）。
  */
 
-import type { JobBoard } from '../tools/task/job-board';
 import { AGENT_ALIASES } from '../config/constants';
 
 /** 守卫可识别的原生子代理名集合（与 config/constants SUBAGENT_NAMES 对齐）。 */
@@ -83,6 +83,25 @@ const TERMINAL_STATES: ReadonlySet<string> = new Set([
   'cancelled',
 ]);
 
+/**
+ * duplicate-objective 规则所需的 coordinator 只读视图（鸭子类型最小接口）。
+ * createTaskCoordinator() 返回对象的 listTasks(parentSessionID) 满足该结构；
+ * 此处不 import 具体类，避免守卫对存储实现产生耦合。
+ */
+export interface DispatchGuardTask {
+  taskID: string;
+  agent: string;
+  objective: string;
+  state: string;
+  /** 终态结果已被 task_result 读取的时间戳；undefined 表示未消费。 */
+  resultConsumedAt?: number;
+}
+
+export interface DispatchGuardCoordinator {
+  /** 列出指定 parent 会话名下的任务记录（只读）。 */
+  listByParent(parentSessionID: string): DispatchGuardTask[];
+}
+
 export interface DispatchViolation {
   rule: 'persona-mismatch' | 'duplicate-objective';
   message: string;
@@ -90,11 +109,12 @@ export interface DispatchViolation {
 
 /**
  * 检查单次派发是否违反纪律。返回第一个命中的违规；无违规返回 null。
- * 纯函数（board 只读），绝不抛错、不改写输入。
+ * 纯函数（coordinator 只读），绝不抛错、不改写输入；
+ * coordinator 缺失或故障时规则②静默降级放行（fail-open）。
  */
 export function inspectDispatch(
   event: any,
-  board?: JobBoard,
+  coordinator?: DispatchGuardCoordinator,
 ): DispatchViolation | null {
   if (!isRecord(event)) return null;
   const input = event.input;
@@ -118,8 +138,8 @@ export function inspectDispatch(
           rule: 'persona-mismatch',
           message:
             `DispatchGuard 角色冒名拦截：prompt 以「你是 ${subject}」开头，但本次派发的 agent 为 "${agentRaw}"。` +
-            `专家审查必须使用原生名派发（agent="${subject}"）；若动机是避免“重复新建”，正确路径是用 ` +
-            `task_reuse / task_revive 续用既有 child session（Job Board 的 reusable 记录），` +
+            `专家审查必须使用原生名派发（agent="${subject}"）；若动机是避免“重复新建”，` +
+            `正确路径是用 task_revive 续用既有任务的原 sessionID，或以原生 subagent 显式传入原 sessionID 续用该会话，` +
             `绝不能用其它 agent 冒充专家。`,
         };
       }
@@ -127,10 +147,10 @@ export function inspectDispatch(
   }
 
   // ── 规则②：同目标终态未消费的重复派发（slim #1070 同类）────────────
-  if (board && isRecord(event)) {
-    const explicitTaskId = pickString(input, ['taskId', 'task_id']);
-    // 显式 task_id 是 revive/reuse 通道：不属于“新 spawn”，放行。
-    if (!explicitTaskId && typeof event.sessionID === 'string') {
+  if (coordinator && typeof event.sessionID === 'string') {
+    // 显式 taskId/task_id/sessionID 是续用通道：不属于“新派发”，放行。
+    const explicitId = pickString(input, ['taskId', 'task_id', 'sessionID']);
+    if (!explicitId) {
       const agentRaw2 = pickString(input, ['agent', 'subagent_type']);
       const agent =
         agentRaw2 === undefined ? undefined : canonicalAgentName(agentRaw2.trim());
@@ -138,29 +158,31 @@ export function inspectDispatch(
         input.description,
         input.prompt,
       );
-      if (agent && GUARD_AGENT_NAMES.has(agent) && objectiveKey) {
-        for (const t of board.tasks() as any[]) {
-          if (t.parent_session_id !== event.sessionID) continue;
+      if (agent && objectiveKey) {
+        let tasks: unknown;
+        try {
+          tasks = coordinator.listByParent(event.sessionID);
+        } catch {
+          // coordinator 故障：fail-open 放行，绝不因守卫自身抛错。
+          return null;
+        }
+        if (!Array.isArray(tasks)) return null;
+        for (const t of tasks as DispatchGuardTask[]) {
+          if (!isRecord(t)) continue;
           if (canonicalAgentName(String(t.agent ?? '')) !== agent) continue;
           if (!TERMINAL_STATES.has(String(t.state))) continue;
-          if (t.reconciliation !== 'unreconciled') continue;
-          const lastUsedAt =
-            typeof t.last_used_at === 'number' ? t.last_used_at : Number.NEGATIVE_INFINITY;
-          const settledAt =
-            typeof t.updated_at === 'number' ? t.updated_at : 0;
-          // 结果已被读取（last_used_at > 终态落板时间）→ 允许重试/继续。
-          if (lastUsedAt > settledAt) continue;
-          const priorKey = normalizeObjectiveText(
-            String(t.objective_key ?? t.objective ?? t.description ?? ''),
-          );
+          // 结果已被 task_result 读取（resultConsumedAt 已写入）→ 允许重试/继续。
+          if (t.resultConsumedAt !== undefined) continue;
+          const priorKey = normalizeObjectiveText(String(t.objective ?? ''));
           if (priorKey && priorKey === objectiveKey) {
             return {
               rule: 'duplicate-objective',
               message:
-                `DispatchGuard 同目标重派拦截：任务 ${t.task_id}（agent=${t.agent}，state=${t.state}）` +
-                `目标与本次派发一致且终态结果尚未被读取。请先调用 task_result(taskId="${t.task_id}") 读取结果——` +
+                `DispatchGuard 同目标重派拦截：任务 ${t.taskID}（agent=${t.agent}，state=${t.state}）` +
+                `目标与本次派发一致，且终态结果尚未被读取。请先调用 task_result(task_id="${t.taskID}") 读取结果——` +
                 `读取后即视为已消费，才允许重试或基于其结论继续；若目的是提交实质修订后的复审，` +
-                `请走 task_reuse / task_revive 续用原 child，不要再次 spawn 新任务。`,
+                `请用 task_revive 续用该任务的原 sessionID（taskID=${t.taskID}），` +
+                `或以原生 subagent 显式传入该 sessionID 续用既有会话，不要再次派发新任务。`,
             };
           }
         }
@@ -173,38 +195,15 @@ export function inspectDispatch(
 
 /**
  * 对外入口：命中违规直接 throw（错误文本回流给编排模型实现自我纠正）。
- * 在 task-observer 的 execute.before 最前面调用（任何 fail-open 记录之前）。
+ * 在派发链路（tool.execute.before）最前面调用（任何 fail-open 记录之前）。
+ * 第二参数可选：未注入 coordinator 时规则②静默降级（向后兼容窗口期）。
  */
 export function runDispatchGuards(
   event: any,
-  opts: { board?: JobBoard } = {},
+  opts: { coordinator?: DispatchGuardCoordinator } = {},
 ): void {
-  const violation = inspectDispatch(event, opts.board);
+  const violation = inspectDispatch(event, opts.coordinator);
   if (violation) {
     throw new Error(`[${violation.rule}] ${violation.message}`);
-  }
-}
-
-/**
- * 结果消费标记：task_result 成功读取终态后在 board 上写 last_used_at，
- * 使“同目标重派”断路器放行后续重试。fail-open：失败仅返回 false。
- */
-export async function markResultConsumed(
-  board: JobBoard,
-  taskId: string,
-): Promise<boolean> {
-  try {
-    const current = (board as any).get?.(taskId);
-    if (!current) return false;
-    await (board as any).replace(
-      { ...current, last_used_at: Date.now() },
-      {
-        expectedRevision: (current as any).last_board_revision ?? 0,
-        operationId: `result-consumed-${taskId}-${Date.now()}`,
-      },
-    );
-    return true;
-  } catch {
-    return false;
   }
 }

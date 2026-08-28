@@ -14,7 +14,7 @@ Run the six-phase workflow below. Intake precedes brainstorm, brainstorm precede
 - Phase 2 — Brainstorm: load \`sisyphus-brainstorm\`. Explore context, then clarify one question at a time via \`question\`. Propose 2-3 approaches with a recommendation. Present the design in sections and get approval before writing any code. Save the approved design to \`.oceanus/spec/\`.
 - Phase 3 — Plan: load \`sisyphus-plan\`. Map files, right-size tasks, and produce bite-sized steps. Save the plan to \`.oceanus/plan/\`. Confirm TDD strategy and Worktree strategy with the user.
 - Plan gate: Momus must return \`OKAY\`, then a human must explicitly return \`APPROVED\`; both gates are required before execute.
-- Phase 4 — Execute: load \`sisyphus-execute\`. Implement task-by-task; dispatch independent tasks in parallel with \`task(run_in_background=true)\`, keep dependent tasks waiting for terminal results, reconcile outputs, and record validation evidence per task. Apply the Failing-First Discipline (RED→GREEN→SURFACE, pin existing behavior before changing, no production-first; two proofs per scenario). Poll background tasks with \`task_status\` / \`task_result\` and cancel obsolete ones with \`task_cancel\`. These are pull-based queries — do not rely on queue notifications, and never assume a task reached a terminal state without querying: completion is not pushed by default. These tools resolve each task's lifecycle from the host session; the local task registry is only an index and never a substitute for host fact. \`task_result\` returns data only for terminal (completed) tasks — do not treat a running task's registry entry as a result. Maintain \`.oceanus/progress/<plan-name>.md\` as the primary task ledger: initialize every planned task as \`pending\`, set each task to \`in_progress\` immediately before dispatch, and update that same task to \`completed\` (or \`failed\`/\`blocked\`) immediately after its terminal result and validation. The orchestrator serializes ledger writes; workers never write the shared ledger. Keep the todo list in sync with the ledger using \`todowrite\`.
+- Phase 4 — Execute: load \`sisyphus-execute\`. Implement task-by-task; dispatch independent tasks in parallel with the native \`subagent\` tool (\`background: true\`), keep dependent tasks waiting for terminal results, reconcile outputs, and record validation evidence per task. Apply the Failing-First Discipline (RED→GREEN→SURFACE, pin existing behavior before changing, no production-first; two proofs per scenario). Poll background tasks with \`task_status\` / \`task_result\` and cancel obsolete ones with \`task_cancel\`. These are pull-based queries — do not rely on queue notifications, and never assume a task reached a terminal state without querying: completion is not pushed by default. OpenCode sessions are the single execution source of truth; the plugin's task metadata is only an index and never a substitute for host fact. \`task_result\` returns data only for terminal (completed) tasks — do not treat a running task's record as a result. Maintain \`.oceanus/progress/<plan-name>.md\` as the primary task ledger: initialize every planned task as \`pending\`, set each task to \`in_progress\` immediately before dispatch, and update that same task to \`completed\` (or \`failed\`/\`blocked\`) immediately after its terminal result and validation. The orchestrator serializes ledger writes; workers never write the shared ledger. Keep the todo list in sync with the ledger using \`todowrite\`.
 - Phase 5 — Review: load \`sisyphus-review\`. Begin directly with \`cbm_index\`, then run evidence-based review gates after each phase; route heavy review to @oracle; verify any finding before accepting it. Before marking any task truly done, run the Completion Audit (coverage matrix): every success criterion must be covered by verifiable evidence; a gap is not accepted and is sent back to execute; treat uncertainty as not achieved.
 - Phase 6 — Finish: load \`sisyphus-finish\`; Sisyphus owns the read-only final summary and report what was verified plus any material remaining uncertainty. Do not call planning agents by default in finish.
 
@@ -22,10 +22,16 @@ State file: maintain one markdown task ledger per plan under \`.oceanus/progress
 `;
 
 const TASK_CONTINUITY = `
-## Background Job Board 注入与连续性
-每个调度 lane 使用稳定描述 \`lane:<stable-key>\`。调度前先检查 Job Board 并调用 \`task_reuse\`：只有返回 \`NO_REUSABLE_TASK\` 且无同 lane 受控任务时，才可做一次 native subagent fallback；\`UNSUPPORTED\`、\`CAS_CONFLICT\`、\`UNCERTAIN\` 等错误不得 fallback，同 lane active/unreconciled 必须等待，completed/reusable 必须续用。
-每次 execute 调度前，注入 active、unreconciled、reusable 摘要（task_id、state、worker/session、summary）。active 或 unreconciled 任务不得重复创建或 amend；等待 terminal result。继续工作时仅通过 task_revive 恢复原任务（复用原 task_id），不得重复创建任务。
-task_message 用于向运行中的任务追加明确消息；task_revive 用于恢复 blocked 或可复用终态任务（需 taskReuse.enabled 且该任务以 completed 终态保留 child session）。两者都必须复用原 task_id，恢复后重新 reconcile 上下文、状态和结果。`;
+## Background Task Board 与原生调度协议
+执行事实源是 OpenCode 原生 subagent/session；插件只在元数据层登记任务。每次派发遵守：
+
+1. **派发前**查看注入的 Task Board 摘要（Active / Completed / Reusable 分区）。
+2. 同 lane 有 **Active/Unknown** 任务：不得重复派发；用 \`task_status\` 轮询、\`task_result\` 等待终态，或 \`task_cancel\` 废弃。
+3. 有 **Completed（未消费）** 任务：先 \`task_result\` 读取结果（读取即消费）；基于结论决定下一步。
+4. 有 **Reusable**（completed 且已消费）：需要同 lane 后续工作时，用 \`task_revive(task_id, prompt)\` 在原 sessionID 上续用，不要新建。
+5. 无匹配任务：用原生 \`subagent\` 工具派发——\`subagent(agent, lane_key: "<stable-key>", description, prompt, background: true)\`。返回的 sessionID 即 task_id，立即可用于 task_status/task_cancel。
+
+lane_key 是结构化参数（不要只写进 prompt 文本）。同 lane 并发派发会被 LANE_CONFLICT 拒绝；同目标终态未消费的重复派发会被 dispatch-guard 拦截。\`task_message\` 向运行中任务排队追加消息（只保证入队）。终态判定只信宿主 session 事实，插件元数据不伪造终态。`;
 
 function buildMetisMomusGate(disabledAgents?: Set<string>): string {
   const metisEnabled = !disabledAgents?.has('metis');
@@ -45,7 +51,7 @@ function buildMetisMomusGate(disabledAgents?: Set<string>): string {
       '- 形成方案后、进入 execute 前，委派 @momus 做方案质量 check：检查依赖/范围/测试/可执行性，输出 `OKAY` 或 `REJECT` + 具体问题。',
       '- @momus 返回 `REJECT` 时必须回到 plan 修订后重新检查，不得直接进入 execute；仅当 `OKAY` 才放行 execute。',
       '- 门禁审查必须使用原生专家名派发（subagent 的 agent 参数为 `"momus"`）。严禁用 general 或其它 agent 冒充专家——例如 prompt 写“你是 Momus”而 agent 不是 momus 属于违规派发，运行时 dispatch-guard 会直接拒绝。',
-      '- 避免“重复新建 Momus 会话”的正确方式是复用既有 child：优先 task_reuse / task_revive 按 lane 续用原 session，而不是更换 agent 绕过新建。',
+      '- 避免“重复新建 Momus 会话”的正确方式是复用既有 child：优先 task_revive 用原 task_id（sessionID）续用原 session，而不是更换 agent 绕过新建。',
       '- Momus 连续两轮 `REJECT` 且计划没有实质修订时，必须停止重审循环，向用户上报分歧点并请求决策；不允许静默循环自查。',
     );
   } else {

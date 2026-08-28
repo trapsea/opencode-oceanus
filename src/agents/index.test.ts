@@ -98,7 +98,7 @@ describe('agent prompt 工具对齐（tooling-10）', () => {
 
   test('oceanus 不出现未注册工具并补齐 task 三件套语义', () => {
     const sys = byName('oceanus');
-    expect(sys).not.toMatch(/task_message|task_revive/);
+    expect(sys).not.toMatch(/task_reuse/);
     expect(sys).not.toContain('cancel_task');
     expect(sys).toContain('`task_status`: query a managed task');
     expect(sys).toContain('`task_result`: read a task\'s final result');
@@ -112,7 +112,7 @@ describe('agent prompt 工具对齐（tooling-10）', () => {
     expect(sys).toContain('`task_status` / `task_result`');
     expect(sys).toContain('`task_cancel`');
     expect(sys).toContain(
-      'the local task registry is only an index and never a substitute for host fact',
+      "the plugin's task metadata is only an index and never a substitute for host fact",
     );
     expect(sys).toContain('`task_result` returns data only for terminal');
   });
@@ -559,7 +559,7 @@ describe('CBM-12：agent prompt CBM 调度最终审计', () => {
     expect(sys).toMatch(/原生专家名/);
     expect(sys).toMatch(/冒充/);
     expect(sys).toMatch(/agent 参数为 `"momus"`/);
-    expect(sys).toMatch(/task_reuse \/ task_revive/);
+    expect(sys).toMatch(/task_revive/);
     expect(sys).toMatch(/连续两轮 `?REJECT`?/);
     expect(sys).toMatch(/请求决策|上报分歧点/);
   });

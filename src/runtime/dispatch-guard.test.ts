@@ -1,18 +1,22 @@
 /**
- * dispatch-guard 测试：角色冒名拦截、同目标终态未消费断路器、消费标记。
+ * dispatch-guard 测试：角色冒名拦截、同目标终态未消费断路器（TaskCoordinator 版）。
+ *
+ * duplicate-objective 规则读取注入的 coordinator 只读视图（鸭子类型，
+ * 与 createTaskCoordinator().listTasks 语义一致），不再依赖 JobBoard。
  */
 import { describe, expect, test } from 'bun:test';
 import {
   deriveObjectiveKey,
   extractPersonaSubject,
   inspectDispatch,
-  markResultConsumed,
   normalizeObjectiveText,
   runDispatchGuards,
+  type DispatchGuardCoordinator,
+  type DispatchGuardTask,
 } from './dispatch-guard';
-import { createTaskObserver } from './task-observer';
 
-const noopLogger = () => {};
+/** 禁用的旧术语：错误文案（报错即提示词）中一律不得出现。 */
+const BANNED_TERMS = ['task_reuse', 'Job Board', 'child session'] as const;
 
 describe('extractPersonaSubject：第二人称专家指派识别', () => {
   test('中文开头「你是 Momus」', () => {
@@ -56,7 +60,8 @@ describe('inspectDispatch 规则①：角色冒名', () => {
     })!;
     expect(v.rule).toBe('persona-mismatch');
     expect(v.message).toContain('agent="momus"');
-    expect(v.message).toContain('task_reuse');
+    expect(v.message).toContain('task_revive');
+    for (const term of BANNED_TERMS) expect(v.message).not.toContain(term);
   });
 
   test('agent 与指名一致 → 放行', () => {
@@ -82,172 +87,154 @@ describe('inspectDispatch 规则①：角色冒名', () => {
   });
 });
 
-function fakeBoard(tasks: any[]) {
+/** 内联 fake coordinator：鸭子类型，仅 listByParent 只读视图。 */
+function fakeCoordinator(
+  tasks: Partial<DispatchGuardTask>[],
+  knownParent = 'p1',
+): DispatchGuardCoordinator {
+  const records: DispatchGuardTask[] = tasks.map((t, i) => ({
+    taskID: `t${i + 1}`,
+    agent: 'momus',
+    objective: '计划门禁\n只审查可执行性',
+    state: 'completed',
+    ...t,
+  }));
   return {
-    revision: 0,
-    tasks: () => tasks,
-    get: (id: string) => tasks.find((t) => t.task_id === id),
-    async replace(rec: any) {
-      const i = tasks.findIndex((t) => t.task_id === rec.task_id);
-      if (i >= 0) tasks[i] = rec;
-      return rec;
+    listByParent(parentSessionID: string): DispatchGuardTask[] {
+      return parentSessionID === knownParent ? records : [];
     },
-  } as never;
+  };
 }
 
-describe('inspectDispatch 规则②：同目标终态未消费重派', () => {
-  const makeTask = (over: Record<string, unknown> = {}) => ({
-    task_id: 't1',
-    parent_session_id: 'p1',
-    agent: 'momus',
-    state: 'completed',
-    reconciliation: 'unreconciled',
-    updated_at: 100,
-    objective_key: deriveObjectiveKey('计划门禁', '只审查可执行性'),
-    ...over,
-  });
-  const evt = (input: Record<string, unknown>) => ({
+describe('inspectDispatch 规则②：同目标终态未消费重派（coordinator 版）', () => {
+  const evt = (input: Record<string, unknown> = {}) => ({
     sessionID: 'p1',
-    input: { agent: 'momus', description: '计划门禁', prompt: '只审查可执行性', ...input },
+    input: {
+      agent: 'momus',
+      description: '计划门禁',
+      prompt: '只审查可执行性',
+      ...input,
+    },
   });
 
-  test('命中：完全同目标、未读取结果 → duplicate-objective 且提示 task_result', () => {
-    const v = inspectDispatch(evt({}), fakeBoard([makeTask()]))!;
+  test('命中：同 parent 同 agent 终态未消费同目标 → duplicate-objective 且提示 task_result(task_id=…)', () => {
+    const v = inspectDispatch(evt(), fakeCoordinator([{ taskID: 't1' }]))!;
     expect(v.rule).toBe('duplicate-objective');
-    expect(v.message).toContain('task_result(taskId="t1")');
+    expect(v.message).toContain('task_result(task_id="t1")');
+    for (const term of BANNED_TERMS) expect(v.message).not.toContain(term);
   });
 
-  test('已消费（last_used_at > updated_at）→ 放行', () => {
+  test('failed / cancelled 终态同样拦截', () => {
+    expect(inspectDispatch(evt(), fakeCoordinator([{ state: 'failed' }]))?.rule).toBe(
+      'duplicate-objective',
+    );
+    expect(inspectDispatch(evt(), fakeCoordinator([{ state: 'cancelled' }]))?.rule).toBe(
+      'duplicate-objective',
+    );
+  });
+
+  test('已消费（resultConsumedAt 已写入）→ 放行', () => {
     expect(
-      inspectDispatch(evt({}), fakeBoard([makeTask({ last_used_at: 101 })])),
+      inspectDispatch(evt(), fakeCoordinator([{ taskID: 't1', resultConsumedAt: 123 }])),
     ).toBeNull();
   });
 
-  test('显式带 task_id（revive/reuse 通道）→ 放行', () => {
-    expect(inspectDispatch(evt({ taskId: 't1' }), fakeBoard([makeTask()]))).toBeNull();
+  test('非终态（running/uncertain）→ 放行', () => {
+    expect(inspectDispatch(evt(), fakeCoordinator([{ state: 'running' }]))).toBeNull();
+    expect(inspectDispatch(evt(), fakeCoordinator([{ state: 'uncertain' }]))).toBeNull();
   });
 
-  test('已 reconcile → 放行', () => {
-    expect(
-      inspectDispatch(evt({}), fakeBoard([makeTask({ reconciliation: 'reconciled' })])),
-    ).toBeNull();
-  });
-
-  test('非终态（running）→ 放行', () => {
-    expect(inspectDispatch(evt({}), fakeBoard([makeTask({ state: 'running' })]))).toBeNull();
+  test('显式 taskId / task_id / sessionID（续用通道）→ 放行', () => {
+    const board = fakeCoordinator([{ taskID: 't1' }]);
+    expect(inspectDispatch(evt({ taskId: 't1' }), board)).toBeNull();
+    expect(inspectDispatch(evt({ task_id: 't1' }), board)).toBeNull();
+    expect(inspectDispatch(evt({ sessionID: 't1' }), board)).toBeNull();
   });
 
   test('目标不同 → 放行', () => {
+    expect(inspectDispatch(evt({ description: '另一个目标' }), fakeCoordinator([{ taskID: 't1' }]))).toBeNull();
+  });
+
+  test('agent 不同（含别名归一后不同）→ 放行；别名归一后相同 → 拦截', () => {
     expect(
-      inspectDispatch(evt({ description: '另一个目标' }), fakeBoard([makeTask()])),
+      inspectDispatch(evt(), fakeCoordinator([{ taskID: 't1', agent: 'oracle' }])),
     ).toBeNull();
+    const v = inspectDispatch(
+      evt({ agent: 'explorer' }),
+      fakeCoordinator([{ taskID: 't1', agent: 'explore', objective: '计划门禁\n只审查可执行性' }]),
+    )!;
+    expect(v.rule).toBe('duplicate-objective');
   });
 
-  test('旧记录缺 objective_key 时回退 objective/description 归一化匹配', () => {
-    const legacy = makeTask();
-    delete legacy.objective_key;
-    legacy.objective = '计划门禁\n只审查可执行性';
-    const v = inspectDispatch(evt({}), fakeBoard([legacy]))!;
-    expect(v?.rule).toBe('duplicate-objective');
+  test('不同 parent 的任务不参与匹配 → 放行', () => {
+    expect(inspectDispatch({ ...evt(), sessionID: 'p2' }, fakeCoordinator([{ taskID: 't1' }]))).toBeNull();
   });
 
-  test('无 board → 完全放行', () => {
-    expect(inspectDispatch(evt({}))).toBeNull();
+  test('记录 objective 为空 → 无法比对 → 放行', () => {
+    expect(inspectDispatch(evt(), fakeCoordinator([{ taskID: 't1', objective: '' }]))).toBeNull();
+  });
+
+  test('无 coordinator → 规则②静默降级放行', () => {
+    expect(inspectDispatch(evt())).toBeNull();
+  });
+
+  test('coordinator 抛错 → 纯函数不抛错、fail-open 放行', () => {
+    const broken: DispatchGuardCoordinator = {
+      listByParent() {
+        throw new Error('index unavailable');
+      },
+    };
+    expect(inspectDispatch(evt(), broken)).toBeNull();
   });
 });
 
-describe('runDispatchGuards / markResultConsumed', () => {
-  test('命中即 throw，错误文本含规则名与指引', () => {
+describe('runDispatchGuards：命中即 throw', () => {
+  test('persona 命中 throw，错误文本含规则名', () => {
     expect(() =>
       runDispatchGuards({
         sessionID: 'p',
         input: { agent: 'general', prompt: '你是 Momus' },
       }),
-    ).toThrow(/persona-mismatch[\s\S]*冒充|DispatchGuard 角色冒名拦截/u);
+    ).toThrow(/persona-mismatch|角色冒名/u);
   });
 
-  test('markResultConsumed 写入 last_used_at；get 失败时 fail-open 返回 false', async () => {
-    const tasks = [makeSimpleTask()];
-    const board = fakeBoard(tasks);
-    expect(await markResultConsumed(board, 't9')).toBe(false); // 不存在
-    const ok = await markResultConsumed(board, 't1');
-    expect(ok).toBe(true);
-    expect(typeof (tasks[0] as any).last_used_at).toBe('number');
-
-    function makeSimpleTask() {
-      return {
-        task_id: 't1',
-        parent_session_id: 'p',
-        state: 'completed',
-        reconciliation: 'unreconciled',
-        updated_at: 100,
-        last_board_revision: 3,
-      };
+  test('duplicate 命中 throw：文案指向 task_result(task_id=…) 且不含旧术语', () => {
+    let message = '';
+    try {
+      runDispatchGuards(
+        {
+          sessionID: 'p1',
+          input: { agent: 'momus', description: '计划门禁', prompt: '只审查可执行性' },
+        },
+        { coordinator: fakeCoordinator([{ taskID: 't1' }]) },
+      );
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
     }
+    expect(message).toContain('[duplicate-objective]');
+    expect(message).toContain('task_result(task_id="t1")');
+    expect(message).toContain('task_revive');
+    for (const term of BANNED_TERMS) expect(message).not.toContain(term);
   });
-});
 
-describe('createTaskObserver 接线：guard 在观察写入之前生效', () => {
-  function fakeRegistry() {
-    const created: any[] = [];
-    return {
-      created,
-      create(rec: any) {
-        created.push(rec);
-      },
-      setObservation() {},
-    } as never;
-  }
-
-  test('冒名调用直接 reject，registry 不建 running 任务', async () => {
-    const reg = fakeRegistry();
-    const observer = createTaskObserver({ registry: reg, logger: noopLogger });
-    await expect(
-      observer['execute.before']({
-        tool: 'subagent',
+  test('第二参数可省略（向后兼容窗口期）：不抛错', () => {
+    expect(() =>
+      runDispatchGuards({
         sessionID: 'p1',
-        id: 'call1',
-        input: { agent: 'general', description: '门禁', prompt: '你是 Momus，审查计划' },
+        input: { agent: 'momus', description: '计划门禁', prompt: '只审查可执行性' },
       }),
-    ).rejects.toThrow(/冒充|persona-mismatch/u);
-    expect((reg as any).created).toHaveLength(0);
+    ).not.toThrow();
   });
 
-  test('合规调用正常放行，等待明确 child session 后再创建受控任务', async () => {
-    const reg = fakeRegistry();
-    const observer = createTaskObserver({ registry: reg, logger: noopLogger });
-    await observer['execute.before']({
-      tool: 'subagent',
-      sessionID: 'p1',
-      id: 'call2',
-      input: { agent: 'momus', description: '门禁', prompt: '严格审查可执行性，输出 OKAY 或 REJECT' },
-    });
-    expect((reg as any).created).toHaveLength(0);
-  });
-
-  test('duplicate 断路器经 observer 生效：board 有未消费同目标终态时 reject', async () => {
-    const reg = fakeRegistry();
-    const key = deriveObjectiveKey('门禁', '复审可执行性');
-    const board = fakeBoard([
-      {
-        task_id: 'old',
-        parent_session_id: 'p1',
-        agent: 'momus',
-        state: 'completed',
-        reconciliation: 'unreconciled',
-        updated_at: 100,
-        objective_key: key,
-      },
-    ]);
-    const observer = createTaskObserver({ registry: reg, board, logger: noopLogger });
-    await expect(
-      observer['execute.before']({
-        tool: 'subagent',
-        sessionID: 'p1',
-        id: 'call3',
-        input: { agent: 'momus', description: '门禁', prompt: '复审可执行性' },
-      }),
-    ).rejects.toThrow(/重派|duplicate-objective/u);
-    expect((reg as any).created).toHaveLength(0);
+  test('coordinator 命中路径生效：同目标终态未消费 → throw', () => {
+    expect(() =>
+      runDispatchGuards(
+        {
+          sessionID: 'p1',
+          input: { agent: 'momus', description: '计划门禁', prompt: '只审查可执行性' },
+        },
+        { coordinator: fakeCoordinator([{ taskID: 't1', resultConsumedAt: undefined }]) },
+      ),
+    ).toThrow(/duplicate-objective/u);
   });
 });

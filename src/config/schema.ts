@@ -110,7 +110,6 @@ export const ToolsConfigSchema = z
     task_status: ToolConfigSchema.optional(),
     task_message: ToolConfigSchema.optional(),
     task_revive: ToolConfigSchema.optional(),
-    task_reuse: ToolConfigSchema.optional(),
     task_result: ToolConfigSchema.optional(),
     task_cancel: ToolConfigSchema.optional(),
     cbm_status: ToolConfigSchema.optional(),

@@ -2,7 +2,6 @@ import { Plugin, Skill } from '@opencode-ai/plugin';
 import { getAgentDefinitions } from './agents';
 import type { AgentOverrideConfig, PluginConfig } from './config/schema';
 import { loadPluginConfig } from './config/loader';
-import { getTaskReuseConfig } from './config/utils';
 import { SISYPHUS_SKILLS } from './skills';
 import { createCommands, runPresetCommand } from './commands';
 import { defaultInstallStatus } from './cbm/commands';
@@ -15,8 +14,7 @@ import type { PluginSetupContext } from './runtime/types';
 import { registerAutoUpdate } from './update';
 import { installStaged, resolveOpenCodeInstallContext } from './update/cache';
 import { updateManagedEntry, type ConfigEntry } from './update/config-entry';
-import { startTaskSupervisor } from './runtime/task-supervisor';
-import { JobBoard } from './tools/task/job-board';
+import { createTaskCoordinator, type TaskCoordinator } from './runtime/task-coordinator';
 import { resolveWorkspaceRootOrCwd } from './runtime/workspace';
 
 function toPermissions(
@@ -127,7 +125,7 @@ export interface RunSetupOptions {
   /** CBM 接线注入（测试替换网络/进程；缺省走真实实现）。 */
   cbm?: CbmWiringInjections;
   /** 可选任务生命周期观测器；缺省不改变任务接线行为。 */
-  taskLifecycleObserver?: (source: 'supervisor' | 'tools' | 'hooks', board: JobBoard) => void;
+  taskLifecycleObserver?: (source: 'supervisor' | 'tools' | 'hooks', coordinator: TaskCoordinator) => void;
 }
 
 /**
@@ -158,15 +156,16 @@ export async function runSetup(
     managedNames: new Set(),
     configuredSettings: new Map(),
   };
-  let taskBoard: JobBoard | undefined;
-  // 启动即恢复任务事实；失败不阻塞插件其它能力。
+  let taskCoordinator: TaskCoordinator | undefined;
+  // 启动即恢复任务元数据；失败不阻塞插件其它能力（fail-open）。
   try {
+    const workspaceRoot = await resolveWorkspaceRootOrCwd(ctx.session, String((ctx.session as any).sessionID ?? (ctx.session as any).id ?? ''));
+    taskCoordinator = createTaskCoordinator({ workspaceRoot, session: ctx.session });
+    await taskCoordinator.ready();
+    // 启动恢复：以宿主事实收敛持久化任务状态（不伪造终态）。
     const parentSessionId = String((ctx.session as any).sessionID ?? (ctx.session as any).id ?? '');
-       const workspaceRoot = await resolveWorkspaceRootOrCwd(ctx.session, parentSessionId);
-       taskBoard = await JobBoard.open({ workspaceRoot: workspaceRoot ?? process.cwd(), parentSessionId });
-      options.taskLifecycleObserver?.('supervisor', taskBoard);
-      // 先完成恢复再注册依赖该 board 的工具，避免恢复写回与首个工具调用发生 CAS 竞态。
-       await startTaskSupervisor({ board: taskBoard, session: ctx.session, ownerAgent: 'sisyphus', taskReuseEnabled: getTaskReuseConfig(config).enabled }).catch(() => undefined);
+    await taskCoordinator.reconcile(parentSessionId).catch(() => undefined);
+    options.taskLifecycleObserver?.('supervisor', taskCoordinator);
   } catch { /* fail-open */ }
 
   // 1) 共享 CBM 依赖：cacheRoot = 显式 cacheDir ?? 默认；供 provision/MCP/CLI/UI/commands 复用。
@@ -277,8 +276,8 @@ export async function runSetup(
       cbmRunDeps: shared.runDeps,
       cbmIndexer: shared.indexer,
       cbmCacheRoot: shared.cacheRoot,
-      board: taskBoard,
-      taskLifecycleObserver: taskBoard ? (board) => options.taskLifecycleObserver?.('tools', board) : undefined,
+      coordinator: taskCoordinator,
+      taskLifecycleObserver: taskCoordinator ? (c) => options.taskLifecycleObserver?.('tools', c) : undefined,
     });
   } catch (e) {
     log('[oceanus] 注册工具失败(fail-open)', { error: messageOf(e) });
@@ -289,8 +288,8 @@ export async function runSetup(
     await registerOceanusHooks(ctx, config, {
       runDeps: shared.runDeps,
       indexer: shared.indexer,
-      board: taskBoard,
-      taskLifecycleObserver: taskBoard ? (board) => options.taskLifecycleObserver?.('hooks', board) : undefined,
+      coordinator: taskCoordinator,
+      taskLifecycleObserver: taskCoordinator ? (c) => options.taskLifecycleObserver?.('hooks', c) : undefined,
     });
   } catch (e) {
     log('[oceanus] 注册 hooks 失败(fail-open)', { error: messageOf(e) });

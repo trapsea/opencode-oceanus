@@ -1,0 +1,166 @@
+/**
+ * TaskCoordinator：单写入任务元数据协调器（spec: native-session-orchestration）。
+ *
+ * - OpenCode V2 session 是执行事实源；本协调器只维护 TaskIndex 元数据，
+ *   reconcile 以 session.active/get 覆盖本地，绝不伪造终态。
+ * - formatBoard 供编排器注入 active/unreconciled(uncertain)/reusable 摘要。
+ * - reusable = completed + 结果已消费（resultConsumedAt）+ 指定 agent/lane 匹配。
+ */
+import { TaskIndex, type TaskRecord } from './task-index';
+import { sessionActive, sessionOutcome } from './workspace';
+import type { SessionLike } from './types';
+
+export interface TaskCoordinatorOptions {
+  workspaceRoot: string;
+  session?: SessionLike;
+  /** 注入索引（测试缝隙）；缺省打开 workspace 下 .oceanus/tasks.json。 */
+  index?: TaskIndex;
+}
+
+export interface ReviveInput {
+  taskID: string;
+  parentSessionID: string;
+  brief: string;
+}
+
+export function createTaskCoordinator(opts: TaskCoordinatorOptions) {
+  const indexPromise = opts.index
+    ? Promise.resolve(opts.index)
+    : TaskIndex.open({ workspaceRoot: opts.workspaceRoot });
+  let cache: TaskIndex | undefined;
+  const idx = () => {
+    if (!cache) throw new Error('COORDINATOR_NOT_READY');
+    return cache;
+  };
+  void indexPromise.then((i) => { cache = i; }).catch(() => { /* fail-open：保持未就绪 */ });
+
+  /** 宿主状态读取：不可确认 → undefined（绝不猜）。 */
+  async function hostOutcome(taskID: string): Promise<'succeeded' | 'failed' | 'interrupted' | 'running' | undefined> {
+    if (!opts.session) return undefined;
+    try {
+      const active = await sessionActive(opts.session, taskID);
+      if (active === true) return 'running';
+      return await sessionOutcome(opts.session, taskID);
+    } catch {
+      return undefined;
+    }
+  }
+
+  return {
+    async ready(): Promise<TaskIndex> {
+      cache ??= await indexPromise;
+      return cache;
+    },
+
+    async registerLaunch(input: Parameters<TaskIndex['registerLaunch']>[0]): Promise<TaskRecord> {
+      return (await this.ready()).registerLaunch(input);
+    },
+
+    /** 续用：reusable（completed+已消费）→ generation+1 重新 running。 */
+    async registerRevive(input: ReviveInput): Promise<TaskRecord> {
+      const index = await this.ready();
+      const rec = index.get(input.taskID, input.parentSessionID);
+      if (!rec) throw new Error('TASK_NOT_FOUND');
+      if (rec.state === 'running' || rec.state === 'uncertain') throw new Error(`LANE_CONFLICT: lane ${rec.laneKey} 已有 active 任务`);
+      if (rec.state !== 'completed') throw new Error(`NOT_REVIVEABLE: state=${rec.state}`);
+      if (rec.resultConsumedAt === undefined) throw new Error('RESULT_NOT_CONSUMED');
+      return index.registerLaunch({
+        taskID: input.taskID,
+        parentSessionID: input.parentSessionID,
+        agent: rec.agent,
+        laneKey: rec.laneKey,
+        objective: input.brief,
+      });
+    },
+
+    /** 以宿主事实覆盖本地状态；不可确认 → uncertain（不伪造终态）。 */
+    async reconcile(parentSessionID: string): Promise<TaskRecord[]> {
+      const index = await this.ready();
+      const out: TaskRecord[] = [];
+      for (const rec of index.listByParent(parentSessionID)) {
+        if (rec.state === 'running' || rec.state === 'uncertain') {
+          const oc = await hostOutcome(rec.taskID);
+          if (oc === 'succeeded') {
+            out.push(await index.markTerminal(rec.taskID, parentSessionID, 'completed'));
+            continue;
+          }
+          if (oc === 'failed') {
+            out.push(await index.markTerminal(rec.taskID, parentSessionID, 'failed'));
+            continue;
+          }
+          if (oc === 'interrupted') {
+            out.push(await index.markTerminal(rec.taskID, parentSessionID, 'cancelled'));
+            continue;
+          }
+          if (oc === ('running' as const)) {
+            out.push(rec);
+            continue;
+          }
+          out.push(await index.markUncertain(rec.taskID, parentSessionID));
+          continue;
+        }
+        out.push(rec);
+      }
+      return out;
+    },
+
+    /** 只读任务列表（dispatch-guard 等注入方使用；listByParent 为鸭子类型别名）。 */
+    listTasks(parentSessionID: string): TaskRecord[] {
+      if (!cache) return [];
+      return cache.listByParent(parentSessionID);
+    },
+    listByParent(parentSessionID: string): TaskRecord[] {
+      return this.listTasks(parentSessionID);
+    },
+
+    resolveReusable(parentSessionID: string, laneKey: string, agent?: string): TaskRecord | undefined {
+      if (!cache) return undefined;
+      return cache
+        .listByParent(parentSessionID)
+        .find((t) => t.laneKey === laneKey
+          && t.state === 'completed'
+          && t.resultConsumedAt !== undefined
+          && (agent === undefined || t.agent === agent));
+    },
+
+    /** dispatch-guard duplicate-objective 输入：同 objective 存在终态未消费记录 → 重复。 */
+    findDuplicateObjective(parentSessionID: string, objective: string): boolean {
+      if (!cache) return false;
+      const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+      return cache
+        .listByParent(parentSessionID)
+        .some((t) => norm(t.objective) === norm(objective) && t.resultConsumedAt === undefined);
+    },
+
+    async markResultConsumed(taskID: string, parentSessionID: string): Promise<TaskRecord> {
+      return (await this.ready()).markResultConsumed(taskID, parentSessionID);
+    },
+
+    async markTerminal(taskID: string, parentSessionID: string, state: 'completed' | 'failed' | 'cancelled', resultSummary?: string): Promise<TaskRecord> {
+      return (await this.ready()).markTerminal(taskID, parentSessionID, state, resultSummary);
+    },
+
+    /** 编排器注入用 Job Board 摘要文本。 */
+    formatBoard(parentSessionID: string): string | undefined {
+      if (!cache) return undefined;
+      const all = cache.listByParent(parentSessionID);
+      if (all.length === 0) return undefined;
+      const active = all.filter((t) => t.state === 'running' || t.state === 'uncertain');
+      const completedUnconsumed = all.filter((t) => t.state === 'completed' && t.resultConsumedAt === undefined);
+      const reusable = all.filter((t) => t.state === 'completed' && t.resultConsumedAt !== undefined);
+      const line = (t: TaskRecord) => `- ${t.taskID} / ${t.agent} / lane:${t.laneKey} / ${t.state}${t.resultConsumedAt ? ' (result consumed)' : ''} -- ${t.objective.slice(0, 60)}`;
+      return [
+        '#### Active / Uncertain',
+        ...(active.length ? active.map(line) : ['- none']),
+        '',
+        '#### Completed (read via task_result to consume)',
+        ...(completedUnconsumed.length ? completedUnconsumed.map(line) : ['- none']),
+        '',
+        '#### Reusable Sessions (completed + consumed; revive with sessionID)',
+        ...(reusable.length ? reusable.map(line) : ['- none']),
+      ].join('\n');
+    },
+  };
+}
+
+export type TaskCoordinator = ReturnType<typeof createTaskCoordinator>;

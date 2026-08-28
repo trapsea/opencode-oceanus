@@ -1,62 +1,65 @@
+/**
+ * task_revive：对 reusable（completed 且结果已消费）的原生 subagent session
+ * 追加新任务并等待终态。
+ *
+ * 执行事实源是 V2 session.prompt/wait/get；coordinator 只做元数据护栏
+ * （generation+1、lane 冲突、结果未消费拒绝）。
+ */
 import type { ToolDefinition, ToolContextLike } from '../../runtime/types';
-import type { JobBoard } from './job-board';
+import type { TaskCoordinator } from '../../runtime/task-coordinator';
+import type { SessionLike } from '../../runtime/types';
 
-const out = (x: unknown) => ({ content: JSON.stringify(x) });
-
-export interface TaskReviveAdapter {
-  resumeChild?: (x: any) => Promise<{ ok: boolean; reason?: string; status?: string }>;
-  /** host active 确认：仅当宿主明确返回 true 时才把 starting 提升为 running。 */
-  confirmActive?: (childSessionId: string) => Promise<boolean>;
-}
-
-export function buildTaskReviveTool(board?: JobBoard, adapter?: TaskReviveAdapter): ToolDefinition {
+export function buildTaskReviveTool(coordinator: TaskCoordinator, session?: SessionLike): ToolDefinition {
   return {
     name: 'task_revive',
-    description: '恢复 blocked/uncertain 或可复用终态任务',
-    input: { type: 'object' },
+    description: '复用一个已完成的子任务 session 执行新任务：generation+1，prompt+wait+get 验证终态。要求该任务 completed 且其结果已被 task_result 消费。',
+    input: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string', description: '任务 id（= child session ID）' },
+        prompt: { type: 'string', description: '新任务 brief（完整自包含）' },
+      },
+      required: ['task_id', 'prompt'],
+      additionalProperties: false,
+    },
     async execute(input: any, ctx: ToolContextLike) {
-       if (!board || !adapter?.resumeChild) return out({ error: 'unsupported' });
+      const taskId = String(input?.task_id ?? '');
+      const prompt = String(input?.prompt ?? '');
+      if (!taskId || !prompt) {
+        return { content: JSON.stringify({ error: 'INVALID_INPUT', detail: 'task_id 与 prompt 必填' }) };
+      }
+      if (typeof session?.prompt !== 'function' || typeof session.wait !== 'function') {
+        return { content: JSON.stringify({ error: 'UNSUPPORTED', detail: '宿主缺少 session.prompt/wait 能力' }) };
+      }
       try {
-        const t: any = board.get(String(input?.taskId ?? ''));
-        if (t.parent_session_id !== ctx.sessionID) return out({ error: 'PARENT_OWNERSHIP' });
-         if (!input?.resume_id || !input?.brief || input.brief.length > 32768 || !Number.isInteger(input.expected_board_revision) || !Number.isInteger(input.expected_task_version) || !Number.isInteger(input.expected_generation) || !input.operation_id) return out({ error: 'INVALID_INPUT' });
-        // 显式 revive 不接受 uncertain；不确定状态必须由上层显式恢复协议处理。
-         if (t.state === 'running' || t.state === 'stopped' || t.state === 'uncertain') return out({ error: 'NOT_REVIVEABLE' });
-         if (t.state === 'blocked' && (!t.child_session_id || (t.expires_at != null && t.expires_at <= Date.now()))) return out({ error: 'INVALID_INPUT' });
-        const already = t.operations?.[input.operation_id];
-        const revived: any = await board.revive(t.task_id, {
-          expectedRevision: input.expected_board_revision,
-          expectedTaskVersion: input.expected_task_version,
-          expectedGeneration: input.expected_generation,
-          operationId: input.operation_id,
-          resumeId: input.resume_id,
-          brief: input.brief,
-        });
-        if (already) return out({ status: revived.state === 'uncertain' ? 'uncertain' : 'revived', task: revived });
-        // adapter 返回 { ok } 而非抛错：续用失败时进入 uncertain，不伪造 revived。
-        const result = await adapter.resumeChild({ childSessionId: t.child_session_id, resumeId: input.resume_id, brief: input.brief, generation: revived.generation });
-         if (!result || typeof result !== 'object' || result.ok !== true || !['succeeded', 'failed', 'interrupted', 'delivered'].includes(String(result.status))) {
-          if (typeof (board as any).transition === 'function') {
-            try {
-              await (board as any).transition(t.task_id, 'uncertain', { sessionId: ctx.sessionID, expectedRevision: revived.last_board_revision, expectedTaskVersion: revived.task_version, expectedGeneration: revived.generation, operationId: `${input.operation_id}:uncertain` });
-            } catch { /* 收敛失败时下方 board.get 仍如实上报 */ }
-          }
-           return out({ status: 'uncertain', reason: (result as any)?.reason ?? 'uncertain', task: board.get(t.task_id) });
+        // 先以宿主事实收敛本地状态（只读任务可能停留在 running）。
+        await coordinator.reconcile(ctx.sessionID).catch(() => undefined);
+        const revived = await coordinator.registerRevive({ taskID: taskId, parentSessionID: ctx.sessionID, brief: prompt });
+        await session.prompt({ sessionID: taskId, text: prompt, delivery: 'queue' });
+        await session.wait({ sessionID: taskId });
+        const info = typeof session.get === 'function' ? await session.get({ sessionID: taskId }) : undefined;
+        const outcome = (info as { outcome?: string } | undefined)?.outcome;
+        if (outcome === 'succeeded') {
+          await coordinator.markTerminal(taskId, ctx.sessionID, 'completed');
+        } else if (outcome === 'failed') {
+          await coordinator.markTerminal(taskId, ctx.sessionID, 'failed');
+        } else if (outcome === 'interrupted') {
+          await coordinator.markTerminal(taskId, ctx.sessionID, 'cancelled');
+        } else {
+          // 宿主无法确认：不伪造终态，保持 running 供后续 reconcile 收敛。
         }
-        // 续用已投递：仅当 host 确认 active=true 才把 starting 提升为 running；
-        // 无法确认时保持 starting（observer/宿主事件链路后续收敛），不伪造 running。
-        let confirmed = false;
-        if (adapter.confirmActive) {
-          try { confirmed = (await adapter.confirmActive(t.child_session_id)) === true; } catch { confirmed = false; }
-        }
-        if (confirmed && typeof (board as any).transition === 'function') {
-          try {
-            await (board as any).transition(t.task_id, 'running', { sessionId: ctx.sessionID, expectedRevision: revived.last_board_revision, expectedTaskVersion: revived.task_version, expectedGeneration: revived.generation, operationId: `${input.operation_id}:running` });
-          } catch { /* 保持 starting，交给后续观察收敛 */ }
-        }
-        return out({ status: 'revived', delivery: result?.status ?? 'queued', confirmed, task: board.get(t.task_id) });
+        const fresh = coordinator.listTasks(ctx.sessionID).find((t) => t.taskID === taskId);
+        return {
+          content: JSON.stringify({
+            ok: true,
+            task_id: taskId,
+            generation: revived.generation,
+            state: fresh?.state ?? 'running',
+            outcome: outcome ?? 'unknown',
+          }),
+        };
       } catch (e: any) {
-        return out({ error: String(e?.message ?? e) });
+        return { content: JSON.stringify({ error: String(e?.message ?? e).split(':')[0], detail: String(e?.message ?? e) }) };
       }
     },
   };

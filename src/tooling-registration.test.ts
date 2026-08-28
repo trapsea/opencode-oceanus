@@ -5,8 +5,6 @@ import path from 'node:path';
 import { registerOceanusTools } from './tools';
 import { registerOceanusHooks } from './hooks';
 import type { PluginConfig } from './config/schema';
-import { TaskRegistry } from './tools/task/registry';
-import { resetTaskRegistry } from './runtime/task';
 import {
   resolveWorkspaceRoot,
   sessionActive,
@@ -92,7 +90,6 @@ function parsed(result: { content?: unknown }): any {
 }
 
 afterEach(() => {
-  resetTaskRegistry();
 });
 
 // ─────────────────────────── Tool 注册 ───────────────────────────
@@ -107,7 +104,7 @@ describe('Tool transform 注册', () => {
     expect(input.properties.rename).toMatchObject({ type: 'string' });
   });
 
-  test('默认注册全部 16 个新增工具（9 常规 + 7 CBM 兜底）', async () => {
+  test('默认注册全部 15 个新增工具（8 常规 + 7 CBM 兜底）', async () => {
     const { ctx, addedTools } = createMockCtx();
     await registerOceanusTools(ctx, {});
     const names = addedTools.map((t) => t.name).sort();
@@ -121,7 +118,6 @@ describe('Tool transform 注册', () => {
          'task_status',
          'task_message',
           'task_revive',
-          'task_reuse',
         'cbm_status',
         'cbm_index',
         'cbm_search_graph',
@@ -167,8 +163,8 @@ describe('Tool transform 注册', () => {
     const revive = findTool(addedTools, 'task_revive');
     expect(message).toBeDefined();
     expect(revive).toBeDefined();
-    expect(JSON.parse((await message!.execute({}, { sessionID: 'parent' })).content as string).error).toBe('taskId 必填');
-    expect(JSON.parse((await revive!.execute({ taskId: 'missing' }, { sessionID: 'parent' })).content as string).error).toBe('unsupported');
+    expect(JSON.parse((await message!.execute({}, { sessionID: 'parent' })).content as string).errorCode).toBe('UNSUPPORTED');
+    expect(JSON.parse((await revive!.execute({ taskId: 'missing' }, { sessionID: 'parent' })).content as string).errorCode).toBe('UNSUPPORTED');
   });
 });
 
@@ -178,11 +174,8 @@ describe('Hook 注册与固定顺序', () => {
   test('before 注册 apply-patch→loop-guard→observer→cbm-guidance；after 按 json→truncator→loop-guard→observer→cbm-guidance', async () => {
     const { ctx, beforeHooks, afterHooks } = createMockCtx();
     await registerOceanusHooks(ctx, {});
-    expect(beforeHooks.length).toBe(4);
-    expect(afterHooks.length).toBe(6);
-    // 顺序通过行为验证：after[0] 是 json 恢复，after[1] 是截断，after[2] 是 loop-guard，
-    // after[3] 是 task-registry-observer，after[4] 是 cbm-guidance（最后）。
-    expect(afterHooks.length).toBe(6);
+    expect(beforeHooks.length).toBe(3);
+    expect(afterHooks.length).toBe(5);
   });
 
   test('disabled_hooks / enabled:false 跳过对应 Hook', async () => {
@@ -192,26 +185,26 @@ describe('Hook 注册与固定顺序', () => {
     };
     const { ctx, beforeHooks, afterHooks } = createMockCtx();
     await registerOceanusHooks(ctx, config);
-    // apply_patch 被禁用 → before 只剩 loop-guard + observer + cbm-guidance
-    expect(beforeHooks.length).toBe(3);
-    // json 被禁用 + truncator 被禁用 → after 只剩 loop-guard + observer + cbm-guidance
-    expect(afterHooks.length).toBe(4);
+    // apply_patch 被禁用 → before 只剩 loop-guard + cbm-guidance
+    expect(beforeHooks.length).toBe(2);
+    // json 被禁用 + truncator 被禁用 → after 只剩 enhancer + loop-guard + cbm-guidance
+    expect(afterHooks.length).toBe(3);
   });
 
   test('cbm-guidance 尊重 codebaseMemory.guidance=false：不注册', async () => {
     const config: PluginConfig = { codebaseMemory: { guidance: false } };
     const { ctx, beforeHooks, afterHooks } = createMockCtx();
     await registerOceanusHooks(ctx, config);
-    expect(beforeHooks.length).toBe(3); // apply_patch + loop-guard + observer
-    expect(afterHooks.length).toBe(5); // json + enhancer + truncator + loop-guard + observer
+    expect(beforeHooks.length).toBe(2); // apply_patch + loop-guard
+    expect(afterHooks.length).toBe(4); // json + enhancer + truncator + loop-guard
   });
 
   test('cbm-guidance 可经 hooks.cbm_guidance.enabled=false 关闭', async () => {
     const config: PluginConfig = { hooks: { cbm_guidance: { enabled: false } } };
     const { ctx, beforeHooks, afterHooks } = createMockCtx();
     await registerOceanusHooks(ctx, config);
-    expect(beforeHooks.length).toBe(3);
-    expect(afterHooks.length).toBe(5);
+    expect(beforeHooks.length).toBe(2);
+    expect(afterHooks.length).toBe(4);
   });
 
   test('cbm-guidance 注入 indexer 后生效：结构化查询前检查索引（fail-open）', async () => {
@@ -232,7 +225,7 @@ describe('Hook 注册与固定顺序', () => {
     const cbmBefore = beforeHooks[beforeHooks.length - 1];
     await cbmBefore!({ tool: 'cbm_search_graph', sessionID: 's1' });
     expect(ensureIndexedCalls).toEqual(['/ws']);
-    expect(afterHooks.length).toBe(6);
+    expect(afterHooks.length).toBe(5);
   });
 });
 
@@ -453,282 +446,192 @@ describe('工作区根目录解析', () => {
 
 // ─────────────────────────── task 三件套 ───────────────────────────
 
-describe('task_status / task_result / task_cancel', () => {
-  function registryWithTask(opts: { status?: string; childSessionId?: string } = {}) {
-    const registry = new TaskRegistry();
-    registry.create({
-      id: 'task-1',
-      parentSessionId: 'parent-1',
-      childSessionId: opts.childSessionId ?? 'child-1',
-      status: (opts.status as any) ?? 'running',
-      label: 'subagent job',
-    });
-    return registry;
+describe('task_status / task_result / task_cancel（coordinator）', () => {
+  function coordinatorWithTask(opts: { state?: string; taskID?: string } = {}) {
+    const records: any[] = [{
+      taskID: opts.taskID ?? 'child-1', parentSessionID: 'parent-1', agent: 'explorer',
+      laneKey: 'l1', objective: 'subagent job', generation: 1,
+      state: opts.state ?? 'running', createdAt: 1, updatedAt: 1,
+    }];
+    return {
+      records,
+      listTasks: (parent: string) => records.filter((r) => r.parentSessionID === parent).map((r) => ({ ...r })),
+      listByParent: (parent: string) => records.filter((r) => r.parentSessionID === parent).map((r) => ({ ...r })),
+      async markResultConsumed(id: string) {
+        const r = records.find((x) => x.taskID === id);
+        r.resultConsumedAt = Date.now();
+        return { ...r };
+      },
+      async markTerminal(id: string, _p: string, state: string) {
+        const r = records.find((x) => x.taskID === id);
+        r.state = state;
+        r.terminal = true;
+        return { ...r };
+      },
+    };
   }
 
   test('task_status 优先宿主 active：running', async () => {
-    const registry = registryWithTask();
+    const coordinator = coordinatorWithTask();
     const { ctx, addedTools } = createMockCtx({ active: { 'child-1': { type: 'running' } } });
-    await registerOceanusTools(ctx, {}, { registry });
+    await registerOceanusTools(ctx, {}, { coordinator } as any);
     const tool = findTool(addedTools, 'task_status');
-    const res = parsed(await tool.execute({ taskId: 'task-1' }, { sessionID: 'parent-1' }));
+    const res = parsed(await tool.execute({ taskId: 'child-1' }, { sessionID: 'parent-1' }));
     expect(res.status).toBe('running');
     expect(res.source).toBe('host');
     expect(res.verified).toBe(true);
   });
 
-  test('task_status 跨 session 越权被拒绝', async () => {
-    const registry = registryWithTask();
+  test('task_status 跨 session 查询返回不存在（coordinator 按父过滤）', async () => {
+    const coordinator = coordinatorWithTask();
     const { ctx, addedTools } = createMockCtx();
-    await registerOceanusTools(ctx, {}, { registry });
+    await registerOceanusTools(ctx, {}, { coordinator } as any);
     const tool = findTool(addedTools, 'task_status');
-    const res = parsed(await tool.execute({ taskId: 'task-1' }, { sessionID: 'stranger' }));
-    expect(res.error).toContain('无权访问');
+    const res = parsed(await tool.execute({ taskId: 'child-1' }, { sessionID: 'stranger' }));
+    expect(res.error).toContain('task 不存在');
   });
 
   test('task_result 只读已完成任务：未完成返回错误', async () => {
-    const registry = registryWithTask({ childSessionId: 'child-1' });
+    const coordinator = coordinatorWithTask({ state: 'running' });
     const { ctx, addedTools } = createMockCtx({ active: { 'child-1': { type: 'running' } } });
-    await registerOceanusTools(ctx, {}, { registry });
+    await registerOceanusTools(ctx, {}, { coordinator } as any);
     const tool = findTool(addedTools, 'task_result');
-    const res = parsed(await tool.execute({ taskId: 'task-1' }, { sessionID: 'parent-1' }));
+    const res = parsed(await tool.execute({ taskId: 'child-1' }, { sessionID: 'parent-1' }));
     expect(res.error).toContain('尚未完成');
   });
 
-  test('task_result 已完成（宿主 outcome=succeeded）返回结果', async () => {
-    const registry = registryWithTask();
+  test('task_result 已完成（宿主 outcome=succeeded）返回结果并消费', async () => {
+    const coordinator = coordinatorWithTask({ state: 'completed' });
     const { ctx, addedTools } = createMockCtx({
       active: {},
-      get: {
-        id: 'child-1',
-        projectID: 'p1',
-        location: { directory: '/ws' },
-        outcome: 'succeeded',
-      },
+      get: { id: 'child-1', projectID: 'p1', location: { directory: '/ws' }, outcome: 'succeeded' },
     });
-    await registerOceanusTools(ctx, {}, { registry });
+    await registerOceanusTools(ctx, {}, { coordinator } as any);
     const tool = findTool(addedTools, 'task_result');
-    const res = parsed(await tool.execute({ taskId: 'task-1' }, { sessionID: 'parent-1' }));
+    const res = parsed(await tool.execute({ taskId: 'child-1' }, { sessionID: 'parent-1' }));
     expect(res.status).toBe('completed');
     expect(res.outcome).toBe('succeeded');
+    expect(coordinator.records[0].resultConsumedAt).toBeGreaterThan(0);
   });
 
   test('task_cancel interrupt 子 session 并验证，更新为 cancelled', async () => {
-    const registry = registryWithTask();
+    const coordinator = coordinatorWithTask();
     const { ctx, addedTools } = createMockCtx({
       active: {},
       interrupt: true,
       get: { id: 'child-1', projectID: 'p1', location: { directory: '/ws' }, outcome: 'interrupted' },
     });
-    await registerOceanusTools(ctx, {}, { registry });
+    await registerOceanusTools(ctx, {}, { coordinator } as any);
     const tool = findTool(addedTools, 'task_cancel');
-    const res = parsed(
-      await tool.execute({ taskId: 'task-1', parentID: 'parent-1', childID: 'child-1' }, { sessionID: 'parent-1' }),
-    );
+    const res = parsed(await tool.execute({ taskId: 'child-1' }, { sessionID: 'parent-1' }));
     expect(res.status).toBe('cancelled');
     expect(res.interrupted).toBe(true);
     expect(res.outcome).toBe('interrupted');
-  });
-
-  test('task_cancel ownership 不匹配被拒绝', async () => {
-    const registry = registryWithTask();
-    const { ctx, addedTools } = createMockCtx();
-    await registerOceanusTools(ctx, {}, { registry });
-    const tool = findTool(addedTools, 'task_cancel');
-    const res = parsed(
-      await tool.execute({ taskId: 'task-1', parentID: 'other-parent' }, { sessionID: 'parent-1' }),
-    );
-    expect(res.error).toContain('不匹配');
-  });
-
-  test('task_cancel 无子 session 时拒绝', async () => {
-    const registry = new TaskRegistry();
-    registry.create({
-      id: 'task-1',
-      parentSessionId: 'parent-1',
-      status: 'running',
-      label: 'no child job',
-    });
-    const { ctx, addedTools } = createMockCtx();
-    await registerOceanusTools(ctx, {}, { registry });
-    const tool = findTool(addedTools, 'task_cancel');
-    const res = parsed(await tool.execute({ taskId: 'task-1' }, { sessionID: 'parent-1' }));
-    expect(res.error).toContain('无法取消');
-  });
-
-  test('task_cancel：interrupt 返回 void 且 outcome=interrupted 时更新为 cancelled 并传 continue:false', async () => {
-    const registry = registryWithTask();
-    const { ctx, addedTools, interruptCalls } = createMockCtx({
-      active: {},
-      interruptVoid: true,
-      get: { id: 'child-1', projectID: 'p1', location: { directory: '/ws' }, outcome: 'interrupted' },
-    });
-    await registerOceanusTools(ctx, {}, { registry });
-    const tool = findTool(addedTools, 'task_cancel');
-    const res = parsed(
-      await tool.execute({ taskId: 'task-1' }, { sessionID: 'parent-1' }),
-    );
-    expect(res.status).toBe('cancelled');
-    expect(interruptCalls).toEqual([{ sessionID: 'child-1', continue: false }]);
-    expect(registry.get('task-1', 'parent-1')!.status).toBe('cancelled');
+    expect(coordinator.records[0].state).toBe('cancelled');
   });
 
   test('task_cancel：interrupt 显式 interrupted:false 失败时不更新为 cancelled', async () => {
-    const registry = registryWithTask();
+    const coordinator = coordinatorWithTask();
     const { ctx, addedTools } = createMockCtx({
       active: {},
       interrupt: false,
       get: { id: 'child-1', projectID: 'p1', location: { directory: '/ws' } },
     });
-    await registerOceanusTools(ctx, {}, { registry });
+    await registerOceanusTools(ctx, {}, { coordinator } as any);
     const tool = findTool(addedTools, 'task_cancel');
-    const res = parsed(await tool.execute({ taskId: 'task-1' }, { sessionID: 'parent-1' }));
+    const res = parsed(await tool.execute({ taskId: 'child-1' }, { sessionID: 'parent-1' }));
     expect(res.error).toBeTruthy();
-    expect(registry.get('task-1', 'parent-1')!.status).toBe('running');
+    expect(coordinator.records[0].state).toBe('running');
   });
 
   test('task_cancel：interrupt 成功但仍 active 时不更新为 cancelled', async () => {
-    const registry = registryWithTask();
+    const coordinator = coordinatorWithTask();
     const { ctx, addedTools } = createMockCtx({
       active: { 'child-1': { type: 'running' } },
       interruptVoid: true,
       get: { id: 'child-1', projectID: 'p1', location: { directory: '/ws' } },
     });
-    await registerOceanusTools(ctx, {}, { registry });
+    await registerOceanusTools(ctx, {}, { coordinator } as any);
     const tool = findTool(addedTools, 'task_cancel');
-    const res = parsed(await tool.execute({ taskId: 'task-1' }, { sessionID: 'parent-1' }));
+    const res = parsed(await tool.execute({ taskId: 'child-1' }, { sessionID: 'parent-1' }));
     expect(res.error).toBeTruthy();
-    expect(registry.get('task-1', 'parent-1')!.status).toBe('running');
+    expect(coordinator.records[0].state).toBe('running');
   });
 
   test('task_cancel：interrupt 抛异常时不更新为 cancelled', async () => {
-    const registry = registryWithTask();
+    const coordinator = coordinatorWithTask();
     const { ctx, addedTools } = createMockCtx({
       active: {},
       interruptThrows: true,
       get: { id: 'child-1', projectID: 'p1', location: { directory: '/ws' } },
     });
-    await registerOceanusTools(ctx, {}, { registry });
+    await registerOceanusTools(ctx, {}, { coordinator } as any);
     const tool = findTool(addedTools, 'task_cancel');
-    const res = parsed(await tool.execute({ taskId: 'task-1' }, { sessionID: 'parent-1' }));
+    const res = parsed(await tool.execute({ taskId: 'child-1' }, { sessionID: 'parent-1' }));
     expect(res.error).toBeTruthy();
-    expect(registry.get('task-1', 'parent-1')!.status).toBe('running');
+    expect(coordinator.records[0].state).toBe('running');
   });
 });
 
-// ─────────────────────────── task_registry_observer 宿主观察链路（无手工注入 registry） ───────────────────────────
+// ─────────────────────────── subagent-bridge 接线链路 ───────────────────────────
 
-describe('task_registry_observer 宿主观察链路', () => {
-  test('task 工具 before/after 记录任务，task_status/task_result 可查询', async () => {
-    // 复用进程级单例 registry：注册 Tools 与 Hooks 时不注入任何 registry。
+describe('subagent-bridge 宿主登记链路', () => {
+  test('subagent before/after 登记任务，task_status/task_result 可查询', async () => {
     const mock = createMockCtx({
       active: {},
-      get: {
-        id: 'child-9',
-        projectID: 'p1',
-        location: { directory: '/ws' },
-        outcome: 'succeeded',
-      },
+      get: { id: 'child-9', projectID: 'p1', location: { directory: '/ws' }, outcome: 'succeeded' },
     });
-    await registerOceanusTools(mock.ctx, {});
-    await registerOceanusHooks(mock.ctx, {});
-    // observer 是 cbm-guidance 前一个注册的 before/after。
-    const observerBefore = mock.beforeHooks[mock.beforeHooks.length - 2];
-    const observerAfter = mock.afterHooks[mock.afterHooks.length - 2];
+    // coordinator 用临时目录的真实实现（含 listTasks 供工具查询）。
+    const { mkdtempSync } = require('node:fs');
+    const { tmpdir } = require('node:os');
+    const { join } = require('node:path');
+    const { createTaskCoordinator } = require('./runtime/task-coordinator');
+    const root = mkdtempSync(join(tmpdir(), 'bridge-reg-'));
+    const coordinator = createTaskCoordinator({ workspaceRoot: root, session: mock.ctx.session as any });
+    await coordinator.ready();
+    await registerOceanusTools(mock.ctx, {}, { coordinator } as any);
+    await registerOceanusHooks(mock.ctx, {}, { coordinator } as any);
+    // bridge 是 cbm-guidance 前一个注册的 before/after。
+    const bridgeBefore = mock.beforeHooks[mock.beforeHooks.length - 2];
+    const bridgeAfter = mock.afterHooks[mock.afterHooks.length - 2];
 
-    // native task ID 仅来自宿主 after 结果；before input 不是受控 ID。
-    await observerBefore!({
-      tool: 'task',
+    await bridgeBefore!({
+      tool: 'subagent',
       sessionID: 'parent-1',
       id: 'call-1',
-      input: { taskId: 'spoofed-input-id', description: 'do the thing' },
+      input: { agent: 'explorer', lane_key: 'search', description: 'do the thing', prompt: 'find it' },
     });
-    await observerAfter!({
-      tool: 'task',
+    await bridgeAfter!({
+      tool: 'subagent',
       sessionID: 'parent-1',
       id: 'call-1',
       status: 'completed',
-      result: { taskId: 'task-obs-1', task_id: 'task-obs-1', output: { childSessionId: 'child-9', text: 'done ok' } },
+      result: { sessionID: 'child-9', content: 'done ok' },
     });
 
     const statusTool = findTool(mock.addedTools, 'task_status');
-    const st = parsed(await statusTool.execute({ taskId: 'task-obs-1' }, { sessionID: 'parent-1' }));
+    const st = parsed(await statusTool.execute({ taskId: 'child-9' }, { sessionID: 'parent-1' }));
     expect(st.status).toBe('completed');
     expect(st.verified).toBe(true);
-    expect(st.childSessionId).toBe('child-9');
 
     const resultTool = findTool(mock.addedTools, 'task_result');
-    const rr = parsed(await resultTool.execute({ taskId: 'task-obs-1' }, { sessionID: 'parent-1' }));
+    const rr = parsed(await resultTool.execute({ taskId: 'child-9' }, { sessionID: 'parent-1' }));
     expect(rr.status).toBe('completed');
     expect(rr.outcome).toBe('succeeded');
-    expect(rr.resultText).toBe('done ok');
   });
 
-  test('跨 session 访问被拒绝', async () => {
+  test('未提供 coordinator 时不注册 bridge hooks', async () => {
     const mock = createMockCtx();
-    await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
-    const observerBefore = mock.beforeHooks[mock.beforeHooks.length - 2];
-    const observerAfter = mock.afterHooks[mock.afterHooks.length - 2];
-    await observerBefore!({
-      tool: 'task',
-      sessionID: 'parent-1',
-      id: 'call-2',
-      input: { taskId: 'spoofed-input-id', description: 'research' },
-    });
-    await observerAfter!({
-      tool: 'task',
-      sessionID: 'parent-1',
-      id: 'call-2',
-      status: 'completed',
-      result: { taskId: 'task-controlled-2', task_id: 'task-controlled-2', output: { sessionID: 'child-2', text: 'found' } },
-    });
-
-    const statusTool = findTool(mock.addedTools, 'task_status');
-    const stranger = parsed(
-      await statusTool.execute({ taskId: 'task-controlled-2' }, { sessionID: 'stranger' }),
-    );
-    expect(stranger.error).toContain('无权访问');
-  });
-
-  test('未知结果 fail-open：不抛错、不伪造 child、状态保持 running', async () => {
-    const mock = createMockCtx();
-    await registerOceanusTools(mock.ctx, {});
-    await registerOceanusHooks(mock.ctx, {});
-    const observerBefore = mock.beforeHooks[mock.beforeHooks.length - 2];
-    const observerAfter = mock.afterHooks[mock.afterHooks.length - 2];
-    await observerBefore!({
-      tool: 'task',
-      sessionID: 'parent-1',
-      id: 'call-x',
-      input: { taskId: 'spoofed-input-id' },
-    });
-    // after 结果无 child session、无状态 → 未知形状，observer 不应抛错或伪造 child。
-    await observerAfter!({
-      tool: 'task',
-      sessionID: 'parent-1',
-      id: 'call-x',
-      result: { taskId: 'task-unknown', task_id: 'task-unknown', content: 'weird shape' },
-    });
-    const statusTool = findTool(mock.addedTools, 'task_status');
-    const st = parsed(await statusTool.execute({ taskId: 'task-unknown' }, { sessionID: 'parent-1' }));
-    // 无 child session、宿主无法确认 → 回退 registry，保持 running（未伪造终态）。
-    expect(st.status).toBe('running');
-    expect(st.childSessionId).toBeUndefined();
-  });
-
-  test('observer 禁用时不记录任务（task 不存在）', async () => {
-    const mock = createMockCtx();
-    await registerOceanusTools(mock.ctx, {});
-    await registerOceanusHooks(mock.ctx, {
-      disabled_hooks: ['task_registry_observer'],
-    });
-    // observer 被禁用 → 不注册 before/after（保留 cbm-guidance）。
     expect(mock.beforeHooks).toHaveLength(3); // apply_patch + loop-guard + cbm-guidance
     expect(mock.afterHooks).toHaveLength(5); // json + enhancer + truncator + loop-guard + cbm-guidance
-    const statusTool = findTool(mock.addedTools, 'task_status');
-    const st = parsed(await statusTool.execute({ taskId: 'nope' }, { sessionID: 'parent-1' }));
-    expect(st.error).toContain('task 不存在');
+  });
+
+  test('hook 禁用时不注册 bridge（task 不存在）', async () => {
+    const mock = createMockCtx();
+    await registerOceanusHooks(mock.ctx, { disabled_hooks: ['task_registry_observer'] });
+    expect(mock.beforeHooks).toHaveLength(3); // apply_patch + loop-guard + cbm-guidance
+    expect(mock.afterHooks).toHaveLength(5);
   });
 });
 

@@ -23,14 +23,15 @@ import { createToolOutputTruncator } from './tool-output-truncator';
 import { createToolLoopGuardHook } from './tool-loop-guard';
 import { createCbmGuidanceHook } from './cbm-guidance';
 import { createHashlineReadEnhancer } from './hashline-read-enhancer';
-import { createTaskObserver } from '../runtime/task-observer';
+import { createSubagentBridge } from '../runtime/subagent-bridge';
+import type { TaskCoordinator } from '../runtime/task-coordinator';
 import {
   isHookEnabled,
   getHookConfig,
   getCodebaseMemoryConfig,
   isCodebaseMemoryEnabled,
   isCodebaseMemoryGuidanceEnabled,
-  getTaskReuseConfig,
+
 } from '../config/utils';
 import { createIndexer, type IndexerHandle, type IndexerRunCli } from '../cbm/indexer';
 import type { CbmRunDeps } from '../tools/cbm/types';
@@ -49,10 +50,10 @@ export interface RegisterHooksOptions {
   indexer?: IndexerHandle;
   /** cbm-guidance 索引检查超时（毫秒）。 */
   timeoutMs?: number;
-  /** 注入 JobBoard/通知依赖，缺省时 observer 仍仅维护 registry。 */
-  board?: import('../tools/task/job-board').JobBoard;
-  /** 任务生命周期观测：记录生产接线实际收到的 JobBoard。 */
-  taskLifecycleObserver?: (board: import('../tools/task/job-board').JobBoard) => void;
+  /** native-session-orchestration：任务元数据协调器（subagent-bridge 必需）。 */
+  coordinator?: TaskCoordinator;
+  /** 任务生命周期观测：记录生产接线实际收到的 coordinator。 */
+  taskLifecycleObserver?: (coordinator: TaskCoordinator) => void;
 }
 
 /** 默认输出截断上限（与规格一致）。 */
@@ -81,7 +82,6 @@ export async function registerOceanusHooks(
   opts: RegisterHooksOptions = {},
 ): Promise<void> {
   const log = opts.logger ?? (() => {});
-  if (opts.board) opts.taskLifecycleObserver?.(opts.board);
 
   // ── before ─────────────────────────────────────────────
   if (isHookEnabled(config, 'apply_patch')) {
@@ -199,19 +199,20 @@ export async function registerOceanusHooks(
     }
   }
 
-  // ── task-registry-observer：观察宿主 task/subagent，内部记录 registry ──
+  // ── subagent-bridge：原生 subagent 调用即登记元数据 + dispatch-guard ──
   if (isHookEnabled(config, 'task_registry_observer')) {
     try {
-      const observer = createTaskObserver({
-        logger: (message, meta) => log(`[oceanus] ${message}`, meta),
-        board: opts.board,
-        session: ctx.session as import('../runtime/types').SessionLike,
-        reuse: getTaskReuseConfig(config),
-      });
-      await ctx.tool.hook('execute.before', observer['execute.before'] as never);
-      await ctx.tool.hook('execute.after', observer['execute.after'] as never);
+      if (opts.coordinator) {
+        opts.taskLifecycleObserver?.(opts.coordinator);
+        const bridge = createSubagentBridge({
+          coordinator: opts.coordinator,
+          logger: (message, meta) => log(`[oceanus] ${message}`, meta),
+        });
+        await ctx.tool.hook('execute.before', bridge['execute.before'] as never);
+        await ctx.tool.hook('execute.after', bridge['execute.after'] as never);
+      }
     } catch (e) {
-      log('[oceanus] 注册 task-registry-observer 失败', { error: messageOf(e) });
+      log('[oceanus] 注册 subagent-bridge 失败', { error: messageOf(e) });
     }
   }
 
