@@ -4,7 +4,7 @@ import type { SessionLike } from './types';
 
 export type ReconcileKind = 'active' | 'stopped' | 'unreconciled' | 'reusable' | 'lost';
 export interface ReconcileResult { task_id: string; kind: ReconcileKind; certainty: 'certain' | 'uncertain'; state: string; }
-export interface ReconcileOptions { board: JobBoard; session?: SessionLike; ownerAgent?: string; workspaceRoot?: string; now?: () => number; timeoutMs?: number; }
+export interface ReconcileOptions { board: JobBoard; session?: SessionLike; ownerAgent?: string; workspaceRoot?: string; now?: () => number; timeoutMs?: number; taskReuseEnabled?: boolean; }
 
 /** 启动时只依据宿主事实恢复；无法确认时保守标为 unreconciled/uncertain。 */
 export async function reconcileTasks(opts: ReconcileOptions): Promise<ReconcileResult[]> {
@@ -20,7 +20,7 @@ export async function reconcileTasks(opts: ReconcileOptions): Promise<ReconcileR
       // 终态也必须由宿主 get 验证；读取失败不得伪造 authoritative。
       const inspected = opts.session && task.child_session_id
         ? await inspectV2(opts.session, task.child_session_id) : undefined;
-      if (inspected?.info?.outcome === 'succeeded') {
+       if (inspected?.info?.outcome === 'succeeded' && (inspected.info as any)?.id === task.child_session_id && (inspected.info as any)?.parentID === task.parent_session_id) {
         kind = task.reusable ? 'reusable' : 'stopped'; certainty = 'certain';
       }
     } else if (opts.session && task.child_session_id) {
@@ -38,8 +38,8 @@ export async function reconcileTasks(opts: ReconcileOptions): Promise<ReconcileR
     const reconciled = certainty === 'certain';
     // 只有已确认完成、具备 child 归属的任务才进入 reusable；通过 replace
     // 使用 board revision/task_version 做 CAS，避免并发 reconcile 覆盖新 attempt。
-    const reusable = reconciled && state === 'completed' && !!task.child_session_id;
-    const updated: any = { ...task, state, certainty: reconciled ? 'authoritative' : 'uncertain', reconciliation: reconciled ? 'reconciled' : 'unreconciled', reusable: reusable || (reconciled && task.reusable === true), recovery: { kind, certainty, at: now() } };
+    const reusable = reconciled && state === 'completed' && !!task.child_session_id && opts.taskReuseEnabled === true && task.reusable === true;
+    const updated: any = { ...task, state, certainty: reconciled ? 'authoritative' : 'uncertain', reconciliation: reconciled ? 'reconciled' : 'unreconciled', reusable, recovery: { kind, certainty, at: now() } };
     try {
       // 每轮从 board 读取最新 revision/version，避免前一任务写入后沿用旧 revision。
       const fresh = opts.board.get(task.task_id);

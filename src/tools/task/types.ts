@@ -70,6 +70,10 @@ export interface NewTask {
   lane_key?: string;
   workspace_root?: string;
   objective?: string;
+  /** 能力分层：只有 controlled 才可进入受控生命周期。 */
+  control?: 'controlled' | 'diagnostic';
+  nativeTaskId?: string;
+  capabilities?: string[];
 }
 
 /** registry 中存储的单条任务记录。 */
@@ -90,6 +94,9 @@ export interface TaskRecord {
   workspace_root?: string;
   objective?: string;
   reusable?: boolean;
+  control?: 'controlled' | 'diagnostic';
+  nativeTaskId?: string;
+  capabilities?: string[];
 }
 
 /** 任务协议中可跨 agent 传递的委派摘要。 */

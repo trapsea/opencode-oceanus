@@ -636,19 +636,19 @@ describe('task_registry_observer 宿主观察链路', () => {
     const observerBefore = mock.beforeHooks[mock.beforeHooks.length - 2];
     const observerAfter = mock.afterHooks[mock.afterHooks.length - 2];
 
-    // 模拟宿主 task 工具调用（显式 taskId，无手工注入 registry）。
+    // native task ID 仅来自宿主 after 结果；before input 不是受控 ID。
     await observerBefore!({
       tool: 'task',
       sessionID: 'parent-1',
       id: 'call-1',
-      input: { taskId: 'task-obs-1', description: 'do the thing' },
+      input: { taskId: 'spoofed-input-id', description: 'do the thing' },
     });
     await observerAfter!({
       tool: 'task',
       sessionID: 'parent-1',
       id: 'call-1',
       status: 'completed',
-      result: { output: { childSessionId: 'child-9', text: 'done ok' } },
+      result: { taskId: 'task-obs-1', task_id: 'task-obs-1', output: { childSessionId: 'child-9', text: 'done ok' } },
     });
 
     const statusTool = findTool(mock.addedTools, 'task_status');
@@ -671,22 +671,22 @@ describe('task_registry_observer 宿主观察链路', () => {
     const observerBefore = mock.beforeHooks[mock.beforeHooks.length - 2];
     const observerAfter = mock.afterHooks[mock.afterHooks.length - 2];
     await observerBefore!({
-      tool: 'subagent',
+      tool: 'task',
       sessionID: 'parent-1',
       id: 'call-2',
-      input: { description: 'research' },
+      input: { taskId: 'spoofed-input-id', description: 'research' },
     });
     await observerAfter!({
-      tool: 'subagent',
+      tool: 'task',
       sessionID: 'parent-1',
       id: 'call-2',
       status: 'completed',
-      result: { output: { sessionID: 'child-2', text: 'found' } },
+      result: { taskId: 'task-controlled-2', task_id: 'task-controlled-2', output: { sessionID: 'child-2', text: 'found' } },
     });
 
     const statusTool = findTool(mock.addedTools, 'task_status');
     const stranger = parsed(
-      await statusTool.execute({ taskId: 'call-2' }, { sessionID: 'stranger' }),
+      await statusTool.execute({ taskId: 'task-controlled-2' }, { sessionID: 'stranger' }),
     );
     expect(stranger.error).toContain('无权访问');
   });
@@ -701,14 +701,14 @@ describe('task_registry_observer 宿主观察链路', () => {
       tool: 'task',
       sessionID: 'parent-1',
       id: 'call-x',
-      input: { taskId: 'task-unknown' },
+      input: { taskId: 'spoofed-input-id' },
     });
     // after 结果无 child session、无状态 → 未知形状，observer 不应抛错或伪造 child。
     await observerAfter!({
       tool: 'task',
       sessionID: 'parent-1',
       id: 'call-x',
-      result: { content: 'weird shape' },
+      result: { taskId: 'task-unknown', task_id: 'task-unknown', content: 'weird shape' },
     });
     const statusTool = findTool(mock.addedTools, 'task_status');
     const st = parsed(await statusTool.execute({ taskId: 'task-unknown' }, { sessionID: 'parent-1' }));

@@ -4,6 +4,7 @@ import {
   extractChildSessionId,
   extractResultText,
   inferObservationStatus,
+  resolveNativeTaskId,
 } from './task-observer';
 import { TaskRegistry } from '../tools/task/registry';
 import { resetTaskRegistry } from './task';
@@ -21,6 +22,13 @@ async function boardFixture() {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('task-observer 结果解析', () => {
+  test('native task id 只接受 task 结果中一致的 taskId/task_id', () => {
+    expect(resolveNativeTaskId({ taskId: 'n-1', task_id: 'n-1' })).toBe('n-1');
+    expect(resolveNativeTaskId({ taskId: 'n-1' })).toBeUndefined();
+    expect(resolveNativeTaskId({ taskId: 'n-1', task_id: 'n-2' })).toBeUndefined();
+    expect(resolveNativeTaskId({ taskId: '', task_id: '' })).toBeUndefined();
+    expect(resolveNativeTaskId({ taskId: 1, task_id: 1 })).toBeUndefined();
+  });
   test('extractChildSessionId 优先级 childSessionId > sessionID，并排除父 session', () => {
     expect(
       extractChildSessionId(
@@ -57,29 +65,55 @@ describe('task-observer 结果解析', () => {
     expect(inferObservationStatus({ status: 'running' })).toBeUndefined();
     expect(inferObservationStatus({})).toBeUndefined();
   });
+
+  test('subagent 仅接受顶层 result.sessionID 作为受控 child，并提取 agent/lane', async () => {
+    const registry = new TaskRegistry();
+    const board = await boardFixture();
+    const observer = createTaskObserver({ registry, board, reuse: { enabled: true, ttlMs: 60_000, maxRetained: 8 }, session: { get: async () => ({ id: 'child-1', outcome: 'succeeded', parentID: 'parent-1' }) } as any });
+    await observer['execute.before']({ tool: 'subagent', sessionID: 'parent-1', id: 'sub-1', input: { agent: 'a', description: 'job lane:lane-1' } });
+    await observer['execute.after']({ tool: 'subagent', sessionID: 'parent-1', id: 'sub-1', status: 'completed', result: { sessionID: 'child-1' } });
+    await sleep(30);
+    expect(registry.get('child-1', 'parent-1')).toMatchObject({ childSessionId: 'child-1', status: 'completed' });
+    expect(board.get('child-1')).toMatchObject({ task_id: 'child-1', child_session_id: 'child-1', agent: 'a', lane_key: 'lane-1', reconciliation: 'reconciled', reusable: true });
+  });
+
+  test('subagent 缺失/父 sessionID 或宿主归属核验失败时不可复用', async () => {
+    const registry = new TaskRegistry();
+    const board = await boardFixture();
+    const observer = createTaskObserver({ registry, board, reuse: { enabled: true, ttlMs: 60_000, maxRetained: 8 }, session: { get: async () => ({ id: 'child-2', outcome: 'succeeded', parentID: 'other-parent' }) } as any });
+    await observer['execute.before']({ tool: 'subagent', sessionID: 'parent-1', id: 's-1', input: { agent: 'a', description: 'lane:x' } });
+    await observer['execute.after']({ tool: 'subagent', sessionID: 'parent-1', id: 's-1', status: 'completed', result: { sessionID: 'child-2' } });
+    await observer['execute.before']({ tool: 'subagent', sessionID: 'parent-1', id: 's-2', input: { agent: 'a', description: 'lane:x' } });
+    await observer['execute.after']({ tool: 'subagent', sessionID: 'parent-1', id: 's-2', status: 'completed', result: { sessionID: 'parent-1' } });
+    await sleep(30);
+    expect(board.get('child-2')).toMatchObject({ reconciliation: 'unreconciled', reusable: false });
+    expect(registry.count()).toBe(1);
+  });
 });
 
 describe('createTaskObserver before/after 行为', () => {
   afterEach(() => resetTaskRegistry());
 
   test('before 用显式 taskId 创建任务，after 绑定 child 并写入结果', async () => {
-    const registry = new TaskRegistry();
-    const observer = createTaskObserver({ registry });
+     const registry = new TaskRegistry();
+     const board = await boardFixture();
+     const observer = createTaskObserver({ registry, board });
     await observer['execute.before']({
       tool: 'task',
       sessionID: 'parent-1',
       id: 'call-1',
       input: { taskId: 't-obs', description: 'job' },
     });
-    expect(registry.get('t-obs', 'parent-1')?.status).toBe('running');
+     expect(registry.get('t-obs', 'parent-1')).toBeUndefined();
 
-    await observer['execute.after']({
+     await observer['execute.after']({
       tool: 'task',
       sessionID: 'parent-1',
       id: 'call-1',
       status: 'completed',
-      result: { output: { childSessionId: 'child-1', text: 'done' } },
-    });
+       result: { taskId: 't-obs', task_id: 't-obs', output: { childSessionId: 'child-1', text: 'done' } },
+     });
+     await sleep(30);
     const rec = registry.get('t-obs', 'parent-1')!;
     expect(rec.childSessionId).toBe('child-1');
     expect(rec.status).toBe('completed');
@@ -87,10 +121,11 @@ describe('createTaskObserver before/after 行为', () => {
   });
 
   test('after 无 callID 映射时 fail-open 不抛错', async () => {
-    const registry = new TaskRegistry();
-    const observer = createTaskObserver({ registry });
+     const registry = new TaskRegistry();
+     const board = await boardFixture();
+     const observer = createTaskObserver({ registry, board });
     await observer['execute.after']({
-      tool: 'subagent',
+       tool: 'task',
       sessionID: 'parent-1',
       id: 'never-before',
       status: 'completed',
@@ -137,24 +172,24 @@ describe('createTaskObserver before/after 行为', () => {
       sessionID: 'parent-1',
       id: 'call-n1',
       status: 'completed',
-      result: { output: { childSessionId: 'child-1', text: 'done' } },
+       result: { taskId: 't-notify-off', task_id: 't-notify-off', output: { childSessionId: 'child-1', text: 'done' } },
     });
     await sleep(30);
     expect(registry.get('t-notify-off', 'parent-1')?.status).toBe('completed');
     expect(board.get('t-notify-off').state).toBe('completed');
 
     await observer['execute.before']({
-      tool: 'subagent',
+       tool: 'task',
       sessionID: 'parent-1',
       id: 'call-n2',
       input: { taskId: 't-notify-fail' },
     });
     await observer['execute.after']({
-      tool: 'subagent',
+       tool: 'task',
       sessionID: 'parent-1',
       id: 'call-n2',
       status: 'error',
-      result: { output: { childSessionId: 'child-2', text: 'boom' } },
+       result: { taskId: 't-notify-fail', task_id: 't-notify-fail', output: { childSessionId: 'child-2', text: 'boom' } },
     });
     await sleep(30);
 
@@ -164,9 +199,10 @@ describe('createTaskObserver before/after 行为', () => {
     expect(board.get('t-notify-fail').state).toBe('failed');
   });
 
-  test('重复 taskId（再次引用）不抛错，仅保留 callID 映射', async () => {
-    const registry = new TaskRegistry();
-    const observer = createTaskObserver({ registry });
+   test('重复 taskId（再次引用）不抛错，仅保留 callID 映射', async () => {
+     const registry = new TaskRegistry();
+     const board = await boardFixture();
+     const observer = createTaskObserver({ registry, board });
     await observer['execute.before']({
       tool: 'task',
       sessionID: 'parent-1',
@@ -179,15 +215,16 @@ describe('createTaskObserver before/after 行为', () => {
       id: 'c2',
       input: { taskId: 't-dup' },
     });
-    expect(registry.count()).toBe(1);
+     expect(registry.count()).toBe(0);
     // c2 仍能通过映射更新同一任务
-    await observer['execute.after']({
+     await observer['execute.after']({
       tool: 'task',
       sessionID: 'parent-1',
       id: 'c2',
       status: 'completed',
-      result: { output: { childSessionId: 'child-2' } },
-    });
+       result: { taskId: 't-dup', task_id: 't-dup', output: { childSessionId: 'child-2' } },
+     });
+     await sleep(30);
     expect(registry.get('t-dup', 'parent-1')?.childSessionId).toBe('child-2');
   });
 });
@@ -206,21 +243,21 @@ describe('task-observer 事件幂等 / generation fence / before-after barrier',
       sessionID: 'parent-1',
       id: 'call-race',
       status: 'completed',
-      result: { output: { childSessionId: 'child-r', text: 'done' } },
+       result: { taskId: 't-race', task_id: 't-race', output: { childSessionId: 'child-r', text: 'done' } },
     });
     await sleep(50);
     // before 未到：barrier 未建立，board 上尚无终态/uncertain 落盘（任务可能还未创建）
-    expect(() => board.get('call-race')).toThrow('TASK_NOT_FOUND');
+     expect(() => board.get('t-race')).toThrow('TASK_NOT_FOUND');
     // late before 到达，barrier 建立
     await observer['execute.before']({
       tool: 'task',
       sessionID: 'parent-1',
       id: 'call-race',
-      input: { taskId: 'call-race' },
+       input: { taskId: 'call-race' },
     });
     await sleep(150);
-    expect(registry.get('call-race', 'parent-1')?.status).toBe('completed');
-    expect(board.get('call-race').state).toBe('completed');
+     expect(registry.get('t-race', 'parent-1')?.status).toBe('completed');
+     expect(board.get('t-race').state).toBe('completed');
   });
 
   test('before 一直不来：barrier 超时写 uncertain + pending_event（BARRIER_TIMEOUT）', async () => {
@@ -243,11 +280,11 @@ describe('task-observer 事件幂等 / generation fence / before-after barrier',
       sessionID: 'parent-1',
       id: 'call-lost',
       status: 'completed',
-      result: { output: { childSessionId: 'child-x', text: 'done' } },
+       result: { taskId: 't-lost', task_id: 't-lost', output: { childSessionId: 'child-x', text: 'done' } },
     });
     await sleep(250);
     expect(logs.some((m) => m.includes('BARRIER_TIMEOUT'))).toBe(true);
-    const t = board.get('call-lost');
+     const t = board.get('t-lost');
     expect(t.state).toBe('uncertain');
     expect(t.pending_event).toMatchObject({ eventId: 'call-lost:after:1', kind: 'completed' });
   });
@@ -262,17 +299,17 @@ describe('task-observer 事件幂等 / generation fence / before-after barrier',
       sessionID: 'parent-1',
       id: 'call-late',
       status: 'completed',
-      result: { output: { childSessionId: 'child-l', text: 'ok' } },
+       result: { taskId: 't-late', task_id: 't-late', output: { childSessionId: 'child-l', text: 'ok' } },
     });
     await sleep(250);
-    expect(board.get('call-late').state).toBe('uncertain');
+     expect(board.get('t-late').state).toBe('uncertain');
     // late before 收敛
     await observer['execute.before']({
       tool: 'task', sessionID: 'parent-1', id: 'call-late', input: { taskId: 'call-late' },
     });
     await sleep(150);
-    expect(board.get('call-late').state).toBe('completed');
-    expect(board.get('call-late').pending_event).toBeUndefined();
+     expect(board.get('t-late').state).toBe('completed');
+     expect(board.get('t-late').pending_event).toBeUndefined();
   });
 
   test('回归：同 task 两个并发 call 不互相放行（barrier 按 callId 隔离）', async () => {
@@ -289,16 +326,16 @@ describe('task-observer 事件幂等 / generation fence / before-after barrier',
       tool: 'task', sessionID: 'parent-1', id: 'call-b',
       input: { taskId: 't-conc' },
       status: 'error',
-      result: { output: { childSessionId: 'child-b', text: 'boom' } },
+       result: { taskId: 't-conc', task_id: 't-conc', output: { childSessionId: 'child-b', text: 'boom' } },
     });
     await sleep(80);
     // call-b 无自己的 before：不得把任务写成 failed
-    expect(board.get('t-conc').state).not.toBe('failed');
+     expect(() => board.get('t-conc')).toThrow('TASK_NOT_FOUND');
     // call-a 正常完成
     await observer['execute.after']({
       tool: 'task', sessionID: 'parent-1', id: 'call-a',
       status: 'completed',
-      result: { output: { childSessionId: 'child-a', text: 'ok' } },
+       result: { taskId: 't-conc', task_id: 't-conc', output: { childSessionId: 'child-a', text: 'ok' } },
     });
     await sleep(80);
     expect(board.get('t-conc').state).toBe('completed');
@@ -310,9 +347,13 @@ describe('task-observer 事件幂等 / generation fence / before-after barrier',
   test('回归：revive 后迟到旧 after 不覆盖新 generation（STALE_EVENT）', async () => {
     const registry = new TaskRegistry();
     const board = await boardFixture();
-    const observer = createTaskObserver({ registry, board, barrierTimeoutMs: 400 });
+     const observer = createTaskObserver({ registry, board, barrierTimeoutMs: 400 });
 
-    await observer['execute.before']({
+     await board.replace(
+       { task_id: 't-rev', parent_session_id: 'parent-1', state: 'running', ownership: { parent_session_id: 'parent-1' } },
+       { expectedRevision: 0, operationId: 'seed-rev' },
+     );
+     await observer['execute.before']({
       tool: 'task', sessionID: 'parent-1', id: 'call-old', input: { taskId: 't-rev' },
     });
     const t1 = board.get('t-rev');
@@ -337,7 +378,7 @@ describe('task-observer 事件幂等 / generation fence / before-after barrier',
     await observer['execute.after']({
       tool: 'task', sessionID: 'parent-1', id: 'call-old',
       status: 'completed',
-      result: { output: { childSessionId: 'child-old', text: 'late' } },
+       result: { taskId: 't-rev', task_id: 't-rev', output: { childSessionId: 'child-old', text: 'late' } },
     });
     await sleep(120);
     expect(board.get('t-rev').state).toBe('starting');
@@ -362,7 +403,7 @@ describe('task-observer 事件幂等 / generation fence / before-after barrier',
       tool: 'task', sessionID: 'parent-1', id: 'call-unknown',
       input: { taskId: 't-map' },
       status: 'completed',
-      result: { output: { childSessionId: 'child-u', text: 'done' } },
+       result: { taskId: 't-map', task_id: 't-map', output: { childSessionId: 'child-u', text: 'done' } },
     });
     await sleep(40);
     expect(board.get('t-map').state).not.toBe('completed');

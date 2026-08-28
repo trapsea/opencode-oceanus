@@ -8,9 +8,8 @@
  * 设计约束（全部 fail-open）：
  * - 不拦截、不抛错：observer 内部任何异常都只记录日志，绝不阻断宿主工具。
  * - 只观察宿主工具名 `task` 与 `subagent`，不观察自定义 task_status/result/cancel。
- * - before：从 input 的 taskId/task_id（若明确）或 event.id 生成稳定 task id，
- *   记录 parentSessionId=event.sessionID、label/subject（若明确）、status=running，
- *   并保存 callID→taskId 映射；未知/异常输入不抛错、不伪造 child session。
+ * - 只有宿主 task 结果中明确的 taskId/task_id 才授予 controlled 能力；event.id 和 input
+ *   值绝不提升为 native task id。subagent 仅保留 diagnostic 别名。
  * - after：递归提取明确 child session id（优先 childSessionId / child_session_id /
  *   sessionID / sessionId，且不等于父 session），以及受限长度文本结果；仅当明确识别
  *   时绑定 child；completed→completed、error→failed，未知形状保持 running/unknown。
@@ -82,11 +81,11 @@ function pickString(obj: unknown, keys: string[]): string | undefined {
 }
 
 /** 从 before input 提取任务 id：显式 taskId/task_id 优先，否则用宿主调用 id。 */
-function resolveTaskId(input: unknown, callId: unknown): string | undefined {
-  const explicit = pickString(input, ['taskId', 'task_id']);
-  if (explicit) return explicit;
-  if (typeof callId === 'string' && callId.length > 0) return callId;
-  return undefined;
+export function resolveNativeTaskId(result: unknown): string | undefined {
+  if (!isRecord(result)) return undefined;
+  const values = ['taskId', 'task_id'].map((key) => result[key]);
+  if (values.some((v) => typeof v !== 'string' || v.length === 0)) return undefined;
+  return values[0] === values[1] ? values[0] as string : undefined;
 }
 
 /** 提取便于观测的 label/subject（若明确）。 */
@@ -230,7 +229,8 @@ export function createTaskObserver(
   const log = opts.logger ?? (() => {});
   const board = opts.board;
   const reuse = opts.reuse;
-  const callIdToTaskId = new Map<string, string>();
+  /** callId 仅作 before/after 关联键；值是 provisional，不是受控任务。 */
+  const provisional = new Map<string, { parentSessionId: string; inputTaskId?: string; generation?: number; at: number; agent?: string; laneKey?: string }>();
   const barrierTimeoutMs = opts.barrierTimeoutMs ?? 2000;
   const barrierPollMs = opts.barrierPollMs ?? 10;
   /** before barrier 解析结果：before 建立任务后确定的 taskId/parent/generation。 */
@@ -244,7 +244,7 @@ export function createTaskObserver(
    * 必须按 callId 保存：同一 task 的并发 call 各自持有独立 barrier，
    * after 只能匹配同 callId，不得借用其它 call 的 barrier 或当前 board generation。
    */
-  const barriers = new Map<string, { at: number; beforePromise: Promise<BarrierInfo | null> }>();
+  const barriers = new Map<string, { at: number; beforePromise: Promise<BarrierInfo | null>; resolve: (v: BarrierInfo | null) => void }>();
   /** barrier 超时后缓存的 after 事件（每 parent 最多 32 条，保留 10 分钟）。 */
   const pendingByParent = new Map<string, Array<{ event: ObservedTaskEvent; at: number }>>();
   const PENDING_TTL_MS = 10 * 60 * 1000;
@@ -271,13 +271,13 @@ export function createTaskObserver(
   };
 
   /** late before / 新 attempt 收敛：尝试应用该 parent 缓存的未决事件。 */
-  const convergePending = async (parentSessionId: string, taskId: string): Promise<void> => {
+  const convergePending = async (parentSessionId: string, callId: string, taskId: string): Promise<void> => {
     const list = pendingByParent.get(parentSessionId);
     if (!list || list.length === 0) return;
     const now = Date.now();
     const remaining: typeof list = [];
     for (const entry of list) {
-      if (entry.event.taskId === taskId && now - entry.at <= PENDING_TTL_MS) {
+      if (entry.event.taskId === taskId && entry.event.eventId.startsWith(`${callId}:`) && now - entry.at <= PENDING_TTL_MS) {
         await applyEvent(entry.event);
       } else if (now - entry.at <= PENDING_TTL_MS) {
         remaining.push(entry);
@@ -294,101 +294,84 @@ export function createTaskObserver(
       // 此处 throw 会中止本次工具调用，后续 registry/board 均不写入。
       runDispatchGuards(event, { board });
       try {
-        const taskId = resolveTaskId(event.input, event.id);
         const parentSessionId =
           typeof event.sessionID === 'string' ? event.sessionID : undefined;
-        if (!taskId || !parentSessionId) return;
-         const label = extractLabel(event.input);
-         const laneKey = extractLaneKey(event.input);
-         const inputRecord = isRecord(event.input) ? event.input : undefined;
-         const agent = typeof inputRecord?.agent === 'string' ? inputRecord.agent : undefined;
-         const objective = typeof inputRecord?.objective === 'string' ? inputRecord.objective : label;
-         const workspaceRoot = typeof inputRecord?.workspace_root === 'string' ? inputRecord.workspace_root :
-           (typeof inputRecord?.workspaceRoot === 'string' ? inputRecord.workspaceRoot : undefined);
-        try {
-          registry.create({
-            id: taskId,
-            parentSessionId,
-            status: 'running',
-            label,
-          });
-        } catch {
-          // 重复 id（同一任务再次被引用）等：仅保留 callID 映射，不抛错。
-        }
-         if (typeof event.id === 'string' && event.id.length > 0) {
-          callIdToTaskId.set(event.id, taskId);
-        }
-        if (board) {
-          // 先注册 barrier（按 callId），promise 在 board.replace 成功后 resolve
-          // 出任务实际继承/创建的 generation；失败 resolve null（after 走 uncertain）。
-          const callId = event.id;
+        if (!parentSessionId) return;
+        const inputTaskId = pickString(event.input, ['taskId', 'task_id']);
+        // before 只建立待确认的本地记录；nativeTaskId/controlled 资格仍必须由 task
+        // 结果中的一致 taskId/task_id 授予，绝不把 input 当作 native id。
+        if (event.tool === 'task' && typeof event.id === 'string' && event.id) {
+           let generation: number | undefined;
+           if (board && inputTaskId) {
+             try { generation = board.get(inputTaskId).generation; } catch { /* native result may create it later */ }
+           }
+           provisional.set(event.id, { parentSessionId, inputTaskId, generation, at: Date.now() });
           let resolveBarrier!: (v: BarrierInfo | null) => void;
-          const beforePromise = new Promise<BarrierInfo | null>((resolve) => {
-            resolveBarrier = resolve;
-          });
-          if (typeof callId === 'string' && callId.length > 0) {
-            barriers.set(callId, { at: Date.now(), beforePromise });
+          const beforePromise = new Promise<BarrierInfo | null>((resolve) => { resolveBarrier = resolve; });
+          barriers.set(event.id, { at: Date.now(), beforePromise, resolve: resolveBarrier });
+          // 超时 pending 只允许由相同 callId 的 late before 消费。
+          const pending = pendingByParent.get(parentSessionId)?.find((x) => x.event.eventId.startsWith(`${event.id}:`));
+          if (pending && board) {
+            try {
+              const current = board.get(pending.event.taskId);
+              try { registry.create({ id: pending.event.taskId, nativeTaskId: pending.event.taskId, parentSessionId, status: 'running', control: 'controlled', capabilities: ['status', 'result', 'cancel'] }); } catch {}
+              resolveBarrier({ taskId: pending.event.taskId, parentSessionId, generation: current.generation });
+              await applyEvent(pending.event);
+              await board.replace({ ...board.get(pending.event.taskId), pending_event: undefined }, { expectedRevision: board.revision, operationId: `clear-pending-${pending.event.eventId}` });
+              const list = pendingByParent.get(parentSessionId) ?? [];
+              pendingByParent.set(parentSessionId, list.filter((x) => x !== pending));
+            } catch {}
           }
-          // 先落 board 任务（generation 继承既有任务），成功后再 resolve barrier，
-          // 保证 after 等到 barrier 时 board.get(taskId) 一定可见。
-          try {
-            const existing = board.tasks().find((t: any) => t.task_id === taskId);
-            const updated = await board.replace(
-              {
-                task_id: taskId,
-                parent_session_id: parentSessionId,
-                state: existing?.state === 'uncertain' ? 'starting' : 'running',
-                task_version: existing?.task_version ?? 0,
-                generation: existing?.generation ?? 1,
-                ownership: { parent_session_id: parentSessionId },
-                agent, lane_key: laneKey, workspace_root: workspaceRoot, objective,
-                // dispatch-guard 断路器的目标键（与守卫同源推导）；可缺省。
-                ...(deriveObjectiveKey(
-                  (event.input as any)?.description,
-                  (event.input as any)?.prompt,
-                )
-                  ? {
-                      objective_key: deriveObjectiveKey(
-                        (event.input as any)?.description,
-                        (event.input as any)?.prompt,
-                      )!,
-                    }
-                  : {}),
-              },
-              { expectedRevision: board.revision, operationId: `observe-before-${event.id ?? taskId}` },
-            );
-            resolveBarrier({
-              taskId,
-              parentSessionId,
-              generation: updated?.generation ?? existing?.generation ?? 1,
-            });
-          } catch {
-            resolveBarrier(null);
-            /* fail-open：并发 before 或 CAS 失败时忽略 */
-          }
-          // late before 收敛：应用 barrier 超时期间缓存的 after 事件。
-          await convergePending(parentSessionId, taskId).catch(() => undefined);
+          return;
         }
+        // before 没有宿主返回的 native id，不能创建受控任务；仅为 raw subagent 留诊断别名。
+        if (event.tool === 'subagent' && typeof event.id === 'string' && event.id.length > 0) {
+          const agent = pickString(event.input, ['agent']);
+          provisional.set(event.id, { parentSessionId, at: Date.now(), agent, laneKey: extractLaneKey(event.input) });
+        }
+         return;
       } catch (e) {
         log('task-observer.before 失败(fail-open)', { error: messageOf(e) });
       }
     },
 
-    'execute.after': (event: any) => {
+    'execute.after': async (event: any) => {
       if (!event || !OBSERVED_TOOL_NAMES.has(event.tool)) return;
       try {
         if (typeof event.id !== 'string' || !event.id) return;
         // after 先到（before 未发生）时 callId 映射不存在：回退用 input.taskId / callId 解析，
         // 之后靠 barrier 等待 late before，保证 before/after 顺序语义。
-        const taskId = callIdToTaskId.get(event.id) ?? resolveTaskId((event as any).input, event.id);
-        if (!taskId) return;
-        const parentSessionId =
-          typeof event.sessionID === 'string' ? event.sessionID : undefined;
-        if (!parentSessionId) return;
-
-        const childSessionId = extractChildSessionId(event.result, parentSessionId);
+           const parentSessionId = typeof event.sessionID === 'string' ? event.sessionID : undefined;
+           if (!parentSessionId) return;
+           const status = inferObservationStatus(event);
+           const nativeTaskId = resolveNativeTaskId((event as any).result);
+           if (event.tool === 'subagent') {
+             const directChild = isRecord((event as any).result) && typeof (event as any).result.sessionID === 'string' && (event as any).result.sessionID !== parentSessionId
+               ? (event as any).result.sessionID : undefined;
+             const p = provisional.get(event.id);
+             if (!directChild || !p || p.parentSessionId !== parentSessionId || !status || !board) return;
+             try {
+               const made: any = await board.replace({ task_id: directChild, parent_session_id: parentSessionId, child_session_id: directChild, agent: p.agent, lane_key: p.laneKey, reusable: false, state: 'running', ownership: { parent_session_id: parentSessionId } }, { expectedRevision: board.revision, operationId: `observe-subagent-${event.id}` });
+               try { registry.create({ id: directChild, nativeTaskId: directChild, parentSessionId, childSessionId: directChild, status: 'running', agent: p.agent, lane_key: p.laneKey, control: 'controlled', capabilities: ['status', 'result', 'cancel'] }); } catch {}
+               await board.applyObservedEvent({ eventId: `${event.id}:after:${Number.isInteger((event as any).attempt) ? (event as any).attempt : 1}`, taskId: directChild, parentSessionId, childSessionId: directChild, generation: made.generation, kind: status === 'completed' ? 'completed' : 'failed', at: Date.now() });
+               registry.setObservation(directChild, parentSessionId, { source: 'host-after', childSessionId: directChild, status, at: Date.now() });
+               if (status === 'completed' && reuse?.enabled && p.agent && p.laneKey && typeof opts.session?.get === 'function') {
+                 const host: any = await opts.session.get({ sessionID: directChild });
+                 if (host?.outcome === 'succeeded' && host?.id === directChild && host?.parentID === parentSessionId) {
+                   const fresh: any = board.get(directChild);
+                   await board.replace({ ...fresh, reconciliation: 'reconciled', certainty: 'authoritative', reusable: true }, { expectedRevision: fresh.last_board_revision, operationId: `reconcile-subagent-${directChild}-${fresh.generation}` });
+                   await pruneReusable(board, reuse);
+                 }
+               }
+             } catch (e) { log('task-observer.subagent 事件应用失败(fail-open)', { error: messageOf(e) }); }
+             return;
+           }
+           if (event.tool !== 'task') return;
+           if (!nativeTaskId) return;
+           const effectiveTaskId = nativeTaskId;
+           const childSessionId = extractChildSessionId(event.result, parentSessionId);
         const text = extractResultText(event.result);
-        const status = inferObservationStatus(event);
+         // native id 仅来自 task 结果；此处首次建立受控 registry 记录。
         // 无可记录信息（既无 child、无文本、也无明确终态）→ 不写入，保持现状。
         if (!childSessionId && !text && !status) return;
 
@@ -405,19 +388,35 @@ export function createTaskObserver(
         const writeObservation = (): void => {
           if (observed) return;
           try {
-            registry.setObservation(taskId, parentSessionId, observation);
+           registry.setObservation(effectiveTaskId, parentSessionId, observation);
             observed = true;
           } catch {
             /* 任务尚未创建：等 late before 后补写 */
           }
         };
-        writeObservation();
-        if (board && status) {
-          // eventId=`${callId}:${phase}:${attempt}`；callId=event.id，phase=after。
+         // eventId=`${callId}:${phase}:${attempt}`；callId=event.id，phase=after。
           const attempt = Number.isInteger((event as any).attempt) ? (event as any).attempt : 1;
-          const eventId = `${event.id}:after:${attempt}`;
-          const kind: ObservedTaskEvent['kind'] = status === 'completed' ? 'completed' : 'failed';
-          void (async () => {
+           const eventId = `${event.id}:after:${attempt}`;
+           const kind: ObservedTaskEvent['kind'] = status === 'completed' ? 'completed' : 'failed';
+            // 无 JobBoard 的轻量注册路径仍须保留 Registry 观察能力；它不授予
+            // 持久化生命周期控制，只记录已经由 native result 验证的 task ID。
+            if (!board) {
+              try {
+                registry.create({
+                  id: effectiveTaskId,
+                  nativeTaskId: effectiveTaskId,
+                  parentSessionId,
+                  status: 'running',
+                  control: 'controlled',
+                  capabilities: ['status', 'result', 'cancel'],
+                });
+              } catch { /* 已存在或容量不足均 fail-open */ }
+              writeObservation();
+              provisional.delete(event.id);
+              return;
+            }
+            if (!status) { provisional.delete(event.id); return; }
+           void (async () => {
             try {
               // before/after barrier：after 先到最多等待 barrierTimeoutMs；
               // 只匹配同 callId 的 barrier，绝不借用其它 call 或当前 board generation。
@@ -428,7 +427,18 @@ export function createTaskObserver(
                 await sleep(barrierPollMs);
                 entry = barriers.get(callId);
               }
-              const info = entry
+               const p = provisional.get(callId);
+               if (entry && p && p.parentSessionId === parentSessionId) {
+                  let generation = p?.generation ?? 1;
+                  if (board && p?.generation === undefined) {
+                    try { generation = board.get(effectiveTaskId).generation ?? 1; } catch {
+                     try { const made = await board.replace({ task_id: effectiveTaskId, parent_session_id: parentSessionId, state: 'running', ownership: { parent_session_id: parentSessionId } }, { expectedRevision: board.revision, operationId: `observe-before-start-${callId}` }); generation = made.generation ?? 1; } catch {}
+                   }
+                 }
+                 try { registry.create({ id: effectiveTaskId, nativeTaskId: effectiveTaskId, parentSessionId, status: 'running', control: 'controlled', capabilities: ['status', 'result', 'cancel'] }); } catch {}
+                 entry.resolve({ taskId: effectiveTaskId, parentSessionId, generation });
+               }
+               const info = entry
                 ? await Promise.race([
                     entry.beforePromise,
                     sleep(Math.max(0, deadline - Date.now()) + 1).then(() => null as BarrierInfo | null),
@@ -436,20 +446,20 @@ export function createTaskObserver(
                 : null;
               if (
                 !info ||
-                info.taskId !== taskId ||
+                 info.taskId !== effectiveTaskId ||
                 info.parentSessionId !== parentSessionId
               ) {
                 // barrier 超时/不匹配：不用当前 board generation 猜测终态，
                 // 写 uncertain + pending_event（迟到事件由 generation fence 拒绝）。
                 let current: any;
-                try { current = board.get(taskId); } catch { current = undefined; }
+                 try { current = board.get(effectiveTaskId); } catch { current = undefined; }
                 const base = current ?? {
-                  task_id: taskId, parent_session_id: parentSessionId,
+                   task_id: effectiveTaskId, parent_session_id: parentSessionId,
                   ownership: { parent_session_id: parentSessionId },
                   task_version: 0, generation: 1,
                 };
                 const pending: ObservedTaskEvent = {
-                  eventId, taskId, parentSessionId, childSessionId,
+                  eventId, taskId: effectiveTaskId, parentSessionId, childSessionId,
                   generation: current?.generation ?? 1, kind,
                   result: text ? { status: kind === 'completed' ? 'success' : 'failure', summary: text } : undefined,
                   at: Date.now(),
@@ -469,14 +479,16 @@ export function createTaskObserver(
                 } catch { /* fail-open */ }
                 bufferPending(pending);
                 writeObservation(); // after 先到：registry 可能仍无任务，保持 fail-open
-                log('task-observer BARRIER_TIMEOUT：after 先到且 before 未出现，已写 uncertain + pending_event', { taskId, eventId });
+                 log('task-observer BARRIER_TIMEOUT：after 先到且 before 未出现，已写 uncertain + pending_event', { taskId: effectiveTaskId, eventId });
                 return;
               }
               // before 已在同一 callId 上确定 generation：after 使用同一 generation；
               // revive 后迟到的旧事件因 generation < 当前而被 STALE_EVENT 拒绝。
-              writeObservation(); // late before 已创建任务，补写观察
-              await board.applyObservedEvent({
-                eventId, taskId, parentSessionId, childSessionId,
+               try { registry.create({ id: effectiveTaskId, nativeTaskId: effectiveTaskId, parentSessionId, status: 'running', control: 'controlled', capabilities: ['status', 'result', 'cancel'] }); } catch {}
+               writeObservation(); // late before 已创建任务，补写观察
+               if (!board) return;
+               await board.applyObservedEvent({
+                 eventId, taskId: effectiveTaskId, parentSessionId, childSessionId,
                 generation: info.generation, kind,
                 result: text ? { status: kind === 'completed' ? 'success' : 'failure', summary: text } : undefined,
                 at: Date.now(),
@@ -484,23 +496,21 @@ export function createTaskObserver(
                // 完成且已明确绑定 child 后，以 replace 做一次 CAS 标记；
                // reconciliation 仍由启动恢复链路确认，故这里不伪造 reconciled。
                if (reuse?.enabled && kind === 'completed') {
-                 const after = board.get(taskId);
+                  const after = board.get(effectiveTaskId);
                  if (after.child_session_id && after.reconciliation === 'reconciled') {
                    await board.replace(
                      { ...after, reusable: true },
-                     { expectedRevision: after.last_board_revision ?? board.revision, operationId: `reuse-${taskId}-${after.generation}` },
+                      { expectedRevision: after.last_board_revision ?? board.revision, operationId: `reuse-${effectiveTaskId}-${after.generation}` },
                    ).catch(() => undefined);
-                 }
+         }
                  await pruneReusable(board, reuse).catch(() => undefined);
                }
             } catch (e: any) {
               log('task-observer.after 事件应用失败(fail-open)', { eventId, error: e?.message ?? messageOf(e) });
             }
           })();
-        }
-        // T1：默认关闭终态 queue 通知（不再调用 session.prompt / notifyTerminalTask）。
+         // T1：默认关闭终态 queue 通知（不再调用 session.prompt / notifyTerminalTask）。
         // notifyTerminalTask 保留供未来显式调用；registry/board 状态更新不受影响。
-        callIdToTaskId.delete(event.id);
       } catch (e) {
         log('task-observer.after 失败(fail-open)', { error: messageOf(e) });
       }

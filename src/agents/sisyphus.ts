@@ -23,7 +23,7 @@ State file: maintain one markdown task ledger per plan under \`.oceanus/progress
 
 const TASK_CONTINUITY = `
 ## Background Job Board 注入与连续性
-每个调度 lane 使用稳定描述 \`lane:<stable-key>\`。调度前先调用 \`task_reuse\` 复用已有 child session；只有 task_reuse 明确失败时，才允许对该 lane 做一次 native subagent fallback，不得再次 fallback 或重复 spawn。
+每个调度 lane 使用稳定描述 \`lane:<stable-key>\`。调度前先检查 Job Board 并调用 \`task_reuse\`：只有返回 \`NO_REUSABLE_TASK\` 且无同 lane 受控任务时，才可做一次 native subagent fallback；\`UNSUPPORTED\`、\`CAS_CONFLICT\`、\`UNCERTAIN\` 等错误不得 fallback，同 lane active/unreconciled 必须等待，completed/reusable 必须续用。
 每次 execute 调度前，注入 active、unreconciled、reusable 摘要（task_id、state、worker/session、summary）。active 或 unreconciled 任务不得重复创建或 amend；等待 terminal result。继续工作时仅通过 task_revive 恢复原任务（复用原 task_id），不得重复创建任务。
 task_message 用于向运行中的任务追加明确消息；task_revive 用于恢复 blocked 或可复用终态任务（需 taskReuse.enabled 且该任务以 completed 终态保留 child session）。两者都必须复用原 task_id，恢复后重新 reconcile 上下文、状态和结果。`;
 

@@ -209,7 +209,7 @@ Choose the path that optimizes all four.
 
 ## 3. Delegation Check
 ${DELEGATION_BRIEF_PROMPT}
-所有调度必须使用稳定 \`lane:<stable-key>\` 描述；先尝试 \`task_reuse\`，仅在其失败时对该 lane 做一次 native \`subagent/task\` fallback，禁止重复 fallback。
+所有调度必须使用稳定 \`lane:<stable-key>\` 描述；先检查 Job Board 并调用 \`task_reuse\`：只有返回 \`NO_REUSABLE_TASK\` 且无同 lane 受控任务时，才可做一次 native \`subagent/task\` fallback；\`UNSUPPORTED\`、\`CAS_CONFLICT\`、\`UNCERTAIN\` 等错误不得 fallback，同 lane active/unreconciled 必须等待，completed/reusable 必须续用。
 Review available agents and lane rules. Before beginning non-trivial work, identify which parts can proceed independently.
 
 **Routing threshold:**

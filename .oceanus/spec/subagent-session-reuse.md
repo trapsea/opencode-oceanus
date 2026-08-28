@@ -1,26 +1,40 @@
-# 通用 subagent 会话复用优化设计
+# 原生 subagent 会话复用
 
-## 状态
+## 目标
 
-已获用户批准，采用“通用 lane 复用”方案；用户确认 `taskReuse` 默认开启。
+让返回明确 child `sessionID` 的原生 `subagent` 调用进入受控的 Job Board 生命周期；完成且对账后，`task_reuse` 可在同一 child session 中执行后续 brief。
 
-## 目标与边界
+## 已确认事实
 
-满足安全条件的 specialist 后续委派优先复用原 child session，覆盖 Momus、Oracle、Explorer、Librarian、Fixer、Designer、Observer、Metis。不复用 active、未确认终态、过期、跨 parent/workspace 或语义不一致任务。不修改宿主 subagent 调度器，不猜测任意 prompt 语义。
+- `src/runtime/task-observer.ts` 当前只为 `subagent` 创建 diagnostic registry 条目（:327-330），并在 after 处理器中排除它（:343-345）。
+- `task_reuse` 只接受同父 session、同 agent/lane 且 `completed + reconciled + reusable` 的 Job Board 记录（`src/tools/task/reuse.ts:20-24`）。
+- 因此刚才由原生 `subagent` 产生的 `ses_fb9ca9a82ffe8Se0f1LfuKoapr` 从未进入可复用池，调用返回 `NO_REUSABLE_TASK`。
+- oh-my-opencode-slim 先登记原生任务，再在终态完成对账后用相同任务 ID 续跑；参考位置：`src/hooks/task-session-manager/tool-execute-hooks.ts:136-183`、`src/tools/task-revive.ts:96-131`。
 
-## 复用契约
+## 设计
 
-- 标识为 `parent_session_id + workspace_root + agent + lane_key`。
-- lane 必须由 Sisyphus 在 native `subagent` 的 `description` 中显式写成 `lane:<stable-key>`；缺少 agent 或 lane 不自动匹配。
-- 自动候选必须是 `completed + reusable + reconciled`，certainty 为 `authoritative|observed`，child session 存在且未过 TTL；`uncertain` 只表示结果无法确认，不允许任何 revive。
-- `task_reuse({agent, lane_key, brief, reuse_id})` 查询唯一候选、执行 CAS，并调用 v2 `session.prompt`、`session.wait`、`session.get` 续用原 child；不创建隐藏 session。
-- 无候选、多候选、能力缺失、CAS 冲突或复用失败返回真实 `degraded/uncertain`；是否创建新 subagent 由 Sisyphus 根据结果显式决定，避免重复副作用。
-- reconciliation 由 `task-reconcile` 在宿主完成且 `session.get().outcome === succeeded` 后以 CAS 收敛为 `reconciled`；随后 observer 在 enabled、child 存在等条件满足时标记 reusable。
-- JobBoard parent/workspace 不一致时进入 degraded read-only；不得列出候选或写入。
+1. `subagent` after 事件返回明确、非父会话的 child `sessionID` 时，将该 ID 同时作为受控任务 ID 与 `child_session_id` 写入 Registry 和 Job Board。
+2. only 在 `taskReuse.enabled`、任务 `completed`、已 `reconciled`、并通过同 agent、同 lane、同父会话过滤时标记和选择为 reusable。
+3. 结果缺少明确 child session ID、状态未完成或未对账时，保持 fail-open 且不可复用；不从 input 或调用 ID 猜测 session。
+4. 不改变原生 `task` 的既有路径，也不允许跨父会话或跨 lane 续用。
 
-## 验收
+5. 调度规则仅禁止对已登记且 active/unreconciled 的同 lane 任务重复 fallback。若 `task_reuse` 返回 `NO_REUSABLE_TASK` 且没有同 lane 的受控任务，允许一次原生 fallback；该规则必须在编排提示词中明确，避免未登记原生 `subagent` 造成死锁。
 
-- 同 lane 的 Momus REJECT 后复用原 child，不创建第二 session；八类 specialist 均可复用。
-- active/unreconciled/uncertain、缺字段、跨 parent/workspace/agent、过期、失败/取消、非唯一候选均不复用。
-- prompt/wait/get 的成功、failed、interrupted、timeout、缺能力和无法确认均返回正确状态；CAS/operation 幂等有效。
-- `taskReuse` 默认开启，关闭后不标记、不复用；`bun test`、`bun run typecheck`、`bun run build` 通过。
+## 非目标
+
+- 不将任意裸 session ID 直接作为可复用候选。
+- 不绕过 Job Board 的所有权、CAS、generation 和 reconciliation 检查。
+- 不允许已登记的 active/unreconciled 任务绕过 Job Board 再次 spawn。
+- 不修改 oh-my-opencode-slim；它只提供生命周期设计参考。
+
+## Metis 分析
+
+未执行：候选方案已由用户明确选择，实施边界局部且无剩余架构分歧。残余风险是宿主 `subagent` after 事件形状；实现必须仅接受明确输出字段，并以测试固定该形状。
+
+## 验收标准
+
+1. `subagent` 返回的明确 child `sessionID` 可建立受控 Job Board 记录。
+2. 任务完成、对账并启用复用后，`task_reuse` 能对同一 child session 投递第二个 brief。
+3. 未对账、跨父会话、不同 agent/lane、或没有明确 session ID 的情况不能复用。
+4. 相关 Bun 测试与 `bun run typecheck` 通过。
+5. 编排提示词明确区分“已登记但未对账”的任务与“未登记、无可复用候选”的任务；后者可进行一次 fallback。

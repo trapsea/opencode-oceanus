@@ -213,7 +213,7 @@ describe('createTaskObserver 接线：guard 在观察写入之前生效', () => 
     expect((reg as any).created).toHaveLength(0);
   });
 
-  test('合规调用正常放行并创建任务', async () => {
+  test('合规调用正常放行，等待明确 child session 后再创建受控任务', async () => {
     const reg = fakeRegistry();
     const observer = createTaskObserver({ registry: reg, logger: noopLogger });
     await observer['execute.before']({
@@ -222,7 +222,7 @@ describe('createTaskObserver 接线：guard 在观察写入之前生效', () => 
       id: 'call2',
       input: { agent: 'momus', description: '门禁', prompt: '严格审查可执行性，输出 OKAY 或 REJECT' },
     });
-    expect((reg as any).created).toHaveLength(1);
+    expect((reg as any).created).toHaveLength(0);
   });
 
   test('duplicate 断路器经 observer 生效：board 有未消费同目标终态时 reject', async () => {

@@ -23,4 +23,21 @@ describe('task-reconcile 确定性恢复', () => {
     const a = await reconcileTasks({ board: b }); const c = await reconcileTasks({ board: b });
     expect(c).toEqual(a);
   });
+
+  test('重启恢复即使 host succeeded 也不为未授权记录新授予 reusable', async () => {
+    const value: any = task('done', { state: 'completed', child_session_id: 'child', reusable: false, reconciliation: 'unreconciled' });
+    let stored = value;
+    const b: any = { tasks: () => [structuredClone(stored)], get: () => structuredClone(stored), replace: async (x: any) => { stored = x; } };
+    await reconcileTasks({ board: b, session: { get: async () => ({ id: 'child', parentID: 'p', outcome: 'succeeded' }) } as any, ownerAgent: 'a' });
+    expect(stored).not.toMatchObject({ reusable: true, reconciliation: 'reconciled' });
+  });
+
+  test('重启恢复拒绝 child id/parent 不匹配及 failed/interrupted outcome', async () => {
+    for (const host of [{ id: 'wrong', parentID: 'p', outcome: 'succeeded' }, { id: 'c', parentID: 'other', outcome: 'succeeded' }, { id: 'c', parentID: 'p', outcome: 'failed' }, { id: 'c', parentID: 'p', outcome: 'interrupted' }]) {
+      let stored: any = task('x', { child_session_id: 'c', reusable: true, reconciliation: 'reconciled' });
+      const b: any = { tasks: () => [structuredClone(stored)], get: () => structuredClone(stored), replace: async (x: any) => { stored = x; } };
+      await reconcileTasks({ board: b, session: { get: async () => host } as any, ownerAgent: 'a' });
+      expect(stored).not.toMatchObject({ reconciliation: 'reconciled', reusable: true });
+    }
+  });
 });

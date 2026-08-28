@@ -162,7 +162,7 @@ export class JobBoard {
       return structuredClone(this.get(ev.taskId));
     }
     if (this.degraded) throw new JobBoardPersistenceError('DEGRADED_READ_ONLY');
-    const n = { ...structuredClone(t), state, certainty: 'observed', child_session_id: ev.childSessionId ?? t.child_session_id, result: ev.result ?? t.result, operations: { ...(t.operations || {}), [`event:${ev.eventId}`]: pl }, task_version: t.task_version + 1, updated_at: stamp, last_activity_at: stamp };
+    const n = { ...structuredClone(t), state, certainty: 'observed', pending_event: undefined, child_session_id: ev.childSessionId ?? t.child_session_id, result: ev.result ?? t.result, operations: { ...(t.operations || {}), [`event:${ev.eventId}`]: pl }, task_version: t.task_version + 1, updated_at: stamp, last_activity_at: stamp };
     const revision = this.data.revision + 1; n.last_board_revision = revision;
     log.push({ eventId: ev.eventId, payload: pl, at: ev.at ?? stamp });
     if (log.length > 32) log.splice(0, log.length - 32);

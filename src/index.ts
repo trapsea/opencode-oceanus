@@ -2,6 +2,7 @@ import { Plugin, Skill } from '@opencode-ai/plugin';
 import { getAgentDefinitions } from './agents';
 import type { AgentOverrideConfig, PluginConfig } from './config/schema';
 import { loadPluginConfig } from './config/loader';
+import { getTaskReuseConfig } from './config/utils';
 import { SISYPHUS_SKILLS } from './skills';
 import { createCommands, runPresetCommand } from './commands';
 import { defaultInstallStatus } from './cbm/commands';
@@ -165,7 +166,7 @@ export async function runSetup(
        taskBoard = await JobBoard.open({ workspaceRoot: workspaceRoot ?? process.cwd(), parentSessionId });
       options.taskLifecycleObserver?.('supervisor', taskBoard);
       // 先完成恢复再注册依赖该 board 的工具，避免恢复写回与首个工具调用发生 CAS 竞态。
-      await startTaskSupervisor({ board: taskBoard, session: ctx.session, ownerAgent: 'sisyphus' }).catch(() => undefined);
+       await startTaskSupervisor({ board: taskBoard, session: ctx.session, ownerAgent: 'sisyphus', taskReuseEnabled: getTaskReuseConfig(config).enabled }).catch(() => undefined);
   } catch { /* fail-open */ }
 
   // 1) 共享 CBM 依赖：cacheRoot = 显式 cacheDir ?? 默认；供 provision/MCP/CLI/UI/commands 复用。
