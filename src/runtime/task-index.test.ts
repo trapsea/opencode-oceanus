@@ -33,6 +33,16 @@ describe('TaskIndex 契约', () => {
     expect(second.taskID).toBe('ses_child_2');
   });
 
+  test('revive 同一任务：uncertain 占用自身 lane 时续用不构成冲突（generation+1）', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'task-index-'));
+    const idx = await TaskIndex.open({ workspaceRoot: dir });
+    await idx.registerLaunch(base());
+    await idx.markUncertain('ses_child_1', 'ses_parent');
+    const revived = await idx.registerLaunch(base({ objective: 'resume after interrupt' }));
+    expect(revived.generation).toBe(2);
+    expect(revived.state).toBe('running');
+  });
+
   test('lane 缺失：无 laneKey 的 registerLaunch 被拒绝（LANE_REQUIRED）', async () => {
     dir = await mkdtemp(join(tmpdir(), 'task-index-'));
     const idx = await TaskIndex.open({ workspaceRoot: dir });

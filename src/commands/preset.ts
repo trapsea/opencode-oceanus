@@ -1,94 +1,73 @@
-import { getProjectPresetConfigPath, loadPluginConfig } from '../config/loader';
-import { getUserPresetConfigPath, readUserConfig, updateUserPreset, type UserPresetOptions } from '../config/presets';
 import type { CommandDefinition, CommandInvocation } from './types';
 
-export interface PresetCommandOptions extends UserPresetOptions {
-  /** 当前 location；指定后切换写入项目级配置。 */
-  directory?: string;
-}
-
-export async function runPresetCommand(
-  args: readonly string[] = [],
-  options: PresetCommandOptions = {},
-): Promise<{ current: string | undefined; presets: string[] } | { preset: string }> {
-  const config = (options.directory
-    ? loadPluginConfig({ directory: options.directory })
-    : options.configDir || options.configPath
-    ? readUserConfig(options.configPath ?? getUserPresetConfigPath(options.configDir))
-    : loadPluginConfig({ directory: process.cwd() })) as {
-      preset?: string;
-      presets?: Record<string, unknown>;
-    };
-  const presets = Object.keys(config.presets ?? {}).sort();
-  const argument = args.join(' ').trim();
-  if (!argument) return { current: config.preset, presets };
-  if (!presets.includes(argument)) {
-    throw new Error(`Unknown preset: ${argument}（未知 preset）`);
-  }
-  updateUserPreset(
-    argument,
-    options.directory
-      ? { configPath: getProjectPresetConfigPath(options.directory) }
-      : options,
-  );
-  return { preset: argument };
-}
-
 /**
- * preset command 执行所需的外部依赖集合。
+ * `/preset` server command（v2 命令通道）。
  *
- * 通过工厂注入而不是直接耦合 `ctx` / 插件运行时，便于在测试中替换为
- * 内存 spy，并确保运行时只持有真正需要的能力（reload、reply）。
+ * 为什么是 server command 而不是 TUI keymap：宿主 TUI 的斜杠补全与提交
+ * 拦截都消费 `command.list`（server 命令表，/cbm 等同通道）；插件 TUI
+ * keymap layer 在无宿主 Solid owner 的上下文中注册不进可达命令集。
+ *
+ * 行为：
+ * - `/preset`：查询——通过 session.synthetic 注入当前 preset 与可用列表
+ *   （不触发 LLM turn）。
+ * - `/preset <name>`：落盘切换 + 当前会话 switchModel 立即生效 + 重建
+ *   agent registry（后续 subagent 立即用新模型），并 synthetic 回执。
+ *   TUI sidebar 由 fs.watch 指纹监听自动刷新（~100ms）。
  */
 export interface PresetCommandHandlers {
-  /**
-   * 实际执行 preset 逻辑；签名与 {@link runPresetCommand} 一致。
-   * 测试可注入 `runPresetCommand` 的部分应用以覆盖 configDir / configPath。
-   */
-  runPreset: (
-    args: readonly string[],
-    options?: PresetCommandOptions,
-  ) => Promise<{ current: string | undefined; presets: string[] } | { preset: string }>;
-  /** 切换 preset 成功时调用一次，用于刷新 agent registry。 */
-  reloadAgents: () => Promise<void>;
-  /**
-   * 向当前 session 写回文本反馈。
-   * 实现方必须只透传 sessionID / text / delivery，禁止转发 `invocation.prompt.skills`
-   * 等其他字段，避免在响应消息中重复触发用户原 prompt 的 skill 引用。
-   */
-  /** 兼容旧注入方；preset 不再调用该回调，避免触发新的模型 turn。 */
-  reply?: (
-    text: string,
-    invocation: CommandInvocation,
-  ) => Promise<void>;
+  /** 列出 { 当前 preset, 可用 presets }。 */
+  listPresets: () => { current: string | undefined; presets: Record<string, unknown> };
+  /** 落盘切换；返回 ok/message/summary。 */
+  switchPreset: (name: string) => { ok: boolean; message: string; summary: string[] };
+  /** 当前会话立即切换到 preset 中该 agent 的模型（若定义）；返回描述文本。 */
+  switchSessionModel: (sessionID: string, presetName: string) => Promise<string | null>;
+  /** 重建 agent registry（新 subagent 立即生效）。 */
+  rebuildAgents: () => Promise<void>;
+  /** 注入 synthetic 消息（无 LLM turn）。 */
+  reply: (sessionID: string, text: string) => Promise<void>;
 }
 
-/**
- * 构造 preset command：
- * - 切换成功 → `reloadAgents()` 一次后直接返回，不创建新的模型 turn
- * - 查询路径 → 直接返回，不写配置、不 reload
- * - 未知 / 写入失败 → 抛出诊断错误，不 reload
- */
 export function createPresetCommand(handlers: PresetCommandHandlers): CommandDefinition {
   return {
     name: 'preset',
-    description: '查看或切换 Oceanus preset。/preset 查询；/preset <name> 切换当前目录 preset，立即刷新 agent，不中断当前任务，也不会创建新的模型任务。',
-    async execute(invocation) {
+    description:
+      '查看或切换 Oceanus preset。/preset 查询；/preset <name> 切换（写用户级配置 + 当前会话模型立即生效 + registry 立即重建；新 subagent 立即用新模型）。',
+    async execute(invocation: CommandInvocation) {
+      const argument = invocation.prompt.text.trim();
       try {
-        const argument = invocation.prompt.text.split(/\s+/).filter(Boolean);
-        const result = await handlers.runPreset(argument);
-        if ('preset' in result) {
-          // 切换成功：只刷新 registry，不把反馈作为新 prompt 投递给模型。
-          await handlers.reloadAgents();
+        if (!argument) {
+          const { current, presets } = handlers.listPresets();
+          const names = Object.keys(presets).sort();
+          const lines = [
+            `当前 preset：${current ?? '（未设置）'}`,
+            `可用 preset：${names.length > 0 ? names.join(', ') : '（无）'}`,
+          ];
+          await handlers.reply(invocation.sessionID, lines.join('\n'));
           return;
         }
-        // 查询路径：仅读取，不 reload，也不触发模型 turn。
-        return;
+        const result = handlers.switchPreset(argument);
+        if (!result.ok) {
+          await handlers.reply(invocation.sessionID, `切换失败：${result.message}`);
+          return;
+        }
+        const immediate = await handlers.switchSessionModel(invocation.sessionID, argument);
+        await handlers.rebuildAgents();
+        await handlers.reply(
+          invocation.sessionID,
+          [
+            immediate ?? '',
+            result.message,
+            result.summary.length > 0 ? result.summary.join('\n') : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Preset command failed（preset 命令执行失败）: ${message}`, {
-          cause: error,
-        });
+        // 回执失败不应掩盖切换结果；尽力而为。
+        await handlers
+          .reply(invocation.sessionID, `Preset command failed（preset 命令执行失败）: ${message}`)
+          .catch(() => undefined);
       }
     },
   };

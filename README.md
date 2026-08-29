@@ -258,7 +258,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 每个 agent 的模型等可通过独立 jsonc 配置文件定制：
 
 - 用户级：`~/.config/opencode/opencode-oceanus.jsonc`
-- 项目级：`.opencode/opencode-oceanus.jsonc`（优先，与用户级合并）
+- 项目级：`.opencode/opencode-oceanus.jsonc`（用于补充/覆盖 `presets`、`agents` 等定义，与用户级合并）
 
 ```jsonc
 {
@@ -343,7 +343,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 3. 合并后的 `presets[preset]` 作为基础；
 4. 合并后的显式 `agents` 覆盖 preset，同一 agent 的同一字段以显式配置为准。
 
-因此，想固定项目行为可在项目配置设置 `preset`；项目级 `preset` 也会覆盖用户级选择。
+因此，想固定某项目的 preset 可在项目配置设置顶层 `preset`；注意：项目级顶层 `preset` 会覆盖用户级选择（已知边界——`/preset` 的写入目标是用户级全局配置，若项目配置显式设置了 `preset`，该项目内仍以项目级为准）。
 
 ### 工具 / Hook 配置规则
 
@@ -363,7 +363,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 /preset fast         # 直接选择名为 fast 的预设
 ```
 
-选择成功后只会原子更新**用户级**配置文件的顶层 `preset` 字段，不会改写 `presets`、`agents` 或项目配置；没有预设、预设不存在或写入失败时会反馈错误。更新后请执行 `reload`，或开启新会话，配置才会应用到新注册的 agents。若项目配置覆盖了 `preset`，用户级 `/preset` 选择不会改变该项目的最终 preset。该命令不再由 TUI sidebar 插件重复注册。
+选择成功后会原子更新**用户级** `~/.config/opencode/opencode-oceanus.jsonc`（或 `.json`）的顶层 `preset` 字段（全局生效，所有项目共享），不会改写 `presets` 或 `agents`；没有预设、预设不存在或写入失败时命令会报错。preset 名称校验会合并项目级 `.opencode/` 中的 `presets` 定义。命令会刷新后续 agent 定义，但不会热切换正在执行的会话；由于宿主按项目实例化插件并在启动时快照配置，请重启 opencode（或等待项目服务重建）后开启新会话，新的 preset 才会加载。该命令不再由 TUI sidebar 插件重复注册。
 
 Sisyphus 执行时还会为每个计划维护任务级进度 ledger：`.oceanus/progress/<plan-name>.md`。ledger 按任务记录 `pending`、`in_progress`、`completed`、`failed` 或 `blocked` 状态、worker/session、验证证据和更新时间。并行 worker 不直接写共享 ledger，由 orchestrator 在派发前及每个任务完成后串行更新。
 

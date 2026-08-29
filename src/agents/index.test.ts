@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { createAgents, getAgentDefinitions } from './index';
 import type { AgentDefinition } from './oceanus';
 import { CBM_TOOLS } from '../cbm/registry';
+import { READONLY_FILE_OPERATIONS_RULES, WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
+import { SISYPHUS_SKILLS } from '../skills';
 
 describe('agent override 映射', () => {
   test('映射 v2 AgentDefinition 支持的字段', () => {
@@ -110,12 +112,16 @@ describe('agent prompt 工具对齐（tooling-10）', () => {
 
   test('sisyphus 使用 task_status/task_result/task_cancel 轮询且不以 registry 为宿主事实', () => {
     const sys = byName('sisyphus');
-    expect(sys).toContain('`task_status` / `task_result`');
-    expect(sys).toContain('`task_cancel`');
-    expect(sys).toContain(
+    const executeSkill =
+      SISYPHUS_SKILLS.find((skill) => skill.name === 'sisyphus-execute')
+        ?.content ?? '';
+    // 主 prompt 已瘦身：轮询细则下沉到 sisyphus-execute skill
+    expect(executeSkill).toContain('`task_status` / `task_result`');
+    expect(executeSkill).toContain('`task_cancel`');
+    expect(executeSkill).toContain(
       "the plugin's task metadata is only an index and never a substitute for host fact",
     );
-    expect(sys).toContain('`task_result` returns data only for terminal');
+    expect(executeSkill).toContain('host facts take priority');
   });
 
   test('sisyphus/oceanus 通信协议：显式 task_status/task_result 查询，不依赖 queue 通知', () => {
@@ -574,7 +580,63 @@ describe('CBM-12：agent prompt CBM 调度最终审计', () => {
     expect(sys).toMatch(/冒充/);
     expect(sys).toMatch(/agent 参数为 `"momus"`/);
     expect(sys).toMatch(/task_revive/);
-    expect(sys).toMatch(/连续两轮 `?REJECT`?/);
+    expect(sys).toMatch(/最多 3 轮/);
     expect(sys).toMatch(/请求决策|上报分歧点/);
+  });
+
+  test('工具调用协议使用结构化对象与安全字符串表达，禁止伪 TypeScript 签名', () => {
+    const prompts = [
+      sysOf('sisyphus'),
+      sysOf('oceanus'),
+      SISYPHUS_SKILLS.find((skill) => skill.name === 'sisyphus-execute')?.content ?? '',
+    ];
+    const combined = prompts.join('\n');
+
+    expect(combined).toContain('subagent({ agent, description, prompt, background })');
+    expect(combined).toContain('task_revive({ task_id, prompt })');
+    expect(combined).toContain('\\n');
+    expect(combined).toContain('引号');
+    expect(combined).toContain('反斜杠');
+    expect(combined).toContain('ASCII');
+
+    expect(combined).not.toMatch(/task_revive\(task_id,\s*prompt\)/);
+    expect(combined).not.toMatch(/subagent\(agent,\s*(?:lane_key:|description)/);
+    expect(combined).not.toMatch(/task\(\.\.\.?,?\s*run_in_background=true\)/);
+    expect(combined).not.toContain('lane_key: "<stable-key>"');
+  });
+});
+
+describe('工具运行时名称对齐：宿主工具与插件工具契约', () => {
+  const ALL_AGENT_NAMES = ['oceanus', 'sisyphus', 'explorer', 'librarian', 'oracle', 'designer', 'fixer', 'metis', 'momus'];
+  const sysOf = (name: string) => {
+    const agent = createAgents().find((a) => a.name === name);
+    expect(agent).toBeDefined();
+    return agent!.system!;
+  };
+
+  test('所有 agent 提示词不含臆造工具名 search_code（词边界）', () => {
+    for (const name of ALL_AGENT_NAMES) {
+      expect(sysOf(name)).not.toMatch(/\bsearch_code\b/);
+    }
+  });
+
+  test('只读/写 RULES 注入的工具来源契约句：宿主工具直调、禁止 execute 代理', () => {
+    // 非 owned agent 的契约句只能来自共享 RULES 常量，用注入方断言。
+    for (const name of ['explorer', 'librarian', 'oracle', 'metis', 'momus', 'fixer', 'designer', 'oceanus']) {
+      const sys = sysOf(name);
+      expect(sys).toContain('host-provided');
+      expect(sys).toContain('execute');
+    }
+    expect(READONLY_FILE_OPERATIONS_RULES).toContain('host-provided');
+    expect(WRITABLE_FILE_OPERATIONS_RULES).toContain('host-provided');
+    expect(READONLY_FILE_OPERATIONS_RULES).toMatch(/grep/);
+    expect(WRITABLE_FILE_OPERATIONS_RULES).toMatch(/grep/);
+  });
+
+  test('explorer/fixer/librarian 明确 grep 用于文本搜索且不臆造 search 工具', () => {
+    for (const name of ['explorer', 'fixer', 'librarian']) {
+      const sys = sysOf(name);
+      expect(sys).toMatch(/Text\/regex patterns.*grep|grep.*text|文本.*grep/i);
+    }
   });
 });

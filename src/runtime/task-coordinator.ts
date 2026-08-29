@@ -56,14 +56,17 @@ export function createTaskCoordinator(opts: TaskCoordinatorOptions) {
       return (await this.ready()).registerLaunch(input);
     },
 
-    /** 续用：reusable（completed+已消费）→ generation+1 重新 running。 */
+    /**
+     * 续用：非 running 状态皆可续用（uncertain/cancelled/failed 视为可恢复，completed 需已消费结果）。
+     * LANE_CONFLICT 只挡 active（running）；uncertain 是「宿主未决」而非占用，允许 revive 续原 session。
+     */
     async registerRevive(input: ReviveInput): Promise<TaskRecord> {
       const index = await this.ready();
       const rec = index.get(input.taskID, input.parentSessionID);
       if (!rec) throw new Error('TASK_NOT_FOUND');
-      if (rec.state === 'running' || rec.state === 'uncertain') throw new Error(`LANE_CONFLICT: lane ${rec.laneKey} 已有 active 任务`);
-      if (rec.state !== 'completed') throw new Error(`NOT_REVIVEABLE: state=${rec.state}`);
-      if (rec.resultConsumedAt === undefined) throw new Error('RESULT_NOT_CONSUMED');
+      if (rec.state === 'running') throw new Error(`LANE_CONFLICT: lane ${rec.laneKey} 已有 active 任务`);
+      // completed 有未消费结果时续用会丢结果，必须拦截；其余状态无结果可丢，直接续用。
+      if (rec.state === 'completed' && rec.resultConsumedAt === undefined) throw new Error('RESULT_NOT_CONSUMED');
       return index.registerLaunch({
         taskID: input.taskID,
         parentSessionID: input.parentSessionID,
@@ -106,7 +109,8 @@ export function createTaskCoordinator(opts: TaskCoordinatorOptions) {
         return index.markTerminal(taskID, parentSessionID, 'failed');
       }
       if (outcome === 'interrupted') {
-        return index.markTerminal(taskID, parentSessionID, 'cancelled');
+        // 宿主中断 = 未决可恢复，不降格为主动取消；绝不伪造终态。
+        return index.markUncertain(taskID, parentSessionID);
       }
       return rec;
     },
@@ -127,7 +131,7 @@ export function createTaskCoordinator(opts: TaskCoordinatorOptions) {
             continue;
           }
           if (oc === 'interrupted') {
-            out.push(await index.markTerminal(rec.taskID, parentSessionID, 'cancelled'));
+            out.push(await index.markUncertain(rec.taskID, parentSessionID));
             continue;
           }
           if (oc === ('running' as const)) {
@@ -178,6 +182,11 @@ export function createTaskCoordinator(opts: TaskCoordinatorOptions) {
       return (await this.ready()).markTerminal(taskID, parentSessionID, state, resultSummary);
     },
 
+    /** 宿主中断 → 未决可恢复（不伪造终态）；task_revive 对 interrupted outcome 的收敛入口。 */
+    async markUncertain(taskID: string, parentSessionID: string, note?: string): Promise<TaskRecord> {
+      return (await this.ready()).markUncertain(taskID, parentSessionID, note);
+    },
+
     /** 编排器注入用 Job Board 摘要文本。 */
     formatBoard(parentSessionID: string): string | undefined {
       if (!cache) return undefined;
@@ -186,6 +195,9 @@ export function createTaskCoordinator(opts: TaskCoordinatorOptions) {
       const active = all.filter((t) => t.state === 'running' || t.state === 'uncertain');
       const completedUnconsumed = all.filter((t) => t.state === 'completed' && t.resultConsumedAt === undefined);
       const reusable = all.filter((t) => t.state === 'completed' && t.resultConsumedAt !== undefined);
+      const recoverable = all.filter(
+        (t) => (t.state === 'uncertain' || t.state === 'failed' || t.state === 'cancelled') && t.resultConsumedAt === undefined,
+      );
       const line = (t: TaskRecord) => `- ${t.taskID} / ${t.agent} / lane:${t.laneKey} / ${t.state}${t.resultConsumedAt ? ' (result consumed)' : ''} -- ${t.objective.slice(0, 60)}`;
       return [
         '#### Active / Uncertain',
@@ -196,6 +208,9 @@ export function createTaskCoordinator(opts: TaskCoordinatorOptions) {
         '',
         '#### Reusable Sessions (completed + consumed; revive with sessionID)',
         ...(reusable.length ? reusable.map(line) : ['- none']),
+        '',
+        '#### Recoverable (uncertain/interrupted/cancelled/failed — task_revive 续原 session 或重派)',
+        ...(recoverable.length ? recoverable.map(line) : ['- none']),
       ].join('\n');
     },
   };

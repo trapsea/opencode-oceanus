@@ -32,15 +32,20 @@ humanReview: required
    - **代码任务**：需要修改、生成、删除或测试仓库代码/配置；
    - **非代码任务**：仅文档、解释、研究、问答或外部操作，不改代码；
    - **混合任务**：同时包含代码变更与非代码交付。
-4. **初始化 CBM（代码相关任务）**：对代码任务和混合任务由 Sisyphus 直接尝试一次 \`cbm_index\`，以便后续 Brainstorm 使用准确的项目上下文；这是全工作流唯一初始化点，后续阶段不重复初始化。
-5. **Fail-open**：CBM 调用失败、超时或返回 \`in-progress\` 时不得阻塞 intake；记录状态、错误/超时信息和残余风险，继续使用可用的文件读取、grep 等方式完成报告。不得伪造索引成功。
-6. **交接**：输出结构化 \`intake_report\`，并将其交给 Brainstorm。Brainstorm 必须以该报告为输入继续探索、澄清和设计；非代码任务也必须交接分类与交付要求。
+4. **复杂度分流**：将请求分为三档，写入 \`intake_report.complexity\`：
+   - **Trivial**：单文件、低风险、方案明确，预估 ≤2 小时 → 后续走轻量路径：跳过 metis/momus，brainstorm 直接提方案，一次用户确认后开工，无需人工 APPROVED 门禁。
+   - **Standard**：常规多文件/有依赖 → 完整六阶段流程，momus 门禁照常。
+   - **Architecture**：跨模块、高风险、方案未定型 → 完整流程 + metis 方案分析（brainstorm 条件触发）+ oracle 审查（review 条件触发）。
+5. **初始化 CBM（代码相关任务）**：对代码任务和混合任务由 Sisyphus 直接尝试一次 \`cbm_index\`，以便后续 Brainstorm 使用准确的项目上下文；这是全工作流唯一初始化点，后续阶段不重复初始化。
+6. **Fail-open**：CBM 调用失败、超时或返回 \`in-progress\` 时不得阻塞 intake；记录状态、错误/超时信息和残余风险，继续使用可用的文件读取、grep 等方式完成报告。不得伪造索引成功。
+7. **交接**：输出结构化 \`intake_report\`，并将其交给 Brainstorm。Brainstorm 必须以该报告（含 complexity）为输入继续探索、澄清和设计；非代码任务也必须交接分类与交付要求。
 
 ## intake_report 格式
 
 报告至少包含：
 
 - \`task_type\`: \`code\`、\`non-code\` 或 \`mixed\`；
+- \`complexity\`: \`trivial\`、\`standard\` 或 \`architecture\`（含判定理由与预估工作量）；
 - \`project_context\` 与 \`workspace_context\`；
 - \`minimum_requirements\`、范围/非目标与验收信号；
 - \`open_questions\` 与风险；

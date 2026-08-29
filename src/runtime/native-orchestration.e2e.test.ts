@@ -119,9 +119,15 @@ describe('native-session-orchestration 端到端', () => {
       await runSetup(fake.ctx, { loadConfig: () => ({}) as any, taskLifecycleObserver: (_s, c) => { coordinator ??= c; } });
       const records = await coordinator.reconcile('parent-1');
       expect(records.find((r: any) => r.taskID === 'ses_child_a')?.state).toBe('uncertain');
-      // uncertain 属于 active：不可 revive（不伪造）
-      const denied = json(await tool(fake.tools, 'task_revive').execute({ task_id: 'ses_child_a', prompt: 'x' }, { sessionID: 'parent-1' }));
-      expect(['NOT_REVIVEABLE', 'LANE_CONFLICT']).toContain(denied.error);
+      // uncertain 仍占 lane：同 lane 新任务被 LANE_CONFLICT 阻止（防止并发重复执行）
+      await expect(
+        coordinator.registerLaunch({ taskID: 'ses_child_new', parentSessionID: 'parent-1', agent: 'explorer', laneKey: 'lane-a', objective: 'new lane task' }),
+      ).rejects.toThrow('LANE_CONFLICT');
+      // 但 revive 同一任务（恢复通道）允许：generation+1 重新 running，续原 session
+      const revived = json(await tool(fake.tools, 'task_revive').execute({ task_id: 'ses_child_a', prompt: 'resume after restart' }, { sessionID: 'parent-1' }));
+      expect(revived.ok).toBe(true);
+      expect(revived.generation).toBe(2);
+      expect(fake.calls.prompt.at(-1)).toMatchObject({ sessionID: 'ses_child_a', text: 'resume after restart', delivery: 'queue' });
     }
     // 第三段：宿主随后确认 succeeded → completed（磁盘状态经 TaskIndex 直接核验）
     {

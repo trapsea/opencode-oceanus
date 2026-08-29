@@ -1,12 +1,13 @@
-import { Plugin, Skill } from '@opencode-ai/plugin';
+import { watch } from 'node:fs';
+import * as path from 'node:path';
+import { Plugin } from '@opencode-ai/plugin';
 import { getAgentDefinitions } from './agents';
 import type { AgentOverrideConfig, PluginConfig } from './config/schema';
 import { loadPluginConfig } from './config/loader';
+import { getUserPresetConfigPath, readUserConfig, switchPresetOnDisk, type Preset } from './config/presets';
 import { SISYPHUS_SKILLS } from './skills';
-import { createCommands, runPresetCommand } from './commands';
-import { defaultInstallStatus } from './cbm/commands';
-import { registerCbmMcp, removeCbmMcp } from './cbm/mcp';
-import { getUiStatus, startUi, stopUi } from './cbm/ui';
+import { createCommands } from './commands';
+import { registerCbmMcp } from './cbm/mcp';
 import { registerOceanusTools } from './tools';
 import { registerOceanusHooks } from './hooks';
 import { buildCbmSharedDeps, type CbmWiringInjections } from './cbm/wiring';
@@ -16,6 +17,7 @@ import { installStaged, resolveOpenCodeInstallContext } from './update/cache';
 import { updateManagedEntry, type ConfigEntry } from './update/config-entry';
 import { createTaskCoordinator, type TaskCoordinator } from './runtime/task-coordinator';
 import { resolveWorkspaceRootOrCwd } from './runtime/workspace';
+import { createCleanupRunner, createHostCleanup, runOptionalStages } from './runtime/setup-stages';
 
 function toPermissions(
   permission: NonNullable<AgentOverrideConfig['permission']>,
@@ -53,9 +55,8 @@ interface AgentRefreshState {
 
 /**
  * 应用 agent 定义到宿主（transform + reload）。
- * 抽出以便 setup 与 /preset 的 reloadAgents 复用：切换 preset 时需基于
- * 重新加载的配置重建 agent 定义，而仅 ctx.agent.reload() 会沿用旧配置
- * 构建的定义，导致执行命令的当前窗口不生效。
+ * 应用 agent 定义到宿主（transform + reload），仅在插件 setup 时执行一次。
+ * preset 切换不在此路径上（omo-slim 语义：切换只落盘，新会话/reload 生效）。
  */
 async function applyAgentDefinitions(
   ctx: PluginSetupContext,
@@ -139,7 +140,7 @@ export interface RunSetupOptions {
  *   1. 解析 resolved codebaseMemory，计算共享 cacheRoot，构造共享依赖；
  *   2. `startBackgroundInstall(installOptions)`，**不 await**（后台安装非阻塞）；
  *   3. 注册 agents / skills（保留 agent-supervision/metis/momus 改动）；
- *   4. 注册命令（preset + /cbm），cbm handlers 复用共享 cacheRoot/indexer/MCP/UI；
+ *   4. 注册命令（仅 /preset；cbm 不再暴露用户命令，能力由 MCP 工具供 agent 调度）；
  *   5. **非阻塞**注册 `codebase-memory-mcp`（占位→安装完成启用，不阻塞插件启动）；
  *   6. 注册 CLI fallback 工具，传入共享 runDeps / indexer（env 经 config 推导）；
  *   7. 注册 guidance hooks，复用同一 indexer / runDeps。
@@ -150,8 +151,20 @@ export async function runSetup(
   ctx: PluginSetupContext,
   options: RunSetupOptions = {},
 ): Promise<(() => void) | undefined> {
-  const log = options.cbm?.logger ?? (() => {});
-  const config = (options.loadConfig ?? loadPluginConfig)({ directory: process.cwd() });
+  // 生产缺省输出到 console.warn，让 bridge 登记失败/事件异常等诊断可见
+  // （此前缺省为 noop，hooks 阶段透传后全部静默丢弃，无法定位为何不登记）。
+  // 注入 logger（CBM 接线/测试）优先；消息体已带 [oceanus] 前缀，此处不再重复加。
+  const log: (message: string, meta?: Record<string, unknown>) => void =
+    options.cbm?.logger ?? ((message, meta) => console.warn(message, meta));
+  const report = (stage: string, error: unknown) =>
+    console.warn(`[oceanus] ${stage}`, error);
+  // OpenCode service 可承载多个项目，process.cwd() 是 service 守护进程的工作目录
+  // （通常为 ~），未必是当前会话所在项目。宿主按项目实例化插件，ctx.directory
+  // 即该插件实例绑定的项目目录（omo-slim 参考实现同样以 ctx.directory 为按项目
+  // 配置的键）；preset 必须始终使用它，才能与 TUI location 和项目级配置一致。
+  // 旧宿主确实不提供该字段时再回退到 process.cwd()。
+  const directory = ctx.directory ?? process.cwd();
+  const config = (options.loadConfig ?? loadPluginConfig)({ directory });
   const agentRefreshState: AgentRefreshState = {
     managedNames: new Set(),
     configuredSettings: new Map(),
@@ -168,7 +181,7 @@ export async function runSetup(
     options.taskLifecycleObserver?.('supervisor', taskCoordinator);
   } catch { /* fail-open */ }
 
-  // 1) 共享 CBM 依赖：cacheRoot = 显式 cacheDir ?? 默认；供 provision/MCP/CLI/UI/commands 复用。
+  // 1) 共享 CBM 依赖：cacheRoot = 显式 cacheDir ?? 默认；供 provision/MCP/CLI/UI 复用。
   const shared = buildCbmSharedDeps(config, options.cbm);
 
   // 2) 后台安装：只触发不 await，绝不阻塞插件启动（fail-open）。
@@ -184,122 +197,184 @@ export async function runSetup(
     }
   }
 
-  // 3) 注册 agents（v2 agent.transform）。
-  await applyAgentDefinitions(ctx, config, agentRefreshState);
+  const cleanupRunner = createCleanupRunner(report);
+  let hasCleanup = false;
+  let agentStageFailed = false;
 
-  // 4) 注册 skills（sisyphus 阶段）。
-  await ctx.skill.transform((draft) => {
+  // 3-5) 各注册域是相互独立的可选阶段；失败只报告并继续后续阶段。
+  await runOptionalStages([
+    {
+      name: 'agents',
+      run: async () => {
+        try {
+          await applyAgentDefinitions(ctx, config, agentRefreshState);
+        } catch (error) {
+          agentStageFailed = true;
+          throw error;
+        }
+      },
+    },
+    {
+      name: 'skills',
+      run: async () => {
+        await ctx.skill.transform((draft) => {
     for (const skill of SISYPHUS_SKILLS) {
-      draft.add({
-        id: skill.name as Skill.Info['id'],
-        name: skill.name as Skill.Info['name'],
+      const info = {
+        id: skill.name,
+        name: skill.name,
         description: skill.description,
         slash: skill.slash ?? false,
         autoinvoke: skill.autoinvoke ?? false,
-        location: `opencode-oceanus/${skill.name}/SKILL.md` as Skill.Info['location'],
+        // location 必须是绝对路径（SkillV2.AbsolutePath），否则宿主 schema 校验失败
+        location: `/builtin/opencode-oceanus/${skill.name}/SKILL.md`,
         content: skill.content,
-      });
+      };
+      // 宿主 beta-18230+ 的 skill draft 只暴露 source()/list()；
+      // 旧宿主只有 add(Skill.Info)。两者都尝试，失败即抛错触发阶段报告。
+      if (typeof draft.source === 'function') {
+        draft.source({ type: 'embedded', skill: info });
+      } else {
+        draft.add(info);
+      }
     }
-  });
-  await ctx.skill.reload();
-
-  // 5) 注册命令（preset + /cbm）：cbm handlers 复用共享 cacheRoot/indexer/MCP/UI。
+        });
+        await ctx.skill.reload();
+      },
+    },
+    {
+      name: 'commands',
+      run: async () => {
+  // 注册命令（仅 /preset）：cbm 能力由 MCP 工具供 agent 调度，不再暴露用户命令。
   await ctx.command.transform((draft) => {
-    // 仅透传 sessionID / text / delivery，避免在响应消息中
-    // 重复触发 invocation.prompt.skills 等用户原 prompt 字段。
-    const replyToSession = async (
-      text: string,
-      invocation: { sessionID: string; prompt: { text: string }; delivery: 'steer' | 'queue' },
-    ) => {
-      await ctx.session.prompt({
-        sessionID: invocation.sessionID,
-        text,
-        delivery: invocation.delivery,
-      });
+    // preset synthetic 回执：注入消息但不触发 LLM turn。
+    const syntheticReply = async (sessionID: string, text: string) => {
+      await ctx.session.synthetic?.({ sessionID, text });
+    };
+    // 当前会话立即切换到 preset 中该 agent 的模型（若定义）。
+    const switchSessionModel = async (sessionID: string, presetName: string): Promise<string | null> => {
+      try {
+        const config = (options.loadConfig ?? loadPluginConfig)({ directory });
+        const agentName = (await ctx.session.get?.(sessionID))?.agent;
+        if (!agentName) return null;
+        const override = (config.presets ?? {})[presetName]?.[agentName] as
+          | { model?: string | Array<string | { id: string; variant?: string }>; variant?: string }
+          | undefined;
+        let model: string | undefined;
+        let variant: string | undefined;
+        if (typeof override?.model === 'string') model = override.model;
+        else if (Array.isArray(override?.model) && override.model.length > 0) {
+          const first = override.model[0];
+          model = typeof first === 'string' ? first : first?.id;
+          if (typeof first !== 'string' && typeof first?.variant === 'string') variant = first.variant;
+        }
+        if (!model || !model.includes('/')) return null;
+        if (!variant && typeof override?.variant === 'string') variant = override.variant;
+        const slash = model.indexOf('/');
+        await ctx.session.switchModel?.({
+          sessionID,
+          model: {
+            providerID: model.slice(0, slash),
+            id: model.slice(slash + 1),
+            variant,
+          },
+        });
+        return `当前会话（${agentName}）已立即切换到 ${variant ? `${model}#${variant}` : model}；`;
+      } catch {
+        return null;
+      }
     };
     const commands = createCommands({
       preset: {
-        runPreset: (args) => runPresetCommand(args, { directory: process.cwd() }),
-        reloadAgents: async () => {
-          // /preset 切换后必须基于重新加载的配置重建 agent 定义，再 reload；
-          // 仅 ctx.agent.reload() 会沿用 setup 时旧配置构建的定义，导致当前窗口不生效。
-          const fresh = (options.loadConfig ?? loadPluginConfig)({
-            directory: process.cwd(),
-          });
-          await applyAgentDefinitions(ctx, fresh, agentRefreshState);
+        listPresets: () => {
+          const config = (options.loadConfig ?? loadPluginConfig)({ directory });
+          return { current: config.preset, presets: config.presets ?? {} };
         },
+        switchPreset: (name) => {
+          const config = (options.loadConfig ?? loadPluginConfig)({ directory });
+          return switchPresetOnDisk((config.presets ?? {}) as Record<string, Preset>, name);
+        },
+        switchSessionModel,
+        rebuildAgents: async () => {
+          await applyAgentDefinitions(
+            ctx,
+            (options.loadConfig ?? loadPluginConfig)({ directory }),
+            agentRefreshState,
+          );
+        },
+        reply: syntheticReply,
       },
-      cbm: {
-        getInstallStatus: (cacheRoot) => defaultInstallStatus(cacheRoot),
-        startBackgroundInstall: (opts) => shared.startBackground(opts),
-        ensureInstalled: (opts) => shared.ensureInstalled(opts),
-        repair: (opts) => shared.repair(opts),
-        registerMcp: (opts) => registerCbmMcp(ctx, config, {
-          ...opts,
-          cacheRoot: shared.cacheRoot,
-          ensureInstalled: shared.ensureInstalled,
-        }),
-        removeMcp: () => removeCbmMcp(ctx),
-        indexer: shared.indexer,
-        startUi: (opts) =>
-          startUi({ ...opts, cacheRoot: shared.cacheRoot, ensureInstalled: shared.uiEnsureInstalled }),
-        stopUi: (opts) => stopUi({ ...opts, cacheRoot: shared.cacheRoot }),
-        getUiStatus: (opts) => getUiStatus({ ...opts, cacheRoot: shared.cacheRoot }),
-        getCacheRoot: () => shared.cacheRoot,
-        getWorkspaceRoot: () => process.cwd(),
-        reply: replyToSession,
-      },
-    });
-    for (const command of commands) {
+    });    for (const command of commands) {
       draft.add(command);
     }
   });
-  await ctx.command.reload();
+        await ctx.command.reload();
+      },
+    },
 
-  // 6) 非阻塞注册 codebase-memory-mcp（占位→安装完成启用，不阻塞插件启动）。
-  try {
-    registerCbmMcp(ctx, config, {
+    {
+      name: 'mcp',
+      run: () => {
+        // MCP 明确 detached：Promise pending 不得阻塞 setup，rejection 统一报告 async。
+        const pending = registerCbmMcp(ctx, config, {
       cacheRoot: shared.cacheRoot,
       logger: log,
-      ensureInstalled: shared.ensureInstalled,
-    }).catch((e) =>
-      log('[oceanus] CBM MCP 注册失败(fail-open)', { error: messageOf(e) }),
-    );
-  } catch (e) {
-    log('[oceanus] CBM MCP 注册同步失败(fail-open)', { error: messageOf(e) });
-  }
+      ensureInstalled: async (opts) => {
+        try {
+          const installation = shared.ensureInstalled(opts);
+          // 立即挂载 rejection handler，避免 detached 安装 Promise 在 setup 返回窗口泄漏。
+          installation.catch((error) => {
+            report('mcp.async', error);
+            log('[oceanus] mcp.async', { error: messageOf(error) });
+          });
+          return await installation;
+        } catch (error) {
+          throw error;
+        }
+      },
+        });
+        void Promise.resolve(pending).catch((e) => {
+          report('mcp.async', e);
+          log('[oceanus] mcp.async', { error: messageOf(e) });
+        });
+      },
+    },
 
-  // 7) 注册 CLI fallback 工具：CBM 工具复用共享 runDeps / indexer
+    {
+      name: 'tools',
+      run: async () => {
+        // 注册 CLI fallback 工具：CBM 工具复用共享 runDeps / indexer
   //   （env=CBM_CACHE_DIR 由 tools 层经 config.codebaseMemory.cacheDir 推导）。
-  try {
-    await registerOceanusTools(ctx, config, {
+        await registerOceanusTools(ctx, config, {
       cbmRunDeps: shared.runDeps,
       cbmIndexer: shared.indexer,
       cbmCacheRoot: shared.cacheRoot,
       coordinator: taskCoordinator,
       taskLifecycleObserver: taskCoordinator ? (c) => options.taskLifecycleObserver?.('tools', c) : undefined,
-    });
-  } catch (e) {
-    log('[oceanus] 注册工具失败(fail-open)', { error: messageOf(e) });
-  }
+        });
+      },
+    },
 
-  // 8) 注册 hooks：cbm-guidance 复用同一 indexer / runDeps（fail-open）。
-  try {
-    await registerOceanusHooks(ctx, config, {
+    {
+      name: 'hooks',
+      run: async () => {
+        // 注册 hooks：cbm-guidance 复用同一 indexer / runDeps。
+        await registerOceanusHooks(ctx, config, {
       runDeps: shared.runDeps,
       indexer: shared.indexer,
       coordinator: taskCoordinator,
       // bridge 登记失败/事件异常必须可见（此前 logger 缺省为 noop，诊断被静默丢弃）。
-      logger: (message, meta) => log(`[oceanus] ${message}`, meta),
+      // hooks 层消息已自带 [oceanus] 前缀，此处透传避免 `[oceanus] [oceanus]` 双重前缀。
+      logger: (message, meta) => log(message, meta),
       taskLifecycleObserver: taskCoordinator ? (c) => options.taskLifecycleObserver?.('hooks', c) : undefined,
-    });
-  } catch (e) {
-    log('[oceanus] 注册 hooks 失败(fail-open)', { error: messageOf(e) });
-  }
+        });
+      },
+    },
 
-  // 9) 插件自身自动升级：基础注册完成后再订阅，失败不阻塞 setup。
-  const updateCleanup = (ctx as unknown as { event?: unknown }).event
-    ? registerAutoUpdate(ctx as unknown as any, config, {
+    {
+      name: 'auto-update',
+      run: () => {
+        if (!(ctx as unknown as { event?: unknown }).event) return;
+        const updateCleanup = registerAutoUpdate(ctx as unknown as any, config, {
     logger: (event) => {
       const { event: kind, error, ...meta } = event;
       const message = error === undefined ? '' : ` error=${String(error)}`;
@@ -320,10 +395,99 @@ export async function runSetup(
       });
       if (entry.managed) updateManagedEntry(entry.file, version);
     },
-      })
-    : undefined;
+        });
+        cleanupRunner.add('auto-update.cleanup', updateCleanup);
+        hasCleanup = true;
+      },
+    },
+  ], report);
 
-  return updateCleanup;
+  if (agentRefreshState.registration?.dispose) {
+    cleanupRunner.add('agents.dispose', async () => {
+      await agentRefreshState.registration?.dispose?.();
+    });
+    hasCleanup = true;
+  }
+
+  // preset 指纹监听：/preset 切换只写用户级配置（TUI 侧负责当前会话
+  // switchModel 立即生效）；这里在 server 侧检测 preset 变化并重建 agent
+  // 定义，使**后续新派生的 subagent** 立即使用新 preset 的模型，无需等待
+  // 插件 reload。运行中的 subagent 不受影响（换模型可能截断其上下文）。
+  if (!agentStageFailed && agentRefreshState.registration) {
+    const readPresetFingerprint = (): string | undefined => {
+      try {
+        const preset = readUserConfig(getUserPresetConfigPath()).preset;
+        return typeof preset === 'string' ? preset : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    let presetBaseline = readPresetFingerprint();
+    let applying = false;
+    const applyFreshDefinitions = () => {
+      if (applying) return;
+      applying = true;
+      // 异步重建；失败 fail-open（指纹不变不会重试，可再次 /preset 触发）。
+      void applyAgentDefinitions(
+        ctx,
+        (options.loadConfig ?? loadPluginConfig)({ directory }),
+        agentRefreshState,
+      )
+        .catch((error) => report('preset-watcher.apply', error))
+        .finally(() => {
+          applying = false;
+        });
+    };
+    const comparePreset = () => {
+      const next = readPresetFingerprint();
+      if (next === undefined || next === presetBaseline) return;
+      presetBaseline = next;
+      applyFreshDefinitions();
+    };
+    // fs.watch 事件驱动（去抖 100ms，监听目录以规避原子写替换 inode 后
+    // 失联的问题），2s 轮询兜底（watch 不可用的 FS 上仍能收敛）。
+    let presetDebounce: ReturnType<typeof setTimeout> | undefined;
+    let presetFileWatcher: ReturnType<typeof watch> | undefined;
+    try {
+      const configFilePath = getUserPresetConfigPath();
+      const configDir = path.dirname(configFilePath);
+      const configBase = path.basename(configFilePath);
+      presetFileWatcher = watch(configDir, (_event, changed) => {
+        if (!changed || changed === configBase || changed.startsWith(`.${configBase}.`)) {
+          if (presetDebounce) clearTimeout(presetDebounce);
+          presetDebounce = setTimeout(() => {
+            presetDebounce = undefined;
+            comparePreset();
+          }, 100);
+        }
+      });
+      presetFileWatcher.on('error', () => {
+        try {
+          presetFileWatcher?.close();
+        } catch {
+          /* noop */
+        }
+        presetFileWatcher = undefined;
+      });
+    } catch {
+      presetFileWatcher = undefined;
+    }
+    const presetWatcher = setInterval(comparePreset, 2000);
+    // 不改变 runSetup 的返回契约（hasCleanup 不因此置 true）；
+    // unref 避免定时器阻塞进程退出。
+    presetWatcher.unref?.();
+    cleanupRunner.add('preset-watcher.dispose', async () => {
+      clearInterval(presetWatcher);
+      if (presetDebounce) clearTimeout(presetDebounce);
+      try {
+        presetFileWatcher?.close();
+      } catch {
+        /* noop */
+      }
+    });
+  }
+
+  return hasCleanup || agentStageFailed ? createHostCleanup(cleanupRunner) : undefined;
 }
 
 /**

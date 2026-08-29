@@ -4,7 +4,8 @@
  * 背景（2026-08-27 复盘）：长会话压缩后编排模型曾出现两类漂移——
  * ① 角色冒名：prompt 以「你是 Momus…」开头但 input.agent="general"，
  *    用通用 agent 冒充专家伪造质量门禁（13 连发）；
- * ② 同目标重复派发：既有终态任务结果未被读取/消费时按相同目标再派发新任务。
+ * ② 同目标重复派发：既有「completed 未消费」任务结果未被读取/消费时按相同目标再派发新任务；
+ *    failed/cancelled/uncertain 无未消费结果，不拦截（可重派/revive 恢复）。
  *
  * 设计对齐 oh-my-opencode-slim `task-session-manager/tool-execute-hooks` 范式：
  * - 在 tool.execute.before 阶段直接 throw，错误文本作为 tool failure 回流给
@@ -77,11 +78,11 @@ export function deriveObjectiveKey(
   return normalizeObjectiveText(parts.join('\n')).slice(0, 400);
 }
 
-const TERMINAL_STATES: ReadonlySet<string> = new Set([
-  'completed',
-  'failed',
-  'cancelled',
-]);
+/**
+ * 规则②只拦「结果还没读就重派」：只有 completed（未消费结果）有可读结果。
+ * failed/cancelled/uncertain 无结果可丢，阻断它们重派是死胡同——放行以便重派/revive 恢复。
+ */
+const TERMINAL_STATES: ReadonlySet<string> = new Set(['completed']);
 
 /**
  * duplicate-objective 规则所需的 coordinator 只读视图（鸭子类型最小接口）。
@@ -146,7 +147,8 @@ export function inspectDispatch(
     }
   }
 
-  // ── 规则②：同目标终态未消费的重复派发（slim #1070 同类）────────────
+  // ── 规则②：同目标「completed 未消费」的重复派发（slim #1070 同类）────────
+  //    仅 completed 且结果未消费才拦截；failed/cancelled/uncertain 无结果可丢 → 放行重派。
   if (coordinator && typeof event.sessionID === 'string') {
     // 显式 taskId/task_id/sessionID 是续用通道：不属于“新派发”，放行。
     const explicitId = pickString(input, ['taskId', 'task_id', 'sessionID']);

@@ -43,6 +43,15 @@ describe('TaskCoordinator 契约', () => {
     expect(r.terminal).toBeUndefined();
   });
 
+  test('reconcile：宿主 interrupted → uncertain（未决可恢复，非 cancelled）', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'coord-'));
+    const c = createTaskCoordinator({ workspaceRoot: dir, session: fakeSession({ outcomes: { ses_child_1: 'interrupted' } }) });
+    await c.registerLaunch(launch);
+    const [r] = await c.reconcile('ses_parent');
+    expect(r.state).toBe('uncertain');
+    expect(r.terminal).toBeUndefined();
+  });
+
   test('formatBoard：active/reusable 分区，reusable 仅限 completed 且结果已消费', async () => {
     dir = await mkdtemp(join(tmpdir(), 'coord-'));
     const c = createTaskCoordinator({ workspaceRoot: dir, session: fakeSession({ outcomes: { ses_child_1: 'succeeded' } }) });
@@ -54,6 +63,17 @@ describe('TaskCoordinator 契约', () => {
     const after = c.formatBoard('ses_parent');
     expect(after).toContain('Reusable');
     expect(after).toContain('search-api');
+  });
+
+  test('formatBoard：uncertain/failed/cancelled 出现在 Recoverable 分区（可 revive/重派）', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'coord-'));
+    const c = createTaskCoordinator({ workspaceRoot: dir, session: fakeSession({ outcomes: { ses_child_1: 'interrupted' } }) });
+    await c.registerLaunch(launch);
+    await c.reconcile('ses_parent'); // interrupted → uncertain
+    const board = c.formatBoard('ses_parent');
+    expect(board).toContain('Recoverable');
+    expect(board).toContain('search-api');
+    expect(board).toContain('uncertain');
   });
 
   test('resolveReusable：completed+已消费 可续用；uncertain 不可续用', async () => {
@@ -79,6 +99,43 @@ describe('TaskCoordinator 契约', () => {
     expect(revived.state).toBe('running');
     // active 期间同 lane 再 revive → LANE_CONFLICT
     expect(c.registerRevive({ taskID: 'ses_child_1', parentSessionID: 'ses_parent', brief: 'dup' })).rejects.toThrow('LANE_CONFLICT');
+  });
+
+  test('revive：uncertain（宿主中断）可续用 generation+1；同 lane active 期仍阻止', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'coord-'));
+    const c = createTaskCoordinator({ workspaceRoot: dir, session: fakeSession({ outcomes: { ses_child_1: 'interrupted' } }) });
+    await c.registerLaunch(launch);
+    await c.reconcile('ses_parent'); // interrupted → uncertain
+    const revived = await c.registerRevive({ taskID: 'ses_child_1', parentSessionID: 'ses_parent', brief: 'resume after interrupt' });
+    expect(revived.generation).toBe(2);
+    expect(revived.state).toBe('running');
+    expect(c.registerRevive({ taskID: 'ses_child_1', parentSessionID: 'ses_parent', brief: 'dup' })).rejects.toThrow('LANE_CONFLICT');
+  });
+
+  test('revive：cancelled / failed 记录同样可续用（中断/失败后可恢复重试）', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'coord-'));
+    const c = createTaskCoordinator({ workspaceRoot: dir, session: fakeSession({}) });
+    await c.registerLaunch(launch);
+    // 手工置为 cancelled / failed（模拟宿主 outcome 收敛后）
+    await c.markTerminal('ses_child_1', 'ses_parent', 'cancelled');
+    const revivedCancelled = await c.registerRevive({ taskID: 'ses_child_1', parentSessionID: 'ses_parent', brief: 'retry' });
+    expect(revivedCancelled.state).toBe('running');
+    expect(revivedCancelled.generation).toBe(2);
+    expect(c.registerRevive({ taskID: 'ses_child_1', parentSessionID: 'ses_parent', brief: 'dup' })).rejects.toThrow('LANE_CONFLICT');
+    // failed：await 后同任务现在 running，需先重新 markTerminal failed 再 revive
+    await c.markTerminal('ses_child_1', 'ses_parent', 'failed');
+    const revivedFailed = await c.registerRevive({ taskID: 'ses_child_1', parentSessionID: 'ses_parent', brief: 'retry-failed' });
+    expect(revivedFailed.state).toBe('running');
+  });
+
+  test('revive：completed 但结果未消费 → 拒绝（RESULT_NOT_CONSUMED）', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'coord-'));
+    const c = createTaskCoordinator({ workspaceRoot: dir, session: fakeSession({ outcomes: { ses_child_1: 'succeeded' } }) });
+    await c.registerLaunch(launch);
+    await c.reconcile('ses_parent'); // completed, 未消费
+    await expect(
+      c.registerRevive({ taskID: 'ses_child_1', parentSessionID: 'ses_parent', brief: 'premature' }),
+    ).rejects.toThrow('RESULT_NOT_CONSUMED');
   });
 
   test('duplicate objective（dispatch-guard 输入）：同 objective 终态未消费 → 重复；已消费 → 放行', async () => {
@@ -121,6 +178,15 @@ describe('TaskCoordinator 契约', () => {
     const rec = await c.ensureRegistered('ses_child_2', 'ses_parent');
     expect(rec?.state).toBe('running');
     expect(rec?.terminal).toBeUndefined();
+  });
+
+  test('ensureRegistered：宿主 interrupted → 补偿登记为 uncertain（未决可恢复，非 cancelled）', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'coord-'));
+    const c = createTaskCoordinator({ workspaceRoot: dir, session: fakeSession({ outcomes: { ses_child_8: 'interrupted' } }) });
+    const rec = await c.ensureRegistered('ses_child_8', 'ses_parent');
+    expect(rec?.state).toBe('uncertain');
+    expect(rec?.terminal).toBeUndefined();
+    expect(c.listTasks('ses_parent').find((t) => t.taskID === 'ses_child_8')?.state).toBe('uncertain');
   });
 
   test('ensureRegistered：跨父访问（parentID 不匹配）与 parentID 缺失 → 拒绝登记', async () => {

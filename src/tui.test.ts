@@ -1,13 +1,16 @@
-import { describe, expect, test } from 'bun:test';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, test } from 'bun:test';
 import {
   createPresetWatcher,
   getRelatedRunningSessions,
   getRows,
-  normalizeModel,
+  readActivePresetName,
+  readConfigAgentModels,
   recordRecall,
   resolveDisplayModel,
   setup,
-  shortModelName,
   sortAgentRows,
   bareModelName,
 } from './tui';
@@ -43,26 +46,6 @@ function makeContext(options: {
 }
 
 describe('sidebar 模型展示', () => {
-  test('缺省模型跟随会话', () => {
-    expect(normalizeModel(undefined)).toBe('跟随会话');
-  });
-
-  test('保留 provider、模型名和 variant', () => {
-    expect(normalizeModel({ providerID: 'openai', id: 'openai/gpt-5', variant: 'high' })).toBe(
-      'openai/gpt-5#high',
-    );
-  });
-
-  test('模型 id 含路径时只显示最后一段', () => {
-    expect(normalizeModel({ providerID: 'github', id: 'org/model/name' })).toBe('github/name');
-  });
-
-  test('常见 provider 使用简短名称', () => {
-    expect(shortModelName('anthropic/claude-sonnet')).toBe('claude-sonnet');
-    expect(shortModelName('github-copilot/gpt-4o')).toBe('copilot/gpt-4o');
-    expect(shortModelName('custom/model')).toBe('custom/model');
-  });
-
   test('bareModelName 不显示 provider（任意 provider 均剥离）', () => {
     expect(bareModelName(undefined)).toBe('跟随会话');
     expect(bareModelName({ providerID: 'openai', id: 'openai/gpt-5', variant: 'high' })).toBe(
@@ -183,17 +166,17 @@ describe('resolveDisplayModel 模型展示优先级', () => {
   const configModel = { id: 'anthropic/claude-sonnet', providerID: 'anthropic', variant: 'high' };
   const recallModel = { id: 'openai/gpt-5', providerID: 'openai', variant: 'low' };
 
-  test('配置 model 存在：display=配置、recalled=false，永不覆盖', () => {
+  test('recall（live 模型）存在：display=recall、recalled=true，live 优先于配置', () => {
     expect(resolveDisplayModel(configModel, recallModel)).toEqual({
-      display: 'claude-sonnet#high',
-      recalled: false,
+      display: 'gpt-5#low',
+      recalled: true,
     });
   });
 
-  test('配置 undefined + recall 存在：display=recall、recalled=true', () => {
-    expect(resolveDisplayModel(undefined, recallModel)).toEqual({
-      display: 'gpt-5#low',
-      recalled: true,
+  test('recall 无 + 配置 model 存在：display=配置、recalled=false', () => {
+    expect(resolveDisplayModel(configModel, undefined)).toEqual({
+      display: 'claude-sonnet#high',
+      recalled: false,
     });
   });
 
@@ -204,10 +187,10 @@ describe('resolveDisplayModel 模型展示优先级', () => {
     });
   });
 
-  test('配置 model 存在时，recall 不影响 display', () => {
-    expect(resolveDisplayModel(configModel, undefined)).toEqual({
-      display: 'claude-sonnet#high',
-      recalled: false,
+  test('仅 recall 存在：display=recall、recalled=true', () => {
+    expect(resolveDisplayModel(undefined, recallModel)).toEqual({
+      display: 'gpt-5#low',
+      recalled: true,
     });
   });
 });
@@ -344,6 +327,44 @@ describe('sidebar preset 指纹轮询', () => {
   });
 });
 
+describe('readActivePresetName 用户级 preset 读取', () => {
+  const temporaryDirectories: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      temporaryDirectories.splice(0).map((directory) =>
+        rm(directory, { recursive: true, force: true }),
+      ),
+    );
+  });
+
+  async function temporaryDirectory(): Promise<string> {
+    const directory = await mkdtemp(join(tmpdir(), 'oceanus-tui-preset-'));
+    temporaryDirectories.push(directory);
+    return directory;
+  }
+
+  test('用户级 opencode-oceanus.jsonc 顶层 preset → 返回该值', async () => {
+    const directory = await temporaryDirectory();
+    await writeFile(
+      join(directory, 'opencode-oceanus.jsonc'),
+      JSON.stringify(
+        { preset: 'openai', presets: { openai: { agents: {} } } },
+        null,
+        2,
+      ),
+    );
+
+    expect(readActivePresetName({ configDir: directory })).toBe('openai');
+  });
+
+  test('空目录（无用户级配置）→ undefined', async () => {
+    const directory = await temporaryDirectory();
+
+    expect(readActivePresetName({ configDir: directory })).toBeUndefined();
+  });
+});
+
 describe('sidebar setup 非阻塞', () => {
   test('永不 resolve 的 agent.sync 不阻塞 setup，slot 仍即时挂载', async () => {
     const neverResolve = new Promise<never>(() => {});
@@ -368,5 +389,57 @@ describe('sidebar setup 非阻塞', () => {
 
     expect(mounted).toBe(true);
     expect(result).toBeDefined();
+  });
+});
+
+describe('readConfigAgentModels 配置直读模型解析', () => {
+  const dirs: string[] = [];
+  afterEach(async () => {
+    await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+  });
+
+  async function withUserConfig(configSource: string): Promise<string> {
+    process.env.XDG_CONFIG_HOME = await mkdtemp(join(tmpdir(), 'oceanus-cfg-')).then((d) => {
+      dirs.push(d);
+      return d;
+    });
+    const dir = await mkdtemp(join(tmpdir(), 'oceanus-dir-'));
+    dirs.push(dir);
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(process.env.XDG_CONFIG_HOME, 'opencode'), { recursive: true });
+    await writeFile(join(process.env.XDG_CONFIG_HOME, 'opencode', 'opencode-oceanus.jsonc'), configSource);
+    return dir;
+  }
+
+  test('解析 preset 合并后的各 agent 模型（字符串/数组/variant/别名）', async () => {
+    const directory = await withUserConfig(
+      JSON.stringify({
+        preset: 'p',
+        presets: {
+          p: {
+            oceanus: { model: 'prov/main-model' },
+            oracle: { model: [{ id: 'prov/first', variant: 'high' }, 'prov/second'] },
+            explore: { model: 'prov/aliased' },
+            fixer: { model: 'no-slash' },
+            librarian: {},
+          },
+        },
+      }),
+    );
+
+    const models = readConfigAgentModels(directory);
+    expect(models.oceanus).toEqual({ id: 'prov/main-model', providerID: 'prov', variant: undefined });
+    expect(models.oracle).toEqual({ id: 'prov/first', providerID: 'prov', variant: 'high' });
+    // legacy 别名 explore → explorer
+    expect(models.explorer).toEqual({ id: 'prov/aliased', providerID: 'prov', variant: undefined });
+    expect(models.fixer).toBeUndefined();
+    expect(models.librarian).toBeUndefined();
+    delete process.env.XDG_CONFIG_HOME;
+  });
+
+  test('无配置时返回空表', async () => {
+    const directory = await withUserConfig('{}');
+    expect(readConfigAgentModels(directory)).toEqual({});
+    delete process.env.XDG_CONFIG_HOME;
   });
 });

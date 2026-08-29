@@ -15,12 +15,19 @@ describe('resolveTaskHostStatus', () => {
     const st = await resolveTaskHostStatus(session, { childSessionId: 'child-1', status: 'completed' });
     expect(st).toEqual({ status: 'running', source: 'host', verified: true });
   });
-  test('outcome 终态映射 completed/failed/cancelled', async () => {
+  test('outcome 终态映射 completed/failed；interrupted → uncertain（未决可恢复）', async () => {
     const session = makeSession({ outcomes: { a: 'succeeded', b: 'failed', c: 'interrupted' } });
     expect((await resolveTaskHostStatus(session, { childSessionId: 'a', status: 'running' })).status).toBe('completed');
     expect((await resolveTaskHostStatus(session, { childSessionId: 'b', status: 'running' })).status).toBe('failed');
-    expect((await resolveTaskHostStatus(session, { childSessionId: 'c', status: 'running' })).status).toBe('cancelled');
+    expect((await resolveTaskHostStatus(session, { childSessionId: 'c', status: 'running' })).status).toBe('uncertain');
   });
+  test('宿主 interrupted + 本地显式 cancelled（用户 task_cancel）→ 保持 cancelled', async () => {
+    const session = makeSession({ outcomes: { c: 'interrupted' } });
+    const st = await resolveTaskHostStatus(session, { childSessionId: 'c', status: 'cancelled' });
+    expect(st.status).toBe('cancelled');
+    expect(st.verified).toBe(true);
+  });
+
   test('宿主不可确认 → 回退本地状态，verified:false，不伪造终态', async () => {
     const session = makeSession({});
     const st = await resolveTaskHostStatus(session, { childSessionId: 'x', status: 'unknown' });

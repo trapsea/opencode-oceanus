@@ -48,6 +48,8 @@ function createIndexerStub(
 }
 
 interface FakeSetupCtxOptions {
+  /** 插件实例关联的项目目录。 */
+  directory?: string;
   /** ctx.mcp.transform 抛错（模拟宿主 MCP 不可用）。 */
   mcpThrows?: boolean;
   /** 记录各域动作执行顺序。 */
@@ -70,6 +72,7 @@ function createFakeSetupCtx(opts: FakeSetupCtxOptions = {}): {
   const commands: CommandDefinition[] = [];
 
   const ctx: PluginSetupContext = {
+    directory: opts.directory,
     agent: {
       transform: async (cb) => {
         order.push('agents');
@@ -210,6 +213,21 @@ describe('CBM-13 buildCbmSharedDeps：共享缓存根/安装/索引器', () => {
 // ─────────────────────────── runSetup：顺序 / 非阻塞 ───────────────────────────
 
 describe('CBM-13 runSetup：后台安装不阻塞与顺序', () => {
+  test('配置加载使用插件实例目录，而非 service process.cwd()', async () => {
+    const directory = '/workspace/preset-project';
+    const loadedDirectories: string[] = [];
+    const fake = createFakeSetupCtx({ directory });
+
+    await runSetup(fake.ctx, {
+      loadConfig: ({ directory }) => {
+        loadedDirectories.push(directory);
+        return { codebaseMemory: { enabled: false } };
+      },
+    });
+
+    expect(loadedDirectories).toEqual([directory]);
+  });
+
   test('setup 启动后台安装且不 await；后台先于 tools/hooks', async () => {
     const order: string[] = [];
     const bgRoots: string[] = [];
@@ -281,9 +299,9 @@ describe('CBM-13 runSetup：失败降级（fail-open）', () => {
       }),
     ).resolves.toBeUndefined();
 
-    // 非 CBM 接线完整：preset + cbm 命令、工具注册。
+    // 非 CBM 接线完整：preset 命令（cbm 命令已移除）、工具注册。
     expect(findCommand(fake.commands, 'preset')).toBeDefined();
-    expect(findCommand(fake.commands, 'cbm')).toBeDefined();
+    expect(fake.commands.some((c) => c.name === 'cbm')).toBe(false);
     expect(fake.addedTools.length).toBeGreaterThan(0);
     expect(findTool(fake.addedTools, 'ast_grep_search')).toBeDefined();
   });
@@ -311,7 +329,7 @@ describe('CBM-13 runSetup：共享 indexer 被 tools/hooks/commands 复用', () 
     expect(ensureIndexedCalls).toContain('/ws');
   });
 
-  test('commands（/cbm index）与 hooks（cbm-guidance.before）复用同一 indexer', async () => {
+  test('hooks（cbm-guidance.before）复用同一 indexer（cbm 命令已移除）', async () => {
     const ensureIndexedCalls: Array<string | undefined> = [];
     const fake = createFakeSetupCtx();
     await runSetup(fake.ctx, {
@@ -324,14 +342,12 @@ describe('CBM-13 runSetup：共享 indexer 被 tools/hooks/commands 复用', () 
       },
     });
 
-    // /cbm index 通过 handlers.indexer（共享 stub）触发。
-    const cbm = findCommand(fake.commands, 'cbm');
-    await cbm.execute({ sessionID: 's1', prompt: { text: 'index' }, delivery: 'steer' });
-    expect(ensureIndexedCalls.length).toBe(1);
+    // cbm 用户命令已移除，索引能力改由工具/钩子承担。
+    expect(fake.commands.some((c) => c.name === 'cbm')).toBe(false);
 
     // cbm-guidance.before（最后一个 before hook）复用同一 indexer。
     const guidanceBefore = fake.beforeHooks[fake.beforeHooks.length - 1];
     await guidanceBefore!({ tool: 'cbm_search_graph', sessionID: 's1' });
-    expect(ensureIndexedCalls.length).toBe(2);
+    expect(ensureIndexedCalls.length).toBe(1);
   });
 });

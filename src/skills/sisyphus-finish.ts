@@ -21,7 +21,7 @@ humanReview: none
 
 Sisyphus 主 Agent 持有最终交付上下文；不委派任何 agent。
 
-只读取固定路径 Review v1 报告、Ledger 与 workspaceRef，调用 \`decideFinish\` 判定是否完成，再汇总结果与剩余不确定性。Finish 不测试、不构建、不调用 CBM、不委派 subagent，也不修改文件。
+SDD 开启时读取固定路径 Review v1 报告、Ledger 与 workspaceRef；SDD 关闭时使用会话内的 review 结论与任务状态。调用 \`decideFinish\` 判定是否完成，再汇总结果与剩余不确定性。Finish 不测试、不构建、不调用 CBM、不委派 subagent，也不修改文件。
 `,
 };
 

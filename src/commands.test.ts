@@ -2,24 +2,23 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
-import { createPresetCommand, runPresetCommand } from './commands';
-import { loadPluginConfig } from './config/loader';
+import {
+  buildAgentUpdates,
+  buildPresetSummary,
+  deletePreset,
+  describeOverride,
+  removeAgentFromPreset,
+  setAgentOverride,
+  switchPresetOnDisk,
+  writePreset,
+  type Preset,
+} from './config/presets';
 
 /**
- * 本地最小 command 类型契约：仅镜像 OpenCode v2 `CommandDefinition` / `CommandInvocation`
- * 的运行时形状，避免在测试里依赖 plugin 包的内部路径导出。
- * 生产代码应返回真正的 `CommandDefinition`（来自 `@opencode-ai/plugin`），但其运行时
- * 结构必须与此处一致方可被 opencode 运行时接受。
+ * preset 落盘操作测试（omo-slim switchPresetOnDisk 语义）：
+ * 切换/增删只写用户级配置文件，不触碰 agent registry；
+ * 新 preset 由下一次 loadPluginConfig 读盘时生效。
  */
-interface PresetCommandDefinition {
-  name: string;
-  description?: string;
-  execute: (invocation: {
-    sessionID: string;
-    prompt: { text: string };
-    delivery: 'steer' | 'queue';
-  }) => Promise<void>;
-}
 
 const temporaryDirectories: string[] = [];
 
@@ -32,238 +31,129 @@ afterEach(async () => {
 });
 
 async function temporaryDirectory(): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), 'oceanus-commands-'));
+  const directory = await mkdtemp(join(tmpdir(), 'oceanus-presets-'));
   temporaryDirectories.push(directory);
   return directory;
 }
 
-describe('原生 preset command', () => {
-  test('无参数列出当前 preset 和可用 preset', async () => {
+async function writeUserConfig(configDir: string, source: string): Promise<string> {
+  const configPath = join(configDir, 'opencode-oceanus.jsonc');
+  await writeFile(configPath, source);
+  return configPath;
+}
+
+describe('switchPresetOnDisk（omo-slim 落盘语义）', () => {
+  test('切换到已存在 preset：持久化名称并返回变更摘要', async () => {
     const configDir = await temporaryDirectory();
-    await writeFile(
-      join(configDir, 'opencode-oceanus.jsonc'),
-      '{ "preset": "fast", "presets": { "safe": {}, "fast": {} } }\n',
-    );
-
-    await expect(runPresetCommand([], { configDir })).resolves.toEqual({
-      current: 'fast',
-      presets: ['fast', 'safe'],
-    });
-  });
-
-  test('带参数时切换到已存在的 preset，并持久化选择', async () => {
-    const configDir = await temporaryDirectory();
-    const configPath = join(configDir, 'opencode-oceanus.jsonc');
-    await writeFile(configPath, '{ "preset": "fast", "presets": { "safe": {} } }\n');
-
-    await expect(runPresetCommand(['safe'], { configDir })).resolves.toMatchObject({
-      preset: 'safe',
-    });
-    expect(JSON.parse(await readFile(configPath, 'utf8'))).toMatchObject({
-      preset: 'safe',
-      presets: { safe: {} },
-    });
-  });
-
-  test('指定当前目录时切换项目级 preset，并使最终配置采用该选择', async () => {
-    const configDir = await temporaryDirectory();
-    const directory = await temporaryDirectory();
-    await writeFile(
-      join(configDir, 'opencode-oceanus.jsonc'),
+    const configPath = await writeUserConfig(
+      configDir,
       '{ "preset": "fast", "presets": { "safe": { "explorer": { "model": "safe/model" } }, "fast": {} } }\n',
     );
-    await writeFile(
-      join(directory, '.opencode', 'opencode-oceanus.jsonc'),
-      '{ "preset": "fast", "presets": { "safe": { "explorer": { "model": "safe/model" } }, "fast": {} }, "agents": { "oceanus": { "temperature": 0.2 } } }\n',
-    ).catch(async () => {
-      await mkdir(join(directory, '.opencode'), { recursive: true });
-      await writeFile(
-        join(directory, '.opencode', 'opencode-oceanus.jsonc'),
-        '{ "preset": "fast", "presets": { "safe": { "explorer": { "model": "safe/model" } }, "fast": {} }, "agents": { "oceanus": { "temperature": 0.2 } } }\n',
-      );
+
+    const result = switchPresetOnDisk(
+      { safe: { explorer: { model: 'safe/model' } }, fast: {} },
+      'safe',
+      { configDir },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.summary).toContain('explorer → safe/model');
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toMatchObject({
+      preset: 'safe',
+      presets: { safe: { explorer: { model: 'safe/model' } }, fast: {} },
     });
-
-    await runPresetCommand(['safe'], { configDir, directory });
-
-    expect(loadPluginConfig({ directory }).preset).toBe('safe');
-    expect(loadPluginConfig({ directory }).agents?.explorer?.model).toBe('safe/model');
   });
 
-  test('未知 preset 被拒绝且不写入配置', async () => {
+  test('未知 preset：失败并给出可用列表，不写配置', async () => {
     const configDir = await temporaryDirectory();
-    const configPath = join(configDir, 'opencode-oceanus.jsonc');
     const original = '{ "preset": "fast", "presets": { "fast": {} } }\n';
-    await writeFile(configPath, original);
+    const configPath = await writeUserConfig(configDir, original);
 
-    await expect(runPresetCommand(['missing'], { configDir })).rejects.toThrow(/unknown|未知/i);
+    const result = switchPresetOnDisk({ fast: {} }, 'missing', { configDir });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('fast');
     expect(await readFile(configPath, 'utf8')).toBe(original);
   });
 
-  test('写入失败时将底层异常传递给调用方', async () => {
+  test('空 preset（无 agent 覆盖）被拒绝', () => {
+    const result = switchPresetOnDisk({ empty: {} }, 'empty');
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('为空');
+  });
+
+  test('写入失败向上抛出（不静默吞掉）', async () => {
     const configDir = await temporaryDirectory();
     const unwritableConfigPath = join(configDir, '配置目录');
-    // 将配置路径设为目录，模拟 rename/write 的失败；命令不得吞掉异常。
-    await Bun.write(unwritableConfigPath, 'placeholder');
-    await rm(unwritableConfigPath);
-    await mkdir(unwritableConfigPath);
+    await mkdir(unwritableConfigPath, { recursive: true });
 
-    await expect(
-      runPresetCommand(['safe'], { configPath: unwritableConfigPath }),
-    ).rejects.toThrow();
+    expect(() =>
+      switchPresetOnDisk({ safe: { oceanus: { model: 'm' } } }, 'safe', {
+        configPath: unwritableConfigPath,
+      }),
+    ).toThrow();
   });
 });
 
-/**
- * AUTO-RELOAD-001：preset command 成功切换时应触发 agent reload；
- * 查询、未知 preset、写入失败时不得触发。
- *
- * 测试接口需求（TDD 红→绿契约，待生产实现满足）：
- * - `commands.ts` 必须导出 `createPresetCommand(handlers)` 工厂：
- *   - `handlers.runPreset`：与现有 `runPresetCommand` 签名一致。
- *   - `handlers.reloadAgents：() => Promise<void>`：切换成功时调用一次。
- *     查询路径、未知 preset 路径、写入失败路径均不调用。
- *   - `handlers.reply：(text, invocation) => Promise<void>`：用于回写消息；
- *     不在 reload 行为的契约范围，但工厂需要它以避免与 ctx 耦合。
- * - 工厂返回的 `CommandDefinition` 必须：
- *   - `name === 'preset'`
- *   - `execute(invocation)`：从 `invocation.prompt.text` 解析参数；
- *     切换成功 → `reloadAgents()` + `reply(成功消息, invocation)`；
- *     查询路径 → 仅 `reply(...)`，不 reload；
- *     未知/失败 → 仅 `reply(失败消息, invocation)`，不 reload、不抛。
- *
- * 这些测试**预期**在 `createPresetCommand` 尚未实现时失败（红灯），
- * 由后续生产实现补齐后转绿。
- */
-describe('preset command agent reload (AUTO-RELOAD-001)', () => {
-  interface ReloadSpy {
-    calls: number;
-    fn: () => Promise<void>;
-  }
-  interface ReplySpy {
-    messages: string[];
-    fn: (text: string, invocation: { sessionID: string; prompt: { text: string }; delivery: 'steer' | 'queue' }) => Promise<void>;
-  }
-  interface Harness {
-    command: PresetCommandDefinition;
-    reload: ReloadSpy;
-    reply: ReplySpy;
-    invoke: (text: string) => Promise<void>;
-  }
+describe('writePreset / deletePreset', () => {
+  test('writePreset 创建 preset 并保留其它字段', async () => {
+    const configDir = await temporaryDirectory();
+    const configPath = await writeUserConfig(
+      configDir,
+      '{ "preset": "fast", "presets": { "fast": {} }, "disabled_agents": [] }\n',
+    );
 
-  function buildHarness(configDir: string): Harness {
-    const reload: ReloadSpy = {
-      calls: 0,
-      fn: async () => {
-        reload.calls += 1;
-      },
-    };
-    const reply: ReplySpy = {
-      messages: [],
-      fn: async (text) => {
-        reply.messages.push(text);
-      },
-    };
-    const command: PresetCommandDefinition = createPresetCommand({
-      runPreset: (args: readonly string[], options: Parameters<typeof runPresetCommand>[1] = {}) =>
-        runPresetCommand(args, { ...options, configDir }),
-      reloadAgents: () => reload.fn(),
-      reply: (text: string, invocation: ReplySpy['fn'] extends (t: string, i: infer I) => unknown ? I : never) =>
-        reply.fn(text, invocation),
+    const ok = writePreset('cheap', { fixer: { model: 'cheap/model' } }, { configDir });
+
+    expect(ok).toBe(true);
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toMatchObject({
+      preset: 'fast',
+      presets: { fast: {}, cheap: { fixer: { model: 'cheap/model' } } },
+      disabled_agents: [],
     });
-    const invoke = async (text: string): Promise<void> => {
-      await command.execute({
-        sessionID: 'session-test',
-        prompt: { text },
-        delivery: 'steer',
-      });
-    };
-    return { command, reload, reply, invoke };
-  }
-
-  test('切换到已存在 preset 时触发一次 agent reload 且不创建模型 turn', async () => {
-    const configDir = await temporaryDirectory();
-    await writeFile(
-      join(configDir, 'opencode-oceanus.jsonc'),
-      '{ "preset": "fast", "presets": { "safe": {}, "fast": {} } }\n',
-    );
-    const harness = buildHarness(configDir);
-
-    await harness.invoke('safe');
-
-    expect(harness.reload.calls).toBe(1);
-    expect(harness.reply.messages).toHaveLength(0);
   });
 
-  test('切换成功不应通过 reply 创建新的模型 turn', async () => {
+  test('deletePreset 删除指定 preset；删除激活项时同时清除顶层 preset', async () => {
     const configDir = await temporaryDirectory();
-    await writeFile(
-      join(configDir, 'opencode-oceanus.jsonc'),
-      '{ "preset": "fast", "presets": { "safe": {}, "fast": {} } }\n',
+    const configPath = await writeUserConfig(
+      configDir,
+      '{ "preset": "fast", "presets": { "fast": {}, "safe": {} } }\n',
     );
-    const harness = buildHarness(configDir);
 
-    await harness.invoke('safe');
+    expect(deletePreset('fast', { configDir })).toBe(true);
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({ presets: { safe: {} } });
 
-    expect(harness.reply.messages).toHaveLength(0);
+    expect(deletePreset('missing', { configDir })).toBe(false);
+  });
+});
+
+describe('内存 preset 编辑辅助（不可变）', () => {
+  test('setAgentOverride / removeAgentFromPreset 返回新对象', () => {
+    const preset: Preset = { explorer: { model: 'a/b' } };
+    const added = setAgentOverride(preset, 'fixer', { temperature: 0.2 });
+    expect(added).toEqual({ explorer: { model: 'a/b' }, fixer: { temperature: 0.2 } });
+    expect(preset).toEqual({ explorer: { model: 'a/b' } });
+
+    const removed = removeAgentFromPreset(added, 'explorer');
+    expect(removed).toEqual({ fixer: { temperature: 0.2 } });
+    expect(removeAgentFromPreset(removed, 'missing')).toBe(removed);
   });
 
-  test('无参数（查询）路径不触发 agent reload，仅回写当前 preset 列表', async () => {
-    const configDir = await temporaryDirectory();
-    await writeFile(
-      join(configDir, 'opencode-oceanus.jsonc'),
-      '{ "preset": "fast", "presets": { "safe": {}, "fast": {} } }\n',
-    );
-    const harness = buildHarness(configDir);
-
-    await harness.invoke('');
-
-    expect(harness.reload.calls).toBe(0);
-    expect(harness.reply.messages).toHaveLength(0);
-  });
-
-  test('未知 preset 不触发 agent reload，并将错误消息回写', async () => {
-    const configDir = await temporaryDirectory();
-    await writeFile(
-      join(configDir, 'opencode-oceanus.jsonc'),
-      '{ "preset": "fast", "presets": { "fast": {} } }\n',
-    );
-    const harness = buildHarness(configDir);
-
-    await expect(harness.invoke('does-not-exist')).rejects.toThrow(/preset.*失败|failed/i);
-
-    expect(harness.reload.calls).toBe(0);
-    expect(harness.reply.messages).toHaveLength(0);
-  });
-
-  test('写入失败时不触发 agent reload，底层异常被回写而非抛出', async () => {
-    const configDir = await temporaryDirectory();
-    const unwritableConfigPath = join(configDir, '配置目录');
-    await Bun.write(unwritableConfigPath, 'placeholder');
-    await rm(unwritableConfigPath);
-    await mkdir(unwritableConfigPath);
-
-    const reload: ReloadSpy = { calls: 0, fn: async () => undefined };
-    const reply: ReplySpy = {
-      messages: [],
-      fn: async (text) => {
-        reply.messages.push(text);
-      },
-    };
-    const command: PresetCommandDefinition = createPresetCommand({
-      runPreset: (args: readonly string[], options: Parameters<typeof runPresetCommand>[1] = {}) =>
-        runPresetCommand(args, { ...options, configPath: unwritableConfigPath }),
-      reloadAgents: () => reload.fn(),
-      reply: (text: string, invocation: ReplySpy['fn'] extends (t: string, i: infer I) => unknown ? I : never) =>
-        reply.fn(text, invocation),
+  test('buildAgentUpdates 解析 legacy 别名并剔除空覆盖', () => {
+    const updates = buildAgentUpdates({
+      explore: { model: 'x/y' },
+      empty: {},
+      oceanus: { variant: 'high' },
     });
+    expect(Object.keys(updates).sort()).toEqual(['explorer', 'oceanus']);
+  });
 
-    await expect(command.execute({
-      sessionID: 'session-test',
-      prompt: { text: 'safe' },
-      delivery: 'steer',
-    })).rejects.toThrow(/preset.*失败|failed/i);
-
-    expect(reload.calls).toBe(0);
-    expect(reply.messages).toHaveLength(0);
+  test('describeOverride / buildPresetSummary 输出可读摘要', () => {
+    expect(describeOverride({ model: 'p/m', variant: 'high', temperature: 0.3 })).toBe(
+      'p/m, variant=high, temp=0.3',
+    );
+    expect(describeOverride({})).toBe('(unset)');
+    const summary = buildPresetSummary({ explorer: { model: 'p/m' } });
+    expect(summary).toEqual(['explorer → p/m']);
   });
 });

@@ -124,13 +124,10 @@ describe('inspectDispatch 规则②：同目标终态未消费重派（coordinat
     for (const term of BANNED_TERMS) expect(v.message).not.toContain(term);
   });
 
-  test('failed / cancelled 终态同样拦截', () => {
-    expect(inspectDispatch(evt(), fakeCoordinator([{ state: 'failed' }]))?.rule).toBe(
-      'duplicate-objective',
-    );
-    expect(inspectDispatch(evt(), fakeCoordinator([{ state: 'cancelled' }]))?.rule).toBe(
-      'duplicate-objective',
-    );
+  test('failed / cancelled 无未消费结果 → 放行（可重派恢复，非死胡同）', () => {
+    expect(inspectDispatch(evt(), fakeCoordinator([{ state: 'failed' }]))).toBeNull();
+    expect(inspectDispatch(evt(), fakeCoordinator([{ state: 'cancelled' }]))).toBeNull();
+    expect(inspectDispatch(evt(), fakeCoordinator([{ state: 'uncertain' }]))).toBeNull();
   });
 
   test('已消费（resultConsumedAt 已写入）→ 放行', () => {

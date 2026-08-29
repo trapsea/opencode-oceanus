@@ -27,7 +27,7 @@ Catch defects and design drift with evidence, not vibes, between phases.
 
 ## Steps
 1. **Rebuild the CBM index before review queries** — at the start of Review, directly call \`cbm_index\` to rebuild the current project index; execute 已修改代码，不得依赖陈旧索引，重建完成后再进入后续影响面复查与 CBM 查询。
-2. **Re-check the impact surface on the actual diff** — 用 \`cbm_trace\`/\`cbm_detect_changes\` 对实际 diff 再次排查影响面（受影响调用方/被调用方/契约）；以实际代码为准，不用 plan 期预估替代复查。
+2. **Re-check the impact surface on the actual diff** — 用 \`cbm_trace\`/\`cbm_detect_changes\` 对实际 diff 再次排查影响面（受影响调用方/被调用方/契约）；以实际代码为准，不用 plan 期预估替代复查。**优先 \`cbm_detect_changes\` 增量检测**，并复用 plan status 中 momus 预估、metis research_brief 已覆盖的符号结论，只对 diff 实际触及且未覆盖的符号做增量 trace；不重复全量扫描。**worktree 模式**下，以合并回主工作区之后的代码为准（\`cbm_detect_changes\` 对比合并前后）；未合并的 worktree 变更不属于 review 范围。
 3. **Compare against the momus estimate** — 将复查结果与 plan status 中 momus 的影响面预估对比：一致 → 记为验证证据；不一致（新调用方受影响/预估遗漏）→ 解释差异或退回 execute。
 4. **Run review gates** — after each phase, review the actual output against the spec and plan before moving on.
 5. **Verify before accepting** — for any finding, confirm it with evidence (read the code, run the check) before acting on it.
@@ -36,7 +36,7 @@ Catch defects and design drift with evidence, not vibes, between phases.
 
 ## Review Ownership
 
-Review subagent 只读检查，不修改代码、不运行 task；测试由 Review 主流程执行。Momus 审查 evidence、tests 与 completionMatrix，不默认替代代码 review。报告固定写入 \`.oceanus/review/Review v1.md\`。
+Review subagent 只读检查，不修改代码、不运行 task；测试由 Review 主流程执行。Momus 审查 evidence、tests 与 completionMatrix，不默认替代代码 review。SDD 开启时报告写入 \`.oceanus/review/Review v1.md\`；SDD 关闭时 review 结论在会话内呈现，不落盘。
 
 - **Sisyphus** owns the spec/plan/diff review, test verification, and the Completion Audit; verify each finding with evidence before acting on it.
 - **@oracle** owns high-risk architecture review, complex failure diagnosis, and independent code review. Route heavyweight or independent review to @oracle rather than doing it yourself.
@@ -50,7 +50,7 @@ Before accepting any task or scenario as truly done, run a completion audit: tre
 1. **Build the matrix** — for each planned task/scenario, list its success criteria (rows) and the evidence gathered (tests, manual QA, CLI/live output, code review, build artifact).
 2. **Require coverage** — every criterion must be covered by at least one verifiable piece of evidence. A criterion with no evidence is a gap.
 3. **Treat uncertainty as not achieved** — if a criterion cannot be confirmed with evidence, it is not complete, even if work appears finished. Never accept a verbal "it's done".
-4. **Report gaps** — on any gap, do not mark the task complete; list the missing criteria and send them back to execute to add evidence or finish implementation.
+4. **Report gaps** — on any gap, do not mark the task complete; list the missing criteria and send them back to execute to add evidence or finish implementation。**缺口退回 execute 最多 3 轮**：第 3 轮仍有未覆盖准则时停止，向用户上报剩余缺口与建议（继续投入 / 接受现状 / 调整范围）请求决策，不再自动循环。
 5. **Evidence must be auditable** — prefer binding each evidence item to its point in time / git state; if the code changed, the old evidence is stale and must be re-recorded against the current state, never re-pasted or regenerated as if it were fresh.
 6. **Done only when the matrix is green** — a task is truly complete when every criterion has evidence; otherwise it remains incomplete.
 

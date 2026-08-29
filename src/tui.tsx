@@ -1,9 +1,12 @@
 import { Plugin } from '@opencode-ai/plugin/tui';
 import type { SessionStatus as EventSessionStatus } from '@opencode-ai/client';
 import type { Context } from '@opencode-ai/plugin/tui/plugin';
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
-import { ALL_AGENT_NAMES } from './config/constants';
+import type { JSX } from '@opentui/solid';
+import { watch } from 'node:fs';
+import { basename, dirname } from 'node:path';
+import { ALL_AGENT_NAMES, AGENT_ALIASES } from './config/constants';
 import { loadPluginConfig } from './config/loader';
+import { getUserPresetConfigPath, readUserConfig } from './config/presets';
 
 type ModelRef = {
   id: string;
@@ -28,16 +31,6 @@ type LocalSessionStatus = ContextSessionStatus | EventSessionStatus;
 const OCEANUS_AGENT_NAMES = new Set<string>(ALL_AGENT_NAMES);
 const SIDEBAR_ACCENT = '#0FFFFF';
 
-export function normalizeModel(model: ModelRef | undefined): string {
-  if (!model) return '跟随会话';
-
-  const modelName = model.id.includes('/')
-    ? model.id.split('/').at(-1) ?? model.id
-    : model.id;
-  const base = `${model.providerID}/${modelName}`;
-  return model.variant ? `${base}#${model.variant}` : base;
-}
-
 export function shortModelName(model: string): string {
   return model
     .replace(/^anthropic\//, '')
@@ -61,20 +54,22 @@ export function bareModelName(model: ModelRef | undefined): string {
 }
 
 /**
- * 侧边栏模型展示优先级（纯逻辑，供 Wave 2 复用）：
- * 1. 配置 model 存在 → 显示配置，永不覆盖；
- * 2. 配置 undefined + recall 存在 → 显示 recall；
+ * 侧边栏模型展示优先级：
+ * 1. recall（该 agent 最近一次实际使用的模型，含会话内 /models 或派生时
+ *    的 switchModel）存在 → 显示 live 模型并带 `*` 标记——oceanus/sisyphus
+ *    等主 agent 会自主切换模型，live 状态优先于配置文件；
+ * 2. recall 无 + 配置 model 存在 → 显示配置；
  * 3. 都无 → 跟随会话。
  */
 export function resolveDisplayModel(
   configModel: ModelRef | undefined,
   recall: ModelRef | undefined,
 ): { display: string; recalled: boolean } {
-  if (configModel) {
-    return { display: bareModelName(configModel), recalled: false };
-  }
   if (recall) {
     return { display: bareModelName(recall), recalled: true };
+  }
+  if (configModel) {
+    return { display: bareModelName(configModel), recalled: false };
   }
   return { display: '跟随会话', recalled: false };
 }
@@ -113,32 +108,34 @@ export function sortAgentRows<T extends { id: string }>(agents: T[]): T[] {
 }
 
 /**
- * preset 指纹轮询器：低频读盘比较，指纹变化时触发一次 onChange。
+ * preset 指纹监听器：优先 fs.watch 事件驱动（去抖 100ms），低频轮询兜底。
  *
- * 兜底 OpenCode server 的 agent.updated 广播不带 location 导致 client 内建
- * 失效路径被跳过、事件驱动刷新可能丢失的问题——preset 变化最迟在一个
- * interval 后被发现，与事件可达性无关。
+ * 兜底原因：某些文件系统（NFS/容器挂载）上 fs.watch 不可靠或根本不触发；
+ * 轮询继续按 intervalMs 比较，同值零副作用，两者共用同一条指纹比较逻辑，
+ * 不会重复触发 onChange。
  *
  * 契约：
  * - 首次同步 read 作为基线指纹，不触发 onChange；
  * - read 抛异常或返回 undefined 时视为指纹不变（fail-open：无法区分
  *   读盘失败与"配置无 preset"，宁可少刷不多刷）；
  * - 指纹变化 → 恰好调用一次 onChange 并更新基线；
- * - 返回 dispose 清理定时器。
+ * - 返回 dispose 清理定时器与 watcher。
  */
 export function createPresetWatcher(options: {
   read: () => string | undefined;
   intervalMs?: number;
+  /** 提供时启用 fs.watch 事件驱动（推荐传用户级配置文件路径）。 */
+  watchPath?: string;
   onChange: () => void;
 }): () => void {
-  const { read, intervalMs = 2000, onChange } = options;
+  const { read, intervalMs = 2000, watchPath, onChange } = options;
   let baseline: string | undefined;
   try {
     baseline = read();
   } catch {
     baseline = undefined;
   }
-  const timer = setInterval(() => {
+  const compare = () => {
     let next: string | undefined;
     try {
       next = read();
@@ -148,8 +145,108 @@ export function createPresetWatcher(options: {
     if (next === undefined || next === baseline) return;
     baseline = next;
     onChange();
-  }, intervalMs);
-  return () => clearInterval(timer);
+  };
+  const timer = setInterval(compare, intervalMs);
+  let watcher: ReturnType<typeof watch> | undefined;
+  let debounce: ReturnType<typeof setTimeout> | undefined;
+  if (watchPath) {
+    try {
+      // 监听目录而非文件：原子写（tmp + rename）会替换 inode，直接 watch
+      // 文件在 rename 后会与目标脱钩（后续变更丢失）；watch 目录 + 按
+      // 文件名过滤对 rename/create/write 都稳定触发。
+      const directory = dirname(watchPath);
+      const fileName = basename(watchPath);
+      const schedule = () => {
+        // 原子写（tmp+rename）会触发多次事件；去抖后比较指纹，同值不触发。
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(() => {
+          debounce = undefined;
+          compare();
+        }, 100);
+      };
+      watcher = watch(directory, (_event, changedFile) => {
+        // 目录级事件需过滤：只关心目标配置文件本身与其 tmp 中间文件（rename
+        // 两端都可能以不同名字出现）。
+        if (!changedFile || changedFile === fileName || changedFile.startsWith(`.${fileName}.`)) {
+          schedule();
+        }
+      });
+      watcher.on('error', () => {
+        // watch 失败（目录被删/FS 不支持）→ 仅剩轮询兜底。
+        try {
+          watcher?.close();
+        } catch {
+          /* noop */
+        }
+        watcher = undefined;
+      });
+    } catch {
+      // watch 不可用 → 轮询兜底。
+      watcher = undefined;
+    }
+  }
+  return () => {
+    clearInterval(timer);
+    if (debounce) clearTimeout(debounce);
+    try {
+      watcher?.close();
+    } catch {
+      /* noop */
+    }
+  };
+}
+
+/**
+ * 读取当前生效 preset：仅读用户级全局配置顶层 `preset`，
+ * 与 /preset 命令的写入目标（用户级）保持一致。
+ * 读取失败或未配置时返回 undefined（宁可少刷不多刷）。
+ */
+export function readActivePresetName(options?: { configDir?: string }): string | undefined {
+  try {
+    const preset = readUserConfig(getUserPresetConfigPath(options?.configDir)).preset;
+    return typeof preset === 'string' ? preset : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 读取当前生效配置（含 preset 合并）中各 agent 的模型，解析为 ModelRef。
+ * 直接读盘、同步、无网络——preset 切换瞬间即可用于 sidebar 展示，
+ * 不必等待 server 侧 agent registry 重建。读取失败返回空表（回落 registry）。
+ */
+export function readConfigAgentModels(directory: string): Record<string, ModelRef> {
+  try {
+    const agents = loadPluginConfig({ directory }).agents ?? {};
+    const result: Record<string, ModelRef> = {};
+    for (const [name, override] of Object.entries(agents)) {
+      const model = override?.model;
+      let id: string | undefined;
+      let variant: string | undefined;
+      if (typeof model === 'string') {
+        id = model;
+      } else if (Array.isArray(model) && model.length > 0) {
+        const first = model[0];
+        if (typeof first === 'string') id = first;
+        else {
+          id = first?.id;
+          if (typeof first?.variant === 'string') variant = first.variant;
+        }
+      }
+      if (!id || !id.includes('/')) continue;
+      if (override?.variant && !variant) variant = override.variant;
+      const [providerID, ...rest] = id.split('/');
+      if (!rest.length) continue;
+      result[AGENT_ALIASES[name] ?? name] = {
+        id,
+        providerID,
+        variant: variant || undefined,
+      };
+    }
+    return result;
+  } catch {
+    return {};
+  }
 }
 
 function sameLocation(left: { directory: string; workspaceID?: string } | undefined, right: { directory: string; workspaceID?: string } | undefined): boolean {
@@ -185,169 +282,320 @@ export function getRelatedRunningSessions(context: Context, sessionID: string, l
     .sort((left, right) => left.time.created - right.time.created);
 }
 
-export function getRows(context: Context, sessionID: string, localStatuses: Map<string, LocalSessionStatus>, deletedSessionIDs: Set<string>, recalls?: Record<string, ModelRef>): AgentRow[] {
-  const agents = context.data.location.agent.list(context.location) ?? [];
+export function getRows(context: Context, sessionID: string, localStatuses: Map<string, LocalSessionStatus>, deletedSessionIDs: Set<string>, recalls?: Record<string, ModelRef>, configModels?: Record<string, ModelRef>) {
+  const agents = listAgents(context);
   const activeSessions = getRelatedRunningSessions(context, sessionID, localStatuses, deletedSessionIDs);
 
   return sortAgentRows(agents.filter((agent) => OCEANUS_AGENT_NAMES.has(agent.id) || OCEANUS_AGENT_NAMES.has(agent.name)))
     .map((agent) => {
       const resolved = resolveDisplayModel(agent.model, recalls?.[agent.id]);
+      // 配置（含 preset 合并，直接读盘）优先于 registry 快照：preset 切换
+      // 瞬间即显示新模型，不等 server 侧 registry 重建；registry 重建后两者收敛。
+      const configModel = configModels?.[agent.id] ?? configModels?.[agent.name];
+      const resolvedDisplay = configModel
+        ? resolveDisplayModel(configModel, recalls?.[agent.id])
+        : resolved;
       return {
         id: agent.id,
         name: agent.name,
         mode: agent.mode,
         color: agent.color,
-        model: agent.model,
+        model: configModel ?? agent.model,
         active: activeSessions.some((session) => matchesAgent(agent, session.agent)),
-        display: resolved.display,
-        recalled: resolved.recalled,
+        display: resolvedDisplay.display,
+        recalled: resolvedDisplay.recalled,
       };
     });
 }
 
-function AgentModelPanel(props: { context: Context; sessionID: string }) {
-  const theme = () => props.context.theme;
-  const [localStatuses, setLocalStatuses] = createSignal(new Map<string, LocalSessionStatus>(), { equals: false });
-  const [deletedSessionIDs, setDeletedSessionIDs] = createSignal(new Set<string>(), { equals: false });
-  const [dataVersion, setDataVersion] = createSignal(0);
-  const [recalls, setRecalls] = createSignal<Record<string, ModelRef>>({});
-  const refreshData = () => setDataVersion((version) => version + 1);
-  const refreshAgents = () => {
-    props.context.data.location.agent.invalidate(props.context.location);
-    void props.context.data.location.agent.sync(props.context.location)
-      .catch(() => undefined)
-      .finally(refreshData);
+/**
+ * 面板可变状态：宿主 slot 契约是"每次重绘重新调用 render()"（参考
+ * oh-my-opencode-slim 的 sidebar 实现），因此**不用 Solid 信号**——插件
+ * 的 solid/@opentui 与宿主是不同模块实例，信号更新写入的 DOM 不会被宿主
+ * 绘制管线识别（表现为"永不刷新、切会话才变"）。改为：状态在事件回调中
+ * 直接变更，render() 每次被宿主调用时读最新状态重建整棵树，变更后主动
+ * renderer.requestRender() 触发宿主重绘。
+ */
+interface PanelState {
+  /** 最近一次 render 的 sessionID（事件过滤用，render 入口更新）。 */
+  sessionID: string;
+  localStatuses: Map<string, LocalSessionStatus>;
+  deletedSessionIDs: Set<string>;
+  recalls: Record<string, ModelRef>;
+  presetName: string | undefined;
+  configModels: Record<string, ModelRef>;
+}
+
+interface PanelWire {
+  dispose: () => void;
+}
+
+function wirePanel(context: Context): PanelWire {
+  // 热重载代际护栏：宿主按 mtime 重载插件时可能不清理旧代际的订阅，
+  // 监听器会随代际堆积（事件被重复处理）。globalThis 上保留当前代际的
+  // dispose，新代际启动前先释放旧代际，保证同进程只有一代存活。
+  const holder = globalThis as typeof globalThis & { __oceanusPanelWire?: () => void };
+  holder.__oceanusPanelWire?.();
+  holder.__oceanusPanelWire = undefined;
+  const state: PanelState = {
+    sessionID: '',
+    localStatuses: new Map(),
+    deletedSessionIDs: new Set(),
+    recalls: {},
+    presetName: readActivePresetName(),
+    configModels: {},
   };
-  onMount(() => refreshAgents());
-  // preset 指纹兜底：server 的 agent.updated 广播不带 location，client 内建
-  // 失效路径会被跳过；事件监听是"尽力而为"，这里保证切换后最迟一个 tick
-  // 内自愈（读盘比较，同值零网络开销）。
+  const directory = () => context.location?.directory ?? process.cwd();
+
+  // ── 刷新合并（coalescing）──
+  // 事件（status/execution/inbox/model 等）在流式任务中高频到达；若每个
+  // 事件都触发"读盘×2 + session.sync + 全量重绘"，开销随事件数线性放大。
+  // 这里把刷新合并到 trailing 窗口：一批事件只做一次读盘与重绘；preset
+  // 切换等需要即时反馈的路径调用 flushNow() 立即执行。
+  const FLUSH_DELAY_MS = 80;
+  const dirtySessions = new Set<string>();
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  let flushScheduled = false;
+  const runFlush = () => {
+    flushScheduled = false;
+    flushTimer = undefined;
+    state.presetName = readActivePresetName();
+    state.configModels = readConfigAgentModels(directory());
+    const pending = [...dirtySessions];
+    dirtySessions.clear();
+    for (const sessionID of pending) {
+      void context.data?.session?.sync?.(sessionID).catch(() => undefined);
+    }
+    try {
+      context.renderer?.requestRender?.();
+    } catch {
+      /* 渲染器不可用时忽略（下次宿主重绘自然带上） */
+    }
+  };
+  const flushNow = () => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = undefined;
+    }
+    runFlush();
+  };
+  const scheduleFlush = () => {
+    if (flushScheduled) return;
+    flushScheduled = true;
+    flushTimer = setTimeout(() => {
+      // trailing 窗口内最后一批事件落地时执行。
+      runFlush();
+    }, FLUSH_DELAY_MS);
+  };
+  const refreshAgents = () => {
+    // 旧实现在组件 onMount 中调用；部分宿主/测试的 agent 集合可能缺少
+    // invalidate/sync，逐项防御，缺失时仅刷新本地状态。
+    const agentCollection = context.data?.location?.agent as
+      | { invalidate?: (l: unknown) => void; sync?: (l: unknown) => Promise<void> }
+      | undefined;
+    try {
+      agentCollection?.invalidate?.(context.location);
+    } catch {
+      /* noop */
+    }
+    void agentCollection?.sync?.(context.location)
+      ?.catch(() => undefined)
+      .finally(scheduleFlush);
+  };
+
+  const pendingRefreshes = new Set<ReturnType<typeof setTimeout>>();
+  const refreshAgentsLater = (delayMs: number) => {
+    const timer = setTimeout(() => {
+      pendingRefreshes.delete(timer);
+      refreshAgents();
+    }, delayMs);
+    pendingRefreshes.add(timer);
+  };
+
+  // preset 指纹监听：fs.watch 事件驱动（去抖 100ms）+ 1s 轮询兜底。
+  // 变化时：立即 refreshData（配置直读，不等 server registry），再刷新
+  // agent 列表，并在 server 侧 registry 重建窗口后补一次。
   const disposePresetWatcher = createPresetWatcher({
-    read: () => loadPluginConfig({ directory: props.context.location?.directory }).preset,
-    onChange: refreshAgents,
+    read: () => readActivePresetName(),
+    intervalMs: 1000,
+    watchPath: getUserPresetConfigPath(),
+    onChange: () => {
+      flushNow();
+      refreshAgents();
+      refreshAgentsLater(3000);
+    },
   });
+
   const calibrateStatus = (sessionID?: string) => {
     if (!sessionID) {
-      refreshData();
+      scheduleFlush();
       return;
     }
-
-    void props.context.data.session.sync(sessionID)
-      .catch(() => props.context.data.session.invalidate(sessionID))
-      .finally(refreshData);
+    // 会话数据校准合并进刷新窗口：sync 网络请求随批次执行，不逐事件发起。
+    dirtySessions.add(sessionID);
+    scheduleFlush();
   };
   const setLocalStatus = (sessionID: string, status: LocalSessionStatus) => {
-    setDeletedSessionIDs((deleted) => {
-      deleted.delete(sessionID);
-      return deleted;
-    });
-    setLocalStatuses((statuses) => {
-      statuses.set(sessionID, status);
-      return statuses;
-    });
+    state.deletedSessionIDs.delete(sessionID);
+    state.localStatuses.set(sessionID, status);
   };
   const removeLocalStatus = (sessionID: string) => {
-    setLocalStatuses((statuses) => {
-      statuses.delete(sessionID);
-      return statuses;
-    });
-    setDeletedSessionIDs((deleted) => {
-      deleted.add(sessionID);
-      return deleted;
-    });
+    state.localStatuses.delete(sessionID);
+    state.deletedSessionIDs.add(sessionID);
   };
 
+  // 宿主/测试环境可能缺少事件总线：on 缺失时注册为 noop，其余能力不受影响。
+  const onData = (type: string, handler: (event: any) => void): (() => void) => {
+    const on = (context.data as
+      | { on?: (type: string, handler: (event: any) => void) => (() => void) | undefined }
+      | undefined
+    )?.on;
+    return on ? on(type, handler) ?? (() => {}) : () => {};
+  };
   const cleanups = [
-    props.context.data.on('agent.updated', (event) => {
-      if (!event.location || sameLocation(event.location, props.context.location)) {
+    onData('agent.updated', (event) => {
+      if (!event.location || sameLocation(event.location, context.location)) {
         refreshAgents();
       }
     }),
-    props.context.data.on('session.inbox.delivered', () => {
-      // /preset 命令通过 session.prompt 投递回复，此事件保证切换后 agent 列表被重新同步。
-      refreshAgents();
-    }),
-    props.context.data.on('session.status', (event) => {
-      setLocalStatus(event.data.sessionID, event.data.status);
-      calibrateStatus(event.data.sessionID);
-    }),
-    props.context.data.on('session.execution.started', (event) => {
+    onData('session.inbox.delivered', (event) => {
+      // 输入被投递即视为该会话进入执行；同时触发轻量数据刷新。
       setLocalStatus(event.data.sessionID, 'running');
       calibrateStatus(event.data.sessionID);
     }),
-    props.context.data.on('session.execution.succeeded', (event) => {
+    onData('session.idle', (event) => {
+      // 宿主判定会话空闲（执行结束的权威信号），立即清除 running 标记。
       setLocalStatus(event.data.sessionID, 'idle');
       calibrateStatus(event.data.sessionID);
     }),
-    props.context.data.on('session.execution.failed', (event) => {
+    onData('session.status', (event) => {
+      setLocalStatus(event.data.sessionID, event.data.status);
+      calibrateStatus(event.data.sessionID);
+    }),
+    onData('session.execution.started', (event) => {
+      setLocalStatus(event.data.sessionID, 'running');
+      calibrateStatus(event.data.sessionID);
+    }),
+    // subagent（后台会话）结束时不一定广播 session.idle，execution 终态
+    // 事件是清除 ● running 标记的必要信号，不能省。
+    onData('session.execution.succeeded', (event) => {
       setLocalStatus(event.data.sessionID, 'idle');
       calibrateStatus(event.data.sessionID);
     }),
-    props.context.data.on('session.execution.interrupted', (event) => {
+    onData('session.execution.failed', (event) => {
       setLocalStatus(event.data.sessionID, 'idle');
       calibrateStatus(event.data.sessionID);
     }),
-    props.context.data.on('session.created', (event) => calibrateStatus(event.data.sessionID)),
-    props.context.data.on('session.agent.selected', (event) => {
+    onData('session.execution.interrupted', (event) => {
+      setLocalStatus(event.data.sessionID, 'idle');
+      calibrateStatus(event.data.sessionID);
+    }),
+    onData('session.agent.selected', (event) => {
       calibrateStatus(event.data.sessionID);
 
-      const family = new Set(props.context.data.session.family(props.sessionID) ?? []);
-      family.add(props.sessionID);
+      const family = new Set(listSessionFamily(context, state.sessionID));
+      family.add(state.sessionID);
       if (!family.has(event.data.sessionID)) return;
 
-      const agents = props.context.data.location.agent.list(props.context.location) ?? [];
-      const agent = agents.find((candidate) => candidate.id === event.data.agent || candidate.name === event.data.agent);
+      const agent = listAgents(context).find(
+        (candidate) => candidate.id === event.data.agent || candidate.name === event.data.agent,
+      );
       if (!agent) return;
 
-      setRecalls((r) => {
-        if (!r[agent.id]) return r;
-        const { [agent.id]: _removed, ...rest } = r;
-        return rest;
-      });
+      if (state.recalls[agent.id]) {
+        const { [agent.id]: _removed, ...rest } = state.recalls;
+        state.recalls = rest;
+        }
     }),
-    props.context.data.on('session.model.selected', (event) => {
+    onData('session.model.selected', (event) => {
       calibrateStatus(event.data.sessionID);
 
-      const family = new Set(props.context.data.session.family(props.sessionID) ?? []);
-      family.add(props.sessionID);
+      const family = new Set(listSessionFamily(context, state.sessionID));
+      family.add(state.sessionID);
       if (!family.has(event.data.sessionID)) return;
 
-      const agents = props.context.data.location.agent.list(props.context.location) ?? [];
-      const sessionAgent = props.context.data.session.get(event.data.sessionID)?.agent;
-      const agent = agents.find((candidate) => candidate.id === sessionAgent || candidate.name === sessionAgent);
+      const sessionAgent = (context.data?.session as { get?: (id: string) => { agent?: string } | undefined } | undefined)
+        ?.get?.(event.data.sessionID)?.agent;
+      const agent = listAgents(context).find(
+        (candidate) => candidate.id === sessionAgent || candidate.name === sessionAgent,
+      );
       if (!agent) return;
 
-      const next = recordRecall(recalls(), agent.id, event.data.model);
-      if (next !== recalls()) setRecalls(next);
+      const next = recordRecall(state.recalls, agent.id, event.data.model);
+      if (next !== state.recalls) {
+        state.recalls = next;
+        }
     }),
-    props.context.data.on('session.moved', (event) => calibrateStatus(event.data.sessionID)),
-    props.context.data.on('session.forked', (event) => calibrateStatus(event.data.sessionID)),
-    props.context.data.on('session.deleted', (event) => {
+    onData('session.deleted', (event) => {
       removeLocalStatus(event.data.sessionID);
       calibrateStatus(event.data.sessionID);
     }),
   ];
 
-  onCleanup(() => {
+  panelStateOf.set(context, state);
+
+  refreshAgents();
+
+  const dispose = () => {
+    if (flushTimer) clearTimeout(flushTimer);
     disposePresetWatcher();
+    pendingRefreshes.forEach((timer) => clearTimeout(timer));
+    pendingRefreshes.clear();
     cleanups.forEach((cleanup) => cleanup());
-  });
+    panelStateOf.delete(context);
+    if (holder.__oceanusPanelWire === dispose) holder.__oceanusPanelWire = undefined;
+  };
+  holder.__oceanusPanelWire = dispose;
+  return { dispose };
+}
 
-  const rows = createMemo(() => {
-    dataVersion();
-    recalls();
-    return getRows(props.context, props.sessionID, localStatuses(), deletedSessionIDs(), recalls());
-  });
-  const hasRows = createMemo(() => rows().length > 0);
+/** context → 面板状态映射（setup 与 slot render 之间共享）。 */
+const panelStateOf = new WeakMap<Context, PanelState>();
 
-  // 当前生效 preset（用户+项目合并后）。随 dataVersion 刷新：/preset 切换后
-  // session.inbox.delivered → refreshAgents → refreshData 会触发这里重新计算。
-  const presetName = createMemo(() => {
-    dataVersion();
-    return loadPluginConfig({
-      directory: props.context.location?.directory,
-    }).preset;
-  });
+/** 防御式读取 agent 列表（测试/老宿主缺少集合时返回空）。 */
+interface SidebarAgent {
+  id: string;
+  name: string;
+  mode?: string;
+  color?: string;
+  model?: ModelRef;
+}
+
+function listAgents(context: Context): SidebarAgent[] {
+  const collection = context.data?.location?.agent as
+    | { list?: (location: unknown) => SidebarAgent[] | undefined }
+    | undefined;
+  try {
+    return collection?.list?.(context.location) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** 防御式读取会话族（测试/老宿主缺少 session API 时返回空）。 */
+function listSessionFamily(context: Context, sessionID: string): string[] {
+  const session = context.data?.session as
+    | { family?: (id: string) => string[] | undefined }
+    | undefined;
+  try {
+    return session?.family?.(sessionID) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** 纯函数渲染：每次宿主重绘调用，读取最新状态重建整棵树（无 Solid 信号）。 */
+function renderPanel(context: Context, state: PanelState): JSX.Element {
+  const theme = context.theme;
+  const rows = getRows(
+    context,
+    state.sessionID,
+    state.localStatuses,
+    state.deletedSessionIDs,
+    state.recalls,
+    state.configModels,
+  );
+  const hasRows = rows.length > 0 || Object.keys(state.recalls).length > 0;
 
   return (
     <box
@@ -364,42 +612,53 @@ function AgentModelPanel(props: { context: Context; sessionID: string }) {
         paddingRight={1}
       >
         <text fg={SIDEBAR_ACCENT}><b>Oceanus</b></text>
-        <Show when={presetName()} fallback={<text>&nbsp;</text>}>
-          <text fg={theme().textMuted}>{presetName()}</text>
-        </Show>
+        {state.presetName ? (
+          <text fg={theme.textMuted}>{state.presetName}</text>
+        ) : (
+          <text>&nbsp;</text>
+        )}
       </box>
 
       <box flexDirection="column" paddingLeft={1} paddingRight={1} gap={0}>
-        <Show when={hasRows() || Object.keys(recalls()).length > 0} fallback={<text fg={theme().textMuted}>agent registry 同步中…</text>}>
-          <For each={rows()}>
-            {(row) => {
-              const resolved = createMemo(() => resolveDisplayModel(row.model, recalls()[row.id]));
-              return (
-                <box flexDirection="row" justifyContent="space-between" gap={1}>
-                  <text fg={row.active ? theme().text : theme().textMuted} flexShrink={0}>
-                    <span style={{ fg: row.color ?? (row.mode === 'primary' ? SIDEBAR_ACCENT : theme().textMuted) }}>
-                      {row.active ? '●' : '○'}
-                    </span>{' '}
-                    {row.name}
-                  </text>
-                  <text fg={(row.model || resolved().recalled) ? theme().text : theme().textMuted}>
-                    {resolved().recalled ? '*' : ''}{resolved().display}
-                  </text>
-                </box>
-              );
-            }}
-          </For>
-        </Show>
+        {hasRows ? (
+          rows.map((row) => {
+            const resolved = resolveDisplayModel(row.model, state.recalls[row.id]);
+            return (
+              <box flexDirection="row" justifyContent="space-between" gap={1}>
+                <text fg={row.active ? theme.text : theme.textMuted} flexShrink={0}>
+                  <span style={{ fg: row.color ?? (row.mode === 'primary' ? SIDEBAR_ACCENT : theme.textMuted) }}>
+                    {row.active ? '●' : '○'}
+                  </span>{' '}
+                  {row.name}
+                </text>
+                <text fg={(row.model || resolved.recalled) ? theme.text : theme.textMuted}>
+                  {resolved.recalled ? '*' : ''}{resolved.display}
+                </text>
+              </box>
+            );
+          })
+        ) : (
+          <text fg={theme.textMuted}>agent registry 同步中…</text>
+        )}
       </box>
     </box>
   );
 }
 
 export async function setup(context: Context) {
-  return context.ui.slot({
+  const wire = wirePanel(context);
+  const disposeSlot = context.ui.slot({
     append: 'sidebar.content',
-    render: ({ sessionID }) => <AgentModelPanel context={context} sessionID={sessionID} />,
+    render: ({ sessionID }) => {
+      const state = panelStateOf.get(context);
+      if (state) state.sessionID = sessionID;
+      return state ? renderPanel(context, state) : <box />;
+    },
   });
+  return () => {
+    disposeSlot();
+    wire.dispose();
+  };
 }
 
 export default Plugin.define({

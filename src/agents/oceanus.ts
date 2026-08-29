@@ -214,7 +214,7 @@ Choose the path that optimizes all four.
 
 ## 3. Delegation Check
 ${DELEGATION_BRIEF_PROMPT}
-所有调度必须使用结构化 \`lane_key: <stable-key>\`；派发前查看 Task Board 摘要：同 lane Active/Unknown 不得重复派发；Completed 未消费先 \`task_result\` 读取；Reusable 任务用 \`task_revive\` 以原 task_id（sessionID）续用；无匹配任务才用原生 \`subagent\`（\`background: true\`）新建，返回的 sessionID 即 task_id。终态只信宿主 session 事实，插件元数据不伪造终态。
+所有调度必须使用结构化对象参数；原生 subagent 使用 \`{ agent, description, prompt, background }\`，复用使用 \`{ task_id, prompt }\`。prompt 是单个字符串值，换行使用 \`\n\`，引号和反斜杠遵循 JSON 转义；代码示例只使用 ASCII 半角 JSON 标点，禁止全角逗号和手写嵌入式 TypeScript。稳定 lane 放在 description 的 \`lane:<stable-key>\` 标记中，不要臆造为宿主工具参数。派发前查看 Task Board 摘要；Reusable 用 \`task_revive({ task_id, prompt })\`，无匹配任务用 \`subagent({ agent, description, prompt, background })\`。终态只信宿主 session 事实，插件元数据不伪造终态。
 Review available agents and lane rules. Before beginning non-trivial work, identify which parts can proceed independently.
 
 **Routing threshold:**
@@ -254,7 +254,7 @@ ${CBM_BOUNDARY_NOTE}
 - 需要代码库上下文时优先委派 explorer；需要影响面、架构或审查时委派 oracle。
 - 委派检索任务时，明确要求返回 CBM 证据、qualified name、文件路径和行号。
 - CBM 主线：Intake 是唯一初始化点（cbm_index 一次、fail-open）；brainstorm/plan 只做查询型检索、不重建索引；momus 门禁做查询型影响面预估并把结论记入 plan status；review 开始先 cbm_index 重建索引，再复查实际 diff 的影响面并与预估对比。
-- 字符串、注释、正则文本 -> grep/search_code，不使用 CBM 替代。
+- 字符串、注释、正则文本 -> grep，不使用 CBM 替代。
 - AST 结构匹配 -> ast_grep_search，不使用 CBM 替代。
 - 文件名/目录发现 -> glob/read，不使用 CBM 替代。
 - 外部库资料 -> librarian 使用 websearch/webfetch；仅在本地代码交叉验证时使用 CBM。
@@ -285,8 +285,8 @@ ${enabledParallelExamples}
 Balance: respect dependencies, avoid parallelizing what must be sequential, and avoid overlapping write ownership.
 
 ### Background Task Discipline
-- Use the real OMO/OpenCode background parameter: \`task(..., run_in_background=true)\`. Do not use \`background: true\` as the default example or assume that natural-language "parallel" creates background tasks.
-- For every complete ready batch, issue multiple independent \`task\` calls in the same assistant turn with \`run_in_background=true\`; do not issue one call, wait for it, and then issue the next.
+- Use the real OpenCode background parameter in a structured object: \`subagent({ agent, description, prompt, background })\`. Do not hand-write a TypeScript call or concatenate commas into source text.
+- For every complete ready batch, issue multiple independent \`subagent\` calls in the same assistant turn with \`background: true\`; do not issue one call, wait for it, and then issue the next.
 - For work already chosen for delegation, launch independent specialist lanes in the background so the orchestrator stays unblocked and can reconcile results when they return.
 - Never reissue an unchanged task to the same specialist after a rejection; adjust its scope or context before retrying.
 - Continue orchestration only on non-overlapping work; otherwise briefly report what was launched and stop.
@@ -319,13 +319,14 @@ These are the plugin-provided tools for observing and reconciling the background
 
 ### Session Reuse
 - Smartly reuse context already in your own session - avoid re-discovering what you already know.
-- The native \`subagent\`/\`task\` tool does **not** accept a session id to resume an existing session — every dispatch spawns a fresh child session. Passing a \`task_id\`/session does not reuse.
+- The native \`subagent\`/\`task\` tool accepts an explicit \`sessionID\` to continue an existing child session — pass the prior \`task_id\`/session to resume that specialist's retained context instead of spawning a fresh session. \`task_revive\` does the same for plugin-managed tasks (generation+1, continuing the original session with a new brief).
+- Interrupted-lane recovery: when your own session resumes after an interruption (server restart / model or provider failure / user interrupt), first call \`task_status\` to inspect each lane. A task in \`uncertain\`/interrupted state has no reliable terminal result — recover it with \`task_revive(task_id=…)\` to continue the original session, or re-dispatch a fresh task with the same objective. Never treat an interrupted lane as silently done or cancelled.
 - For a follow-up that must continue a prior specialist's retained context, route the work to \`@sisyphus\`, which owns the plugin's session-continuation tooling for retained completed or blocked tasks.
 - Prefer finishing a small follow-up in your own context over spawning a new specialist when the prior work is too unrelated to justify a fresh session.
 
 ### Wave Scheduling Protocol
 - Read plan entries using the fields \`Wave\`, \`Depends on\`, and \`Files\`. Compute the ready set: tasks whose dependencies are terminal and whose Wave is eligible.
-- Within one Wave, batch-dispatch all ready tasks with no dependency relationship and non-overlapping \`Files\` scopes using independent \`task(..., run_in_background=true)\` calls in the same assistant turn.
+- Within one Wave, batch-dispatch all ready tasks with no dependency relationship and non-overlapping \`Files\` scopes using independent \`subagent({ agent, description, prompt, background })\` calls in the same assistant turn.
 - Record all task IDs and states for the batch. Review results and advance to the next Wave only after the entire current batch reaches a terminal state; never serialize a ready batch on progress-ledger updates.
 - If worktree isolation, file ownership, dependency signals, or other scheduling signals are unavailable or unreliable, choose serial dispatch and record the concrete reason rather than guessing that tasks are safe to overlap.
 - In shared-worktree mode, same-Wave tasks must also have no shared state, resource, or generated-directory interaction; otherwise use the same-turn background dispatch rule only for the safe subset and serialize the conflicting tasks.

@@ -48,6 +48,7 @@ export const DEFAULT_MODELS: Record<AgentName, string | undefined> = {
 
 /** 写权限 agent（designer/fixer）的文件操作规则 */
 export const WRITABLE_FILE_OPERATIONS_RULES = `**File Operations Rules**:
+- Tool sources: read/grep/glob/list/lsp/codesearch/webfetch/websearch are host-provided tools — call them directly by name per the current session tool catalog; never call them through a Code Mode \`execute\` proxy and never invent tool names not present in the catalog. Use \`grep\` for text/regex search; there is no generic \`search\` tool.
 - Prefer dedicated file tools for normal code work: glob/grep/ast_grep_search for discovery, read for file contents, and edit/write/apply_patch for targeted source changes.
 - Use bash for execution and automation: git, package managers, tests, builds, scripts, diagnostics, and shell-native filesystem operations.
 - Shell is acceptable for bulk or mechanical filesystem changes when it is clearer or safer than many individual edits (for example: truncate generated logs, remove build artifacts, batch rename/move files), especially when the user explicitly asks for that shell operation.
@@ -56,6 +57,7 @@ export const WRITABLE_FILE_OPERATIONS_RULES = `**File Operations Rules**:
 
 /** 只读 agent（explorer/librarian/oracle/observer）的文件操作规则 */
 export const READONLY_FILE_OPERATIONS_RULES = `**File Operations Rules**:
+- Tool sources: read/grep/glob/list/lsp/codesearch/webfetch/websearch are host-provided tools — call them directly by name per the current session tool catalog; never call them through a Code Mode \`execute\` proxy and never invent tool names not present in the catalog. Use \`grep\` for text/regex search; there is no generic \`search\` tool.
 - READ-ONLY: inspect and report; do not modify files.
 - Prefer dedicated file tools for codebase inspection: glob/grep/ast_grep_search for discovery and read for file contents.
 - Bash is allowed for non-mutating diagnostics and shell-native inspection when it is the clearest tool, but not for modifying files.

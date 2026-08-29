@@ -142,6 +142,15 @@ export interface PromptInputLike {
  * 具体 draft 方法由各 transform 回调内部使用。
  */
 export interface PluginSetupContext {
+  /**
+   * 当前插件实例关联的项目目录（宿主按项目实例化插件时提供）。
+   *
+   * 说明：`@opencode-ai/plugin` 类型（beta-18230）的 `Context` 尚未声明该字段，
+   * 但运行时（service 多项目模式）会为每个项目 scope 独立实例化插件并注入
+   * 对应目录（omo-slim 参考实现以 `ctx.directory` 作为按项目配置的键）。
+   * 旧宿主确实未提供时，调用方可回退到 process.cwd()。
+   */
+  directory?: string;
   agent: {
     transform(cb: (draft: any) => void): Promise<unknown>;
     reload(): Promise<void>;
@@ -156,6 +165,10 @@ export interface PluginSetupContext {
   };
   session: SessionLike & {
     prompt(input: PromptInputLike): Promise<unknown>;
+    /** /preset 命令所需：读取会话当前 agent、切换模型、注入 synthetic 回执。 */
+    get?(sessionID: string): Promise<{ agent?: string } | undefined>;
+    switchModel?(input: { sessionID: string; model: { providerID: string; id: string; variant?: string } }): Promise<void>;
+    synthetic?(input: { sessionID: string; text: string }): Promise<unknown>;
   };
   tool: ToolingContext['tool'];
   mcp: MCPDomainLike;

@@ -1,9 +1,9 @@
 /**
- * task_revive：对 reusable（completed 且结果已消费）的原生 subagent session
- * 追加新任务并等待终态。
+ * task_revive：对可续用的原生 subagent session 追加新任务并等待终态。
+ * 可续用 = 非 running：uncertain（宿主中断）/ cancelled / failed / completed（结果已消费）。
  *
  * 执行事实源是 V2 session.prompt/wait/get；coordinator 只做元数据护栏
- * （generation+1、lane 冲突、结果未消费拒绝）。
+ * （generation+1、lane 冲突；仅 completed 未消费拒绝）。
  */
 import type { ToolDefinition, ToolContextLike } from '../../runtime/types';
 import type { TaskCoordinator } from '../../runtime/task-coordinator';
@@ -12,7 +12,7 @@ import type { SessionLike } from '../../runtime/types';
 export function buildTaskReviveTool(coordinator: TaskCoordinator, session?: SessionLike): ToolDefinition {
   return {
     name: 'task_revive',
-    description: '复用一个已完成的子任务 session 执行新任务：generation+1，prompt+wait+get 验证终态。要求该任务 completed 且其结果已被 task_result 消费。',
+    description: '续用既有子任务 session（uncertain/interrupted/cancelled/failed/completed+已消费）执行新任务：generation+1，prompt+wait+get 验证终态。中断/失败后可借此恢复原 session 续跑，无需重派新任务。',
     input: {
       type: 'object',
       properties: {
@@ -48,7 +48,8 @@ export function buildTaskReviveTool(coordinator: TaskCoordinator, session?: Sess
         } else if (outcome === 'failed') {
           await coordinator.markTerminal(taskId, ctx.sessionID, 'failed');
         } else if (outcome === 'interrupted') {
-          await coordinator.markTerminal(taskId, ctx.sessionID, 'cancelled');
+          // 宿主中断 = 未决可恢复：标记 uncertain（非 cancelled），后续可再次 revive。
+          await coordinator.markUncertain(taskId, ctx.sessionID);
         } else {
           // 宿主无法确认：不伪造终态，保持 running 供后续 reconcile 收敛。
         }

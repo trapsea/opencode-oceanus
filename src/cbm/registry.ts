@@ -54,7 +54,7 @@ export const CBM_QUERY_EXAMPLES =
 
 /** 公共边界句：文本/AST/文件发现/外部资料不用 CBM 替代。 */
 export const CBM_BOUNDARY_NOTE =
-  '结构化符号/调用链/依赖检索优先 CBM；字符串、注释、正则文本用 grep/search_code，' +
+  '结构化符号/调用链/依赖检索优先 CBM；字符串、注释、正则文本用 grep，' +
   'AST 结构匹配用 ast_grep_search，文件名/目录发现用 glob/read，' +
   '外部库资料用 websearch/webfetch，均不用 CBM 替代。';
 

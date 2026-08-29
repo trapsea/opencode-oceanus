@@ -89,6 +89,8 @@ export class TaskIndex {
   async registerLaunch(input: RegisterLaunchInput): Promise<TaskRecord> {
     if (!input.laneKey || !input.laneKey.trim()) throw new Error(LANE_REQUIRED);
     for (const t of this.records.values()) {
+      // 续用同一任务（revive）不是新的 lane 占用者：自身不构成冲突。
+      if (t.taskID === input.taskID) continue;
       if (t.parentSessionID === input.parentSessionID && t.laneKey === input.laneKey && ACTIVE.includes(t.state)) {
         throw new Error(`${LANE_CONFLICT}: lane ${input.laneKey} 已有 active 任务 ${t.taskID}`);
       }

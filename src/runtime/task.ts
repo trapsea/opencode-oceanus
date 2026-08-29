@@ -41,7 +41,12 @@ export async function resolveTaskHostStatus(
   const outcome = await sessionOutcome(session, childId);
   if (outcome === 'succeeded') return { status: 'completed', source: 'host', verified: true };
   if (outcome === 'failed') return { status: 'failed', source: 'host', verified: true };
-  if (outcome === 'interrupted') return { status: 'cancelled', source: 'host', verified: true };
+  // 宿主 interrupted：本地已显式 cancelled（用户 task_cancel）→ 保持 cancelled；
+  // 否则为宿主被动中断（重启/模型失败）→ uncertain（未决可恢复），供 task_status/revive 识别续用。
+  if (outcome === 'interrupted') {
+    if (rec.status === 'cancelled') return { status: 'cancelled', source: 'host', verified: true };
+    return { status: 'uncertain', source: 'host', verified: true };
+  }
 
   return { status: rec.status, source: 'local', verified: false };
 }

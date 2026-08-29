@@ -1,142 +1,75 @@
 import { describe, expect, test } from 'bun:test';
 import { createCommands } from './index';
-import type {
-  CbmCommandHandlers,
-  CommandDefinition,
-  CommandInvocation,
-  PresetCommandHandlers,
-} from './index';
+import type { CommandDefinition } from './index';
 
 /**
- * Commands 目录化与注入契约测试（commands-directory-injection · Wave 1 · 红灯）。
+ * Commands 聚合与 v2 注册契约测试。
  *
- * 本文件先行描述未来目录化 API，预期在 Wave 2 生产实现落地前**无法导入**而失败
- * （红灯）：当前 `src/commands` 是单文件 `commands.ts`，尚无 `src/commands/index.ts`，
- * 因此 `./index` 不可解析。Wave 2 目录化实现补齐后本文件应转绿。
- *
- * 契约（来自已批准 spec/plan）：
- * - `./index` 必须导出 `createCommands(deps)` 聚合工厂，以及 command 相关类型
- *   （`CommandDefinition` / `CommandInvocation` / `PresetCommandHandlers`）。
- * - `createCommands` 以最小注入依赖为参数，返回 `CommandDefinition[]`；每个 command
- *   的依赖按命令名命名空间隔离（本次仅 `preset`）。
- * - 返回数组必须包含名为 `preset` 的定义，形状为 `{ name, description, execute }`。
-  * - `preset.execute` 必须通过注入的 handlers 触发 reload，而非直接持有插件 ctx；
-  *   成功/查询不创建模型 turn，未知/失败抛出诊断错误。
- *
- * 注意：本文件不依赖旧的 `./commands`（即 `src/commands.ts`）导出，仅面向未来目录 API。
+ * preset 已完全迁移到 TUI 侧（src/tui-preset.tsx，参考 oh-my-opencode-slim），
+ * 不再注册 server command；cbm 命令已移除（能力由 MCP 工具供 agent 调度，
+ * 不暴露用户命令）。此处覆盖 preset 命令族的聚合契约。
  */
 
-/** 由最小 preset handlers 构造 spy 化依赖，用于断言 reload 触发情况。 */
-function makePresetDeps(runPreset: PresetCommandHandlers['runPreset']) {
-  const reload = { calls: 0 };
-  const replies: string[] = [];
-  const deps: PresetCommandHandlers = {
-    runPreset,
-    reloadAgents: async () => {
-      reload.calls += 1;
-    },
-    reply: async (text) => {
-      replies.push(text);
-    },
-  };
-  return { deps, reload, replies };
-}
-
-function presetDefinition(deps: PresetCommandHandlers): CommandDefinition {
-  const preset = createCommands({ preset: deps, cbm: cbmStub() }).find(
-    (command) => command.name === 'preset',
-  );
-  expect(preset).toBeDefined();
-  return preset as CommandDefinition;
-}
-
-/** 最小 cbm handlers 桩：仅供聚合/类型契约测试，不参与 preset 行为断言。 */
-function cbmStub(): CbmCommandHandlers {
-  return {
+describe('commands 聚合与 v2 注册契约', () => {
+  const presetStub = () => ({
+    listPresets: () => ({ current: undefined, presets: {} }),
+    switchPreset: () => ({ ok: false, message: '', summary: [] }),
+    switchSessionModel: async () => null,
+    rebuildAgents: async () => {},
     reply: async () => {},
-  };
-}
-
-describe('commands 聚合与 v2 注册契约（commands-directory-injection）', () => {
-  test('createCommands 注入最小 preset handlers 后返回包含 preset 的数组', () => {
-    const { deps } = makePresetDeps(async () => ({ current: 'none', presets: [] }));
-
-    const commands = createCommands({ preset: deps, cbm: cbmStub() });
-
-    expect(Array.isArray(commands)).toBe(true);
-    expect(commands.some((command) => command.name === 'preset')).toBe(true);
   });
 
-  test('createCommands 同时注册 cbm 命令族（CBM-10）', () => {
-    const { deps } = makePresetDeps(async () => ({ current: 'none', presets: [] }));
-
-    const commands = createCommands({ preset: deps, cbm: cbmStub() });
-
-    const cbm = commands.find((command) => command.name === 'cbm');
-    expect(cbm).toBeDefined();
-    expect(typeof cbm!.description).toBe('string');
-    expect(cbm!.description!.length).toBeGreaterThan(0);
-    expect(typeof cbm!.execute).toBe('function');
+  test('createCommands 只注册 preset，不再注册 cbm 命令', () => {
+    const commands = createCommands({ preset: presetStub() });
+    const command = commands.find((c) => c.name === 'preset') as CommandDefinition | undefined;
+    expect(command, 'command preset 已注册').toBeDefined();
+    expect(typeof command!.description).toBe('string');
+    expect(typeof command!.execute).toBe('function');
+    expect(commands.some((c) => c.name === 'cbm'), 'cbm 命令不应注册').toBe(false);
   });
 
-  test('preset 定义具有 name/description/execute 形状', () => {
-    const { deps } = makePresetDeps(async () => ({ current: 'none', presets: [] }));
-
-    const preset = presetDefinition(deps);
-
-    expect(preset.name).toBe('preset');
-    expect(typeof preset.description).toBe('string');
-    expect(preset.description!.length).toBeGreaterThan(0);
-    expect(typeof preset.execute).toBe('function');
-  });
-
-  test('preset.execute 切换成功时通过注入依赖触发 reload 且无 reply', async () => {
-    const { deps, reload, replies } = makePresetDeps(async () => ({ preset: 'fast' }));
-    const preset = presetDefinition(deps);
-    const invocation: CommandInvocation = {
-      sessionID: 'session-contract',
-      prompt: { text: 'fast' },
-      delivery: 'steer',
-    };
-
-    await preset.execute(invocation);
-
-    expect(reload.calls).toBe(1);
-    expect(replies).toHaveLength(0);
-  });
-
-  test('preset.execute 查询路径不触发 reply/reload', async () => {
-    const { deps, reload, replies } = makePresetDeps(async () => ({
-      current: 'fast',
-      presets: ['fast'],
-    }));
-    const preset = presetDefinition(deps);
-    const invocation: CommandInvocation = {
-      sessionID: 'session-contract',
-      prompt: { text: '' },
-      delivery: 'queue',
-    };
-
-    await preset.execute(invocation);
-
-    expect(reload.calls).toBe(0);
-    expect(replies).toHaveLength(0);
-  });
-
-  test('preset.execute 未知/失败路径抛出错误且不触发 reply/reload', async () => {
-    const { deps, reload, replies } = makePresetDeps(async () => {
-      throw new Error('Unknown preset（未知 preset）');
+  test('preset.execute 无参数走查询 + synthetic 回执，不重建 registry', async () => {
+    const replies: string[] = [];
+    let rebuilt = 0;
+    const commands = createCommands({
+      preset: {
+        ...presetStub(),
+        listPresets: () => ({ current: 'zai', presets: { zai: {}, openai: {} } }),
+        reply: async (_s, text) => { replies.push(text); },
+        rebuildAgents: async () => { rebuilt += 1; },
+      },
     });
-    const preset = presetDefinition(deps);
-    const invocation: CommandInvocation = {
-      sessionID: 'session-contract',
-      prompt: { text: 'missing' },
-      delivery: 'steer',
-    };
+    const preset = commands.find((c) => c.name === 'preset')!;
+    await preset.execute({ sessionID: 's1', prompt: { text: '' }, delivery: 'steer' });
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toContain('zai');
+    expect(rebuilt).toBe(0);
+  });
 
-    await expect(preset.execute(invocation)).rejects.toThrow();
+  test('preset.execute 切换成功：落盘 + 会话模型 + registry 重建 + 回执', async () => {
+    const replies: string[] = [];
+    const calls: string[] = [];
+    const commands = createCommands({
+      preset: {
+        ...presetStub(),
+        listPresets: () => ({ current: 'a', presets: {} }),
+        switchPreset: (name) => (name === 'ok' ? { ok: true, message: 'saved', summary: ['oceanus → m1'] } : { ok: false, message: 'missing', summary: [] }),
+        switchSessionModel: async () => '当前会话（oceanus）已立即切换到 p/m；',
+        rebuildAgents: async () => { calls.push('rebuild'); },
+        reply: async (_s, text) => { replies.push(text); },
+      },
+    });
+    const preset = commands.find((c) => c.name === 'preset')!;
+    await preset.execute({ sessionID: 's1', prompt: { text: 'ok' }, delivery: 'steer' });
+    expect(calls).toEqual(['rebuild']);
+    expect(replies[0]).toContain('已立即切换');
+    expect(replies[0]).toContain('oceanus → m1');
 
-    expect(reload.calls).toBe(0);
-    expect(replies).toHaveLength(0);
+    // 未知 preset：失败回执，不重建。
+    replies.length = 0;
+    calls.length = 0;
+    await preset.execute({ sessionID: 's1', prompt: { text: 'missing' }, delivery: 'steer' });
+    expect(calls).toEqual([]);
+    expect(replies[0]).toContain('missing');
   });
 });
