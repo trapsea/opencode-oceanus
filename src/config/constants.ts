@@ -167,10 +167,31 @@ export const READONLY_DEFAULT_PERMISSION: NonNullable<
   todowrite: 'deny',
 };
 
-/** Metis 的只读权限：除查询外，允许 Intake 阶段初始化 CBM。 */
+/** Metis 的只读权限：方案分析仅允许查询，索引初始化由 Intake 主流程负责。 */
 export const METIS_DEFAULT_PERMISSION: NonNullable<
   AgentOverrideConfig['permission']
 > = {
   ...READONLY_DEFAULT_PERMISSION,
-  cbm_index: 'allow',
+  cbm_index: 'deny',
+};
+
+/**
+ * 写入 subagent（fixer/designer）的工具族 permission：
+ * - 宿主 edit / write / apply_patch 三个写入工具共用 permission action "edit"
+ *   （宿主二进制实证），`edit: 'deny'` 使三者经 Tool.snapshot 从该 agent 的
+ *   工具目录整体移除——写入只剩 hashline_edit / ast_grep_replace 两条
+ *   受锚点/预览保护的通道（hashline_edit 支持新建文件、批量编辑、
+ *   删除与重命名，能力无损）。
+ * - `hashline_edit` / `ast_grep_replace` 显式 allow：二者 action 为工具名，
+ *   显式 allow 避免落入宿主 permission 默认 ask 而 auto 批准的不确定路径。
+ * - 其他 action 不在此声明：注册层（applyAgentDefinitions）以 merge 语义
+ *   追加本表，宿主 Agent.Info 默认基线（`*:* allow` + .env/外部目录 ask
+ *   特例）保持生效。
+ */
+export const WRITER_TOOL_PERMISSION: NonNullable<
+  AgentOverrideConfig['permission']
+> = {
+  edit: 'deny',
+  hashline_edit: 'allow',
+  ast_grep_replace: 'allow',
 };

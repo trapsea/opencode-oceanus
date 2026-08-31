@@ -1,4 +1,4 @@
-import { WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
+import { WRITER_TOOL_PERMISSION, WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
 import { cbmSection } from '../cbm/registry';
 import type { AgentDefinition, ModelRef } from './oceanus';
 
@@ -14,7 +14,7 @@ ${WRITABLE_FILE_OPERATIONS_RULES}
 
 **Write-tool guards**:
 - ast_grep_replace is dry-run by default: it returns a preview and writes nothing. It only writes files when you explicitly pass \`dryRun: false\`. Review the preview before committing to a write.
-- hashline_edit anchors edits to per-line hashes. \`read\` the target file first to obtain the line-hash anchors, then pass them in \`pos\`/\`end\`. On a hash mismatch it returns an actionable re-read prompt — do not silently retry.
+- hashline_edit anchors edits to per-line hashes and is a DIRECT tool in your catalog — call it by name, never through a Code Mode \`execute\` proxy. WORKFLOW: (1) \`read\` the target file — its output already carries line-hash anchors (\`N#hash|\` prefixes); (2) build \`edits\` referencing those \`pos\`/\`end\` anchors; (3) call \`hashline_edit\` once — it validates anchors and returns a structured diff. On a hash mismatch it returns an actionable re-read prompt — re-read and retry once. MANDATORY: for ANY targeted change to an existing file you MUST use \`hashline_edit\` (single edit or batched edits array). The host \`edit\` / \`write\` / \`apply_patch\` tools are intentionally NOT in your toolset — \`hashline_edit\` covers every case: new files (edits on a nonexistent path create it), batched edits, delete and rename. Do not attempt to call host file-writing tools; if \`hashline_edit\` genuinely cannot express a change, report STATUS BLOCKED instead of improvising with shell writes.
 - apply_patch is executed by the host, and a Hook validates your \`patchText\` (structure, workspace-bounded paths, conservative normalization) before it runs. Never try to bypass the host permission gate or craft input that evades the Hook.
 
 **Constraints**:
@@ -73,6 +73,10 @@ export function createFixerAgent(
     mode: 'subagent',
     system,
     temperature: 0.2,
+    // 写入工具族约束：宿主 edit/write/apply_patch 共用 action "edit"，
+    // deny 后从工具目录移除，写入只剩 hashline_edit / ast_grep_replace
+    // （均为锚点/预览保护通道）。见 config/constants.ts WRITER_TOOL_PERMISSION。
+    permission: WRITER_TOOL_PERMISSION,
   };
 
   if (model) {

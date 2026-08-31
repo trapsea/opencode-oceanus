@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { SISYPHUS_SKILLS } from './index';
+import { CLIPBOARD_IMAGE_OBSERVER_SKILL } from './clipboard-image-observer';
 import type { SkillDefinition } from './types';
+import { createSisyphusAgent } from '../agents/sisyphus';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 type Skill = SkillDefinition;
 
@@ -50,6 +54,25 @@ function byName(name: string): Skill {
   const skill = SISYPHUS_SKILLS.find((s) => s.name === name);
   expect(skill, `SISYPHUS_SKILLS 中缺少阶段 skill: ${name}`).toBeDefined();
   return skill as Skill;
+}
+
+/** 全仓禁词（Wave 1 起该外部方法论术语全仓移除）；拆分构造，避免本测试文件自身命中扫描 */
+const BANNED_TERM = new RegExp(['super', 'powers'].join(''), 'i');
+
+/** 全仓禁词扫描的根目录与过滤规则 */
+const REPO_ROOT = join(import.meta.dir, '..', '..');
+const SCAN_SKIP_DIRS = new Set(['node_modules', 'dist', '.git']);
+const MAX_SCAN_BYTES = 1024 * 1024; // 超过 1MB 的文件跳过扫描（当前仓库无此量级文件）
+
+function listFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    if (SCAN_SKIP_DIRS.has(entry)) continue;
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) out.push(...listFiles(full));
+    else out.push(full);
+  }
+  return out;
 }
 
 describe('SISYPHUS_SKILLS 聚合契约', () => {
@@ -107,6 +130,44 @@ describe('Phase 1 — intake 契约', () => {
 describe('Phase 2 — brainstorm 契约', () => {
   const content = byName('sisyphus-brainstorm').content;
 
+  test('分层呈现：Trivial 单方案 / Standard 推荐+备选 / Architecture 2-3 方案', () => {
+    expect(content).toMatch(/Trivial[^\n]{0,60}单一方案/);
+    expect(content).toMatch(/Standard[^\n]{0,60}推荐方案[^\n]{0,60}备选/);
+    expect(content).toMatch(/Architecture[^\n]{0,60}2-3 个方案/);
+  });
+
+  test('分层背景调研：Architecture 默认委派 / Standard 两波自查后条件委派 / Trivial 不委派', () => {
+    // Architecture 默认委派 BACKGROUND_RESEARCH，且必须记录返回的 task_id
+    expect(content).toMatch(/Architecture[^\n]{0,200}BACKGROUND_RESEARCH/);
+    expect(content).toMatch(/记录返回的 task_id/);
+    // Standard 由主 Agent 两波自查，仍存未知依赖/约束才委派
+    expect(content).toMatch(/Standard[^\n]{0,120}自查/);
+    expect(content).toMatch(/两波后仍存在未知[^\n]{0,60}才委派/);
+    // Trivial 仅最小自查、不委派；任何跳过委派必记理由
+    expect(content).toMatch(/Trivial[^\n]{0,80}最小自查/);
+    expect(content).toMatch(/Trivial[^\n]{0,120}不委派/);
+    expect(content).toMatch(/任何跳过委派都记录理由/);
+  });
+
+  test('单次总批准为默认值制单问（frontmatter exit 同步默认值制口径）', () => {
+    expect(content).toMatch(/单次总批准（consolidated approval/);
+    expect(content).toMatch(/默认值制单问/);
+    expect(content).toMatch(/主问方案方向/);
+    // 四项执行配置默认值随选项说明带出
+    expect(content).toMatch(/SDD.{0,10}（预估 >5 天默认开启、≤5 天默认关闭/);
+    expect(content).toMatch(/TDD.{0,10}（[^）]{0,80}默认/);
+    expect(content).toMatch(/Worktree.{0,10}（[^）]{0,80}默认/);
+    expect(content).toMatch(/连续执行授权.{0,10}（默认授予/);
+    // 三固定选项：按推荐执行 / 换用备选 / 自定义
+    expect(content).toMatch(/①\*\*按推荐执行\*\*/);
+    expect(content).toMatch(/②\*\*换用备选方案/);
+    expect(content).toMatch(/③\*\*自定义\*\*/);
+    expect(content).toMatch(/回落默认值/);
+    expect(content).toMatch(/不补问/);
+    expect(content).not.toMatch(/一次补问/);
+    expect(frontmatter(byName('sisyphus-brainstorm').content).exit).toMatch(/单次总批准（默认值制单问）/);
+  });
+
   test('上下文优先，方案分析仅按条件委派', () => {
     expect(content).toMatch(/上下文|context/i);
     expect(content).toMatch(/SOLUTION_ANALYSIS|独立分析/i);
@@ -115,6 +176,11 @@ describe('Phase 2 — brainstorm 契约', () => {
   test('用户澄清与批准由主 Agent 负责', () => {
     expect(content).toMatch(/主 Agent|Sisyphus/i);
     expect(content).toMatch(/澄清|approval|批准/i);
+  });
+
+  test('消费 metis 分析时连同建议处理方式并入方案', () => {
+    expect(content).toMatch(/建议处理方式/);
+    expect(content).toMatch(/并入方案呈现与 spec/);
   });
 
   test('要求把需求缺口/风险/边界/反例纳入 spec', () => {
@@ -136,6 +202,36 @@ describe('Phase 2 — brainstorm 契约', () => {
     expect(content).toMatch(/禁用|disabled/i);
     expect(content).toMatch(/跳过|skip/i);
     expect(content).toMatch(/诚实|如实|honest/i);
+  });
+
+  test('Brainstorm 与 Intake 的 Steps 编号连续且无异常缩进', () => {
+    for (const name of ['sisyphus-brainstorm', 'sisyphus-intake']) {
+      const lines = byName(name).content.split('\n');
+      const steps = lines
+        .filter((line) => /^\d+\.\s+/.test(line))
+        .map((line) => Number(line.match(/^(\d+)\./)?.[1]));
+      expect(steps, `${name} 必须存在 Steps`).not.toEqual([]);
+      expect(steps).toEqual(steps.map((_, index) => index + 1));
+      expect(lines.some((line) => /^\s+\d+\.\s+/.test(line))).toBe(false);
+    }
+  });
+
+  test('Brainstorm 不含未定义的 spec 路径占位符', () => {
+    expect(content).not.toContain('<name>');
+  });
+
+  test('Brainstorm 与 Intake 的工具调用示例使用 ASCII 标点', () => {
+    for (const name of ['sisyphus-brainstorm', 'sisyphus-intake']) {
+      // Wave 1 起 Intake 交接叙述句中含裸 question 一词，跨反引号正则会把叙述句误吞进 snippet；
+      // 改为按反引号配对切分（split 的奇数段即反引号内文本），只检查其中含工具关键词的片段，
+      // 仍覆盖全部真实工具调用示例，不缩小检查面。
+      const inlineCodes = byName(name).content.split('`').filter((_, index) => index % 2 === 1);
+      const snippets = inlineCodes.filter((segment) => /subagent|question|cbm_[a-z_]+/.test(segment));
+      expect(snippets.length, `${name} 应存在工具调用示例`).toBeGreaterThan(0);
+      for (const snippet of snippets) {
+        expect(snippet, `${name} 工具示例含全角标点: ${snippet}`).not.toMatch(/[，。；：、（）“”‘’]/);
+      }
+    }
   });
 });
 
@@ -168,6 +264,12 @@ describe('Phase 3 — plan 契约', () => {
     expect(content).toMatch(/人工批准|human approval|approval/i);
     expect(content).toMatch(/双|both|two gates|两个门禁/i);
   });
+
+  test('REJECT 按最小修订集修订并再次调用 momus 复审', () => {
+    expect(content).toContain('最小修订集');
+    expect(content).toMatch(/再次调用 \`@momus\` 复审|call \`@momus\` again/);
+    expect(content).toMatch(/BLOCKER\/SUGGESTION/);
+  });
 });
 
 describe('Phase 4 — execute 契约', () => {
@@ -185,6 +287,74 @@ describe('Phase 4 — execute 契约', () => {
 
   test('普通执行不要求重复调用 @metis', () => {
     expect(content).toMatch(/普通执行[\s\S]{0,120}不重复调用 @metis/);
+  });
+});
+
+/** 总批准失效边界：plan 与 execute 必须使用一致的变更类型 → 处理动作映射 */
+const REQ_CHANGE_RE = /需求或验收标准变化[^\n]{0,200}(重新总批准|总批准失效|invalidate)/;
+const NONREQ_CHANGE_RE = /(Files\/依赖\/任务结构变化或失败重规划|失败重规划)[^\n]{0,200}(不重新提问|仅重走 @momus)/;
+
+describe('单次总批准契约（consolidated approval）', () => {
+  test('brainstorm 总批准为默认值制单问：主问方案方向 + 默认值随选项带出 + 三固定选项', () => {
+    const content = byName('sisyphus-brainstorm').content;
+    expect(content).toContain('单次总批准');
+    expect(content).toMatch(/单次总批准（consolidated approval，默认值制单问）/);
+    expect(content).toMatch(/主问方案方向/);
+    // 四项执行配置默认值随选项说明带出，不逐项确认
+    expect(content).toMatch(/SDD.{0,10}（预估 >5 天默认开启、≤5 天默认关闭/);
+    expect(content).toMatch(/TDD.{0,10}（[^）]{0,80}默认/);
+    expect(content).toMatch(/Worktree.{0,10}（[^）]{0,80}默认/);
+    expect(content).toMatch(/连续执行授权.{0,10}（默认授予/);
+    // 三固定选项：按推荐执行 / 换用备选 / 自定义
+    expect(content).toMatch(/①\*\*按推荐执行\*\*/);
+    expect(content).toMatch(/②\*\*换用备选方案/);
+    expect(content).toMatch(/③\*\*自定义\*\*/);
+    expect(content).not.toMatch(/固定用 `question` 询问用户是否开启 SDD/);
+  });
+
+  test('brainstorm 补问例外已删除：自定义遗漏回落默认值、不补问', () => {
+    const content = byName('sisyphus-brainstorm').content;
+    expect(content).not.toMatch(/一次补问/);
+    expect(content).toMatch(/回落默认值/);
+    expect(content).toMatch(/不补问/);
+    expect(content).toMatch(/不得追加批准类提问/);
+  });
+
+  test('plan 消费总批准，不再单独确认策略', () => {
+    const content = byName('sisyphus-plan').content;
+    expect(content).not.toMatch(/用 `question` 与用户确认 TDD 策略与 Worktree 策略/);
+    expect(content).toMatch(/沿用 Brainstorm 总批准|consolidated approval|via: 'consolidated'/);
+  });
+
+  test('plan 与 execute 的总批准失效边界一致', () => {
+    const plan = byName('sisyphus-plan').content;
+    const execute = byName('sisyphus-execute').content;
+    for (const [name, content] of [
+      ['sisyphus-plan', plan],
+      ['sisyphus-execute', execute],
+    ] as const) {
+      expect(content, `${name} 须声明需求变化触发重新总批准`).toMatch(REQ_CHANGE_RE);
+      expect(content, `${name} 须声明非需求变化仅重走 momus`).toMatch(NONREQ_CHANGE_RE);
+      expect(content, `${name} 非需求变化不得触发总批准失效`).not.toMatch(
+        /(Files|依赖|任务结构|失败重规划)[^\n]{0,120}总批准失效/,
+      );
+    }
+  });
+
+  test('全部 3 轮中断点引用统一上报模板并关联 question', () => {
+    const files: Array<[string, string]> = [
+      ['sisyphus-brainstorm', byName('sisyphus-brainstorm').content],
+      ['sisyphus-plan', byName('sisyphus-plan').content],
+      ['sisyphus-execute', byName('sisyphus-execute').content],
+      ['sisyphus-review', byName('sisyphus-review').content],
+      ['clipboard-image-observer', CLIPBOARD_IMAGE_OBSERVER_SKILL.content],
+    ];
+    for (const [name, content] of files) {
+      expect(content, `${name} 须引用 3 轮中断上报模板`).toMatch(/3 轮中断上报模板/);
+      expect(content, `${name} 上报须用 question`).toMatch(/3 轮中断上报模板用 `question`/);
+      expect(content, `${name} 上报须含 2-3 个方案`).toMatch(/2-3 个/);
+      expect(content, `${name} 上报须含推荐项`).toMatch(/推荐项/);
+    }
   });
 });
 
@@ -315,5 +485,45 @@ describe('CBM 阶段边界契约', () => {
       expect(review).toMatch(/momus[\s\S]{0,80}预估|预估[\s\S]{0,80}momus/i);
       expect(review).toMatch(/预估[\s\S]{0,60}对比|对比[\s\S]{0,60}预估/);
     });
+  });
+});
+
+// ─────────────────────────── Wave 1 跨文件契约一致性与全仓禁词 ────────────────────────────
+describe('Wave 1 跨文件契约一致性与全仓禁词', () => {
+  const sisyphusSystem = createSisyphusAgent().system ?? '';
+
+  test('sisyphus 主契约含 Workflow 标题、总批准默认值制口径且无禁词', () => {
+    expect(sisyphusSystem).toContain('## Sisyphus Workflow');
+    expect(sisyphusSystem).toContain('单次总批准（consolidated approval');
+    expect(sisyphusSystem).toMatch(/回落默认值/);
+    expect(sisyphusSystem).not.toMatch(BANNED_TERM);
+  });
+
+  test('复杂度分层口径在 sisyphus / intake / brainstorm 三处一致', () => {
+    for (const [name, content] of [
+      ['sisyphus system', sisyphusSystem],
+      ['sisyphus-intake', byName('sisyphus-intake').content],
+      ['sisyphus-brainstorm', byName('sisyphus-brainstorm').content],
+    ] as const) {
+      for (const tier of ['Trivial', 'Standard', 'Architecture'] as const) {
+        expect(content, `${name} 须包含复杂度档位 ${tier}`).toContain(tier);
+      }
+    }
+  });
+
+  test('全仓禁词扫描：src/、docs/、README.md、AGENTS.md 均无禁词残留', () => {
+    const files = [
+      ...listFiles(join(REPO_ROOT, 'src')),
+      ...listFiles(join(REPO_ROOT, 'docs')),
+      join(REPO_ROOT, 'README.md'),
+      join(REPO_ROOT, 'AGENTS.md'),
+    ];
+    expect(files.length, '禁词扫描应覆盖 src/ 与 docs/ 下的文件').toBeGreaterThan(0);
+    for (const file of files) {
+      // 超过 1MB 的文件跳过扫描（当前仓库无此量级文件）
+      if (statSync(file).size > MAX_SCAN_BYTES) continue;
+      const text = readFileSync(file, 'utf8');
+      expect(text, `禁词残留: ${file}`).not.toMatch(BANNED_TERM);
+    }
   });
 });

@@ -16,7 +16,7 @@ import { registerAutoUpdate } from './update';
 import { installStaged, resolveOpenCodeInstallContext } from './update/cache';
 import { updateManagedEntry, type ConfigEntry } from './update/config-entry';
 import { createTaskCoordinator, type TaskCoordinator } from './runtime/task-coordinator';
-import { resolveWorkspaceRootOrCwd } from './runtime/workspace';
+import { resolvePluginDirectory } from './runtime/host-adapter';
 import { createCleanupRunner, createHostCleanup, runOptionalStages } from './runtime/setup-stages';
 
 function toPermissions(
@@ -55,9 +55,29 @@ interface AgentRefreshState {
 
 /**
  * 应用 agent 定义到宿主（transform + reload）。
- * 应用 agent 定义到宿主（transform + reload），仅在插件 setup 时执行一次。
- * preset 切换不在此路径上（omo-slim 语义：切换只落盘，新会话/reload 生效）。
+ * 应用 agent 定义到宿主（transform + reload）。插件 setup 执行一次；
+ * /preset 切换时通过 rebuildAgents 再次调用以立即生效（当前会话模型切换
+ * + registry 重建，后续 subagent 立即使用新模型）。
  */
+/**
+ * merge 语义（非整体替换）合并 agent permissions：
+ * - 宿主 Tool.snapshot 按该数组过滤会话工具目录，permission 评估取
+ *   findLast（后声明优先）；
+ * - 以宿主 Agent.Info 默认基线（`*:* allow` + .env/外部目录 ask 特例）为底，
+ *   先剔除 incoming 接管的 action 再追加，保证幂等（transform 重跑不叠加）、
+ *   且 incoming 规则优先于基线生效。
+ */
+export function mergeAgentPermissions(
+  existing: ReadonlyArray<Record<string, unknown>> | undefined,
+  incoming: ReadonlyArray<{ action: string; resource: string; effect: string }>,
+): Array<Record<string, unknown>> {
+  const incomingActions = new Set(incoming.map((rule) => rule.action));
+  const base = (existing ?? []).filter(
+    (rule) => typeof rule?.action === 'string' && !incomingActions.has(rule.action),
+  );
+  return [...base, ...(incoming as unknown as Array<Record<string, unknown>>)];
+}
+
 async function applyAgentDefinitions(
   ctx: PluginSetupContext,
   config: PluginConfig,
@@ -105,7 +125,11 @@ async function applyAgentDefinitions(
         }
         if (def.options) Object.assign(agent.request.settings, def.options);
         if (def.permission !== undefined) {
-          agent.permissions = toPermissions(def.permission) as typeof agent.permissions;
+          // merge 语义说明见 mergeAgentPermissions 文档注释。
+          agent.permissions = mergeAgentPermissions(
+            agent.permissions,
+            toPermissions(def.permission),
+          ) as typeof agent.permissions;
         }
         const settings = new Set(Object.keys(def.options ?? {}));
         if (def.temperature !== undefined) settings.add('temperature');
@@ -158,26 +182,27 @@ export async function runSetup(
     options.cbm?.logger ?? ((message, meta) => console.warn(message, meta));
   const report = (stage: string, error: unknown) =>
     console.warn(`[oceanus] ${stage}`, error);
-  // OpenCode service 可承载多个项目，process.cwd() 是 service 守护进程的工作目录
-  // （通常为 ~），未必是当前会话所在项目。宿主按项目实例化插件，ctx.directory
-  // 即该插件实例绑定的项目目录（omo-slim 参考实现同样以 ctx.directory 为按项目
-  // 配置的键）；preset 必须始终使用它，才能与 TUI location 和项目级配置一致。
-  // 旧宿主确实不提供该字段时再回退到 process.cwd()。
-  const directory = ctx.directory ?? process.cwd();
+  // OpenCode service 可承载多个项目，优先使用 V2 location.directory；旧宿主
+  // 仍可能只提供顶层 directory，最后才回退到 service 的 cwd。
+  const directory = resolvePluginDirectory(ctx);
   const config = (options.loadConfig ?? loadPluginConfig)({ directory });
   const agentRefreshState: AgentRefreshState = {
     managedNames: new Set(),
     configuredSettings: new Map(),
   };
   let taskCoordinator: TaskCoordinator | undefined;
-  // 启动即恢复任务元数据；失败不阻塞插件其它能力（fail-open）。
+  // setup 期不存在真实会话：宿主 ctx.session 是 SessionDomain API 对象，
+  // 没有 sessionID/id 属性（契约见 runtime/types.ts）；绝不从中读取或伪造
+  // parent sessionID，也不以空 ID 调用宿主 session.get。
+  // TaskIndex 根使用插件实例绑定的项目目录（与配置解析同源；新宿主按项目
+  // scope 实例化插件，session.location.directory 与之同源），而非 service cwd。
   try {
-    const workspaceRoot = await resolveWorkspaceRootOrCwd(ctx.session, String((ctx.session as any).sessionID ?? (ctx.session as any).id ?? ''));
-    taskCoordinator = createTaskCoordinator({ workspaceRoot, session: ctx.session });
+    taskCoordinator = createTaskCoordinator({ workspaceRoot: directory, session: ctx.session });
     await taskCoordinator.ready();
-    // 启动恢复：以宿主事实收敛持久化任务状态（不伪造终态）。
-    const parentSessionId = String((ctx.session as any).sessionID ?? (ctx.session as any).id ?? '');
-    await taskCoordinator.reconcile(parentSessionId).catch(() => undefined);
+    // 不做 eager reconcile：setup 期没有真实 parent sessionID，以空/伪造 ID
+    // reconcile 只会产生无效宿主查询（甚至篡改 parent 为空的遗留记录）。
+    // 重启后的状态收敛只能由真实会话驱动：task_status/task_result 每次以
+    // 宿主 active/outcome 为准应答，task_revive 允许恢复非 running 记录。
     options.taskLifecycleObserver?.('supervisor', taskCoordinator);
   } catch { /* fail-open */ }
 
@@ -229,13 +254,9 @@ export async function runSetup(
         location: `/builtin/opencode-oceanus/${skill.name}/SKILL.md`,
         content: skill.content,
       };
-      // 宿主 beta-18230+ 的 skill draft 只暴露 source()/list()；
-      // 旧宿主只有 add(Skill.Info)。两者都尝试，失败即抛错触发阶段报告。
-      if (typeof draft.source === 'function') {
-        draft.source({ type: 'embedded', skill: info });
-      } else {
-        draft.add(info);
-      }
+      // beta-18230 的官方 SkillDraft 契约使用 add/update/remove；不调用未公开
+      // 的 source()，避免特性探测把 skill 注册导向非标准分支。
+      draft.add(info);
     }
         });
         await ctx.skill.reload();
@@ -254,7 +275,7 @@ export async function runSetup(
     const switchSessionModel = async (sessionID: string, presetName: string): Promise<string | null> => {
       try {
         const config = (options.loadConfig ?? loadPluginConfig)({ directory });
-        const agentName = (await ctx.session.get?.(sessionID))?.agent;
+        const agentName = (await ctx.session.get?.({ sessionID }))?.agent;
         if (!agentName) return null;
         const override = (config.presets ?? {})[presetName]?.[agentName] as
           | { model?: string | Array<string | { id: string; variant?: string }>; variant?: string }
@@ -495,7 +516,7 @@ export async function runSetup(
  *
  * 通过 ctx.agent.transform 注册一组参考 oh-my-opencode-slim 的 agent：
  * - oceanus（主 agent，颜色 #0FFFFF）
-   * - sisyphus（主 agent，superpowers 六阶段工作流）
+   * - sisyphus（主 agent，六阶段工作流）
  * - explorer / librarian / oracle / designer / fixer / observer / metis / momus（子 agent，observer 默认禁用）
  *
  * 同时通过 ctx.skill.transform 注入 sisyphus 工作流的六个阶段 Skill

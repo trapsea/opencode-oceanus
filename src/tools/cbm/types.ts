@@ -43,7 +43,8 @@ export type CbmCliErrorCode =
   | 'exit_nonzero'
   | 'invalid_json'
   | 'output_oversize'
-  | 'spawn_failed';
+  | 'spawn_failed'
+  | 'internal_error';
 
 /** 结构化错误：区分二进制缺失 / 越界 / 超时 / 退出码 / 非 JSON / 超大输出 / spawn 失败。 */
 export interface CbmCliError {

@@ -122,6 +122,14 @@ export function applyAppend(lines: string[], text: string | string[]): string[] 
   if (lines.length === 1 && lines[0] === "") {
     return [...normalized]
   }
+  // 尾换行文件经 split("\n") 后末尾是幻影空行（代表结尾换行，写回依赖它还原）。
+  // 把新行插到幻影行之前：既不产生多余空行，也不丢失结尾换行；
+  // 若追加文本自带结尾换行（归一化后末位为空串），直接复用，不再补幻影行。
+  if (lines.length > 0 && lines[lines.length - 1] === "") {
+    return normalized[normalized.length - 1] === ""
+      ? [...lines.slice(0, -1), ...normalized]
+      : [...lines.slice(0, -1), ...normalized, ""]
+  }
   return [...lines, ...normalized]
 }
 

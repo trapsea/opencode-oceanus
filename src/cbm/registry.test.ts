@@ -173,6 +173,23 @@ describe('cbmSection 角色段落', () => {
     expect(section).toMatch(/fail-open|不可用/i);
   });
 
+  test('momus：校验 Plan impact_estimate 覆盖，不要求全量 trace，保持 advisory/fail-open', () => {
+    const section = cbmSection('momus');
+    expect(section).toMatch(/impact_estimate/);
+    expect(section).toMatch(/校验|检查/);
+    expect(section).toMatch(/覆盖/);
+    expect(section).toMatch(/不要求|不执行.*全量|无需.*全量/);
+    expect(section).toMatch(/advisory|建议性/i);
+    expect(section).toMatch(/fail-open/i);
+  });
+
+  test('registry 生命周期与 Momus 段落对职责文案保持一致', () => {
+    expect(CBM_LIFECYCLE.full).toContain('impact_estimate');
+    expect(CBM_LIFECYCLE.full).toMatch(/不要求.*全量|不执行.*全量/);
+    expect(CBM_LIFECYCLE.full).toMatch(/advisory|建议性/i);
+    expect(cbmSection('momus')).toContain('fail-open');
+  });
+
   test('metis：SOLUTION_ANALYSIS 检索用查询型 CBM', () => {
     const section = cbmSection('metis');
     expect(section).toMatch(/cbm_search_graph|cbm_code/);

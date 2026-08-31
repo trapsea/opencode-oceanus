@@ -26,6 +26,8 @@ export interface SpawnProc {
   /** 进程退出时 resolve 退出码；spawn 失败时 reject。 */
   exited: Promise<number>;
   kill: (signal?: NodeJS.Signals | number) => boolean;
+  /** 向标准输入写入数据；不可用时省略。 */
+  stdin?: (data: string) => void;
   readonly exitCode: number | null;
 }
 
@@ -77,6 +79,10 @@ export function crossSpawn(command: string[], options: SpawnOptions = {}): Spawn
     stderr,
     exited,
     kill: (signal) => child.kill(signal as NodeJS.Signals),
+    stdin: (data) => {
+      child.stdin?.write(data);
+      child.stdin?.end();
+    },
     get exitCode() {
       return child.exitCode;
     },

@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crossSpawn, type SpawnFn } from '../../cbm/process';
 import { getBinaryPath, getCacheRoot, getCurrentManifestPath } from '../../cbm/paths';
@@ -163,10 +164,12 @@ async function runPass(
   env: Record<string, string | undefined>,
   timeoutMs: number,
   tool: string,
+  stdinData?: string,
 ): Promise<PassOutcome> {
   let proc;
   try {
-    proc = spawn(command, { cwd, env, stdout: 'pipe', stderr: 'pipe' });
+    proc = spawn(command, { cwd, env, stdout: 'pipe', stderr: 'pipe', stdin: stdinData === undefined ? 'ignore' : 'pipe' });
+    if (stdinData !== undefined) proc.stdin?.(stdinData);
   } catch (e) {
     return { kind: 'fatal', error: normalizeSpawnError(e) };
   }
@@ -194,10 +197,9 @@ async function runPass(
   let stderr: string;
   let exitCode: number;
   try {
-    [stdout, stderr, exitCode] = await Promise.all([
-      Promise.race([proc.stdout(), timeoutPromise]),
-      proc.stderr(),
-      proc.exited,
+    [stdout, stderr, exitCode] = await Promise.race([
+      Promise.all([proc.stdout(), proc.stderr(), proc.exited]),
+      timeoutPromise,
     ]);
   } catch (e) {
     if (timedOut) {
@@ -210,6 +212,8 @@ async function runPass(
       };
     }
     return { kind: 'fatal', error: normalizeSpawnError(e) };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 
   return { kind: 'output', stdout, stderr, exitCode };
@@ -295,14 +299,41 @@ async function execute(
   env: Record<string, string | undefined>,
   timeoutMs: number,
   maxOutputBytes: number,
+  mode: 'args-file' | 'stdin' | 'raw' = 'raw',
 ): Promise<{ result: CbmCliResult; stderr: string }> {
-  const command = [binaryPath, 'cli', tool, jsonArg];
-  const pass = await runPass(spawn, command, cwd, env, timeoutMs, tool);
+  let argsFileDir: string | undefined;
+  let command: string[];
+  let stdinData: string | undefined;
+  if (mode === 'args-file') {
+    argsFileDir = mkdtempSync(join(tmpdir(), 'cbm-args-'));
+    const argsFile = join(argsFileDir, 'args.json');
+    writeFileSync(argsFile, jsonArg);
+    command = [binaryPath, 'cli', tool, '--args-file', argsFile];
+  } else if (mode === 'stdin') {
+    command = [binaryPath, 'cli', tool];
+    stdinData = jsonArg;
+  } else command = [binaryPath, 'cli', tool, jsonArg];
+  let pass: PassOutcome;
+  try {
+    pass = await runPass(spawn, command, cwd, env, timeoutMs, tool, stdinData);
+  } finally {
+    if (argsFileDir) rmSync(argsFileDir, { recursive: true, force: true });
+  }
   const stderr = pass.kind === 'output' ? pass.stderr : '';
   return {
     result: resultFromPass(pass, tool, maxOutputBytes),
     stderr,
   };
+}
+
+function isUnsupportedInputMode(stderr: string): boolean {
+  // 只将明确针对输入协议的诊断视为 fallback；“invalid argument”通常是业务参数错误。
+  return /(?:unknown|unrecognized|unsupported|unexpected)\s+(?:option|flag)\b|(?:option|flag)\s+['`-]*(?:args-file|stdin)\b|(?:args-file|stdin)\s+(?:is not supported|unsupported|unknown)|(?:unsupported|unknown|unrecognized)\s+(?:args-file|stdin)\b/i.test(stderr);
+}
+
+function internalErrorResult(tool: string, error: unknown): CbmCliResult {
+  const message = error instanceof Error ? error.message : String(error);
+  return { ok: false, tool, data: null, error: { code: 'internal_error', message } };
 }
 
 /**
@@ -327,6 +358,7 @@ export async function runCbmCli(
   const spawn = deps.spawn ?? crossSpawn;
   const canonical = canonicalToolName(options.tool);
 
+  try {
   // 1. 路径越界校验
   let projectPath: string | undefined;
   try {
@@ -343,7 +375,7 @@ export async function runCbmCli(
         error: { code: 'workspace_boundary', message: e.message },
       };
     }
-    throw e;
+    return internalErrorResult(canonical, e);
   }
 
   // 2. 二进制解析：显式 binaryPath → ensureInstalled（共享 Promise）→ resolveBinary
@@ -392,9 +424,23 @@ export async function runCbmCli(
     env,
     timeoutMs,
     maxOutputBytes,
+    'args-file',
   );
 
   let result = first.result;
+
+  // 新 CLI 优先 args-file；仅明确表示不支持该输入方式时逐级回退。
+  const protocolFallback = isUnsupportedInputMode(first.stderr) ||
+    (isTraceTool(options.tool) && canonical === TRACE_PATH_TOOL && isToolNotFoundOutput('', first.stderr));
+  if (!result.ok && result.error?.code === 'exit_nonzero' && protocolFallback) {
+    const stdinPass = await execute(spawn, binaryPath, canonical, jsonArg, workspaceRoot, env, timeoutMs, maxOutputBytes, 'stdin');
+    result = stdinPass.result;
+    if (!result.ok && result.error?.code === 'exit_nonzero' &&
+      (isUnsupportedInputMode(stdinPass.stderr) ||
+        (isTraceTool(options.tool) && canonical === TRACE_PATH_TOOL && isToolNotFoundOutput('', stdinPass.stderr)))) {
+      result = (await execute(spawn, binaryPath, canonical, jsonArg, workspaceRoot, env, timeoutMs, maxOutputBytes, 'raw')).result;
+    }
+  }
 
   // 6. trace_path 旧版本 fallback：canonical 调用因“工具不存在”失败时重试 trace_call_path
   if (
@@ -420,4 +466,7 @@ export async function runCbmCli(
   }
 
   return result;
+  } catch (e) {
+    return internalErrorResult(canonical, e);
+  }
 }

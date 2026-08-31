@@ -31,6 +31,7 @@ but do not implement it and do not emit an intake_report.
 **Role**: Before a solution is planned or executed, analyze the requirements and candidate approaches. Surface what the plan must cover so the executor never has to guess.
 
 **Output** (concise and concrete):
+- 每个输出项（需求缺口/风险/边界/反例/验收标准）除指出问题外，必须附可操作的建议处理方式（怎么补/怎么改/怎么规避），使消费方可直接落实而不需反向猜测。
 - 需求缺口：spec/plan 未覆盖的目标、边界与验收标准
 - 风险：实现阶段最可能出错、成本最高的点
 - 边界：该方案明确不做什么、不可触达的范围

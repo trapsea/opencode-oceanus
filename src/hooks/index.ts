@@ -23,6 +23,8 @@ import { createToolOutputTruncator } from './tool-output-truncator';
 import { createToolLoopGuardHook } from './tool-loop-guard';
 import { createCbmGuidanceHook } from './cbm-guidance';
 import { createHashlineReadEnhancer } from './hashline-read-enhancer';
+import { registerImageMaterializer } from './image-materializer';
+import { registerImageErrorHint } from './image-error-hint';
 import { createSubagentBridge } from '../runtime/subagent-bridge';
 import type { TaskCoordinator } from '../runtime/task-coordinator';
 import {
@@ -31,12 +33,13 @@ import {
   getCodebaseMemoryConfig,
   isCodebaseMemoryEnabled,
   isCodebaseMemoryGuidanceEnabled,
+  isOrchestratorVisionSupported,
 
 } from '../config/utils';
 import { createIndexer, type IndexerHandle, type IndexerRunCli } from '../cbm/indexer';
 import type { CbmRunDeps } from '../tools/cbm/types';
 import type { PluginConfig } from '../config/schema';
-import { resolveWorkspaceRoot } from '../runtime/workspace';
+import { resolveWorkspaceRoot, resolveWorkspaceRootOrCwd } from '../runtime/workspace';
 import type { ToolingContext } from '../runtime/types';
 
 /** 注册期可选依赖（日志注入，测试可传入 spy）。 */
@@ -244,6 +247,51 @@ export async function registerOceanusHooks(
       await ctx.tool.hook('execute.after', cbmGuidance.after as never);
     } catch (e) {
       log('[oceanus] 注册 cbm-guidance hook 失败', { error: messageOf(e) });
+    }
+  }
+
+  // ── image-materializer / image-error-hint：粘贴图片物化与兜底提示 ──
+  // prompt 阶段把 data:image/* 附件物化到 .oceanus/media/ 并追加路径提示；
+  // retry 阶段识别 "does not support image input" 注入引导。
+  // beta-18230 的 SessionDomain hook 名联合未覆盖 prompt/retry，但 prompt hook 在
+  // 实际 Host 中可用：以下全部走运行时能力探测（typeof 检查 + 独立 try/catch），
+  // 不得因类型未声明而删除注册。两个 hook 能力相互独立、各自 fail-open：
+  // 不能从 prompt 可用推断 retry 可用；retry 被宿主拒绝也不影响 prompt 注册。
+  if (isHookEnabled(config, 'image_materializer')) {
+    try {
+      const sessionAny = ctx.session as unknown as {
+        hook?: (name: string, cb: (event: never) => Promise<void> | void) => Promise<unknown>;
+      };
+      if (typeof sessionAny.hook === 'function') {
+        await registerImageMaterializer(
+          { hook: (name, cb) => sessionAny.hook!(name, cb) },
+          () => isOrchestratorVisionSupported(config),
+          {
+            getWorkspaceRoot: async (sessionID: string) =>
+              (await resolveWorkspaceRootOrCwd(ctx.session, sessionID)),
+            logger: (message, meta) => log(message, meta),
+          },
+        );
+      }
+    } catch (e) {
+      log('[oceanus] 注册 image-materializer 失败（fail-open）', { error: messageOf(e) });
+    }
+  }
+  if (isHookEnabled(config, 'image_error_hint')) {
+    try {
+      const sessionAny = ctx.session as unknown as {
+        hook?: (name: string, cb: (event: never) => Promise<void> | void) => Promise<unknown>;
+        synthetic?: (input: { sessionID: string; text: string }) => Promise<unknown>;
+      };
+      if (typeof sessionAny.hook === 'function' && typeof sessionAny.synthetic === 'function') {
+        await registerImageErrorHint(
+          { hook: (name, cb) => sessionAny.hook!(name, cb) },
+          (input) => sessionAny.synthetic!(input),
+          (message, meta) => log(message, meta),
+        );
+      }
+    } catch (e) {
+      log('[oceanus] 注册 image-error-hint 失败（fail-open）', { error: messageOf(e) });
     }
   }
 }

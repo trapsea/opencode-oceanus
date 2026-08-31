@@ -47,7 +47,7 @@ const SKILL_ANCHORS: Record<
   },
   'sisyphus-review': {
     must: [
-      /at\s+the\s+start\s+of\s+Review[\s\S]{0,120}[`']?cbm_index[`']?/i,
+      /Review\s+开始[\s\S]{0,120}[`']?cbm_index[`']?/i,
       /变更入口[\s\S]{0,80}独立验证/,
       /CBM 不可用[\s\S]{0,80}(降级|degrade)/,
     ],

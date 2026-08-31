@@ -107,7 +107,7 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
     expect(mock.afterHooks).toHaveLength(5);
   });
 
-   test('默认注册 15 个工具 + 9 个 hooks（3 before + 5 after）', async () => {
+   test('默认注册 16 个工具 + 9 个 hooks（3 before + 5 after）', async () => {
     const mock = createMockCtx();
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
@@ -116,6 +116,7 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
       [
         'ast_grep_replace',
         'ast_grep_search',
+        'clipboard_image',
         'hashline_edit',
         'task_cancel',
         'task_result',
@@ -141,6 +142,7 @@ describe('v2 host smoke：注册契约（mock ctx）', () => {
          'task_cancel',
          'task_message',
          'task_revive',
+         'clipboard_image',
         ...CBM_TOOLS,
       ],
       disabled_hooks: [

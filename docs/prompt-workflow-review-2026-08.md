@@ -3,47 +3,49 @@
 - 日期：2026-08-29
 - 审查范围：`src/agents/oceanus.ts`、`src/agents/sisyphus.ts`、`src/agents/orchestrator-context.ts`、`src/agents/momus.ts`、`src/agents/metis.ts`、六个 `sisyphus-*` skills、`src/skills/opencode-oceanus.ts`
 - 对比基准：`oh-my-opencode-slim`（本地 `/apple/workspace/ocean/oh-my-opencode-slim`，oceanus 直接上游）与 `oh-my-openagent`（code-yeongyu/oh-my-openagent，omo 主系通用版，基于远端调研）
-- 状态：问题清单已核对；优化方案已定；**尚未实施**
+- 状态（P15，2026-08-29）：P1-P14 已落地并通过对应测试（全量 1021 pass/8 skip/0 fail）；下表区分代码/测试行为与真实 OpenCode Host、CBM daemon、ast-grep 环境验证，不把 mock、fake 或静态证据记为真实成功。
 
 ---
 
-## 一、问题清单（16 项，按严重程度分组）
+## 一、问题清单（18 项，按严重程度分组）
+
+状态说明：**已修复**表示已有实现与测试证据；**部分修复**表示协议已落地但仍受运行环境或 Host 能力限制；**未修复/待办**表示当前实现未覆盖。
 
 ### A. 结构性问题（高优先级）
 
-| # | 问题 | 上游核对结论 |
-|---|------|------------|
-| 1 | Sisyphus 提示词用 `replaceRole` + `replace('</Workflow>')` 字符串手术组装，脆弱且难以审计；上游结构变化会静默退化 | slim 的 `architect.ts` 同源同模式；属继承问题，仍值得改为 sections 化 |
-| 2 | Oceanus Workflow 编号断裂（1/2/3/4/6，缺 5），Verify 一节过薄，与 Sisyphus Review 不对称 | slim 同样缺 5；复制残留 |
-| 3 | 指令大规模重复：调度协议 ×3（Oceanus 正文 / `DELEGATION_BRIEF_PROMPT` / Sisyphus `TASK_CONTINUITY`）、ledger 协议 ×3、终态确认 ×6 | 重复为 oceanus 自行叠加的增量层；slim 无这两段 |
-| 4 | 中英混杂无规则（英文正文嵌中文段落：Delegation Brief、CBM 段、Sisyphus 追加段） | slim 本身就是"英文 prompt + 中文 skill"双语结构；问题范围缩小为 orchestrator 内嵌中文段 |
+| # | 问题 | 当前状态与实现证据 | 上游核对结论 |
+|---|------|----------------------|------------|
+| 1 | Sisyphus 提示词用字符串手术组装 | 已修复：`oceanus.ts` 提供 sections/render，`sisyphus.ts` 显式组装；`prompt-sections.test.ts` 覆盖顺序与闭合标签 | slim 的 `architect.ts` 同源同模式；属继承问题 |
+| 2 | Workflow 编号断裂、Verify 过薄 | 已修复：阶段/步骤契约已统一；`src/skills/stages.test.ts` 验证编号与阶段结构 | slim 同样缺 5；复制残留 |
+| 3 | 指令大规模重复 | 已修复：协议常量集中于 `protocol.ts`，`protocol.test.ts` 固定关键契约 | 重复为 oceanus 增量层 |
+| 4 | 中英混杂无规则 | 已修复：按 agent prompt/skill 文件边界统一语言，相关断言见 prompt 测试 | slim 本身为英文 prompt + 中文 skill |
 
 ### B. 逻辑矛盾与含糊指令（中高优先级）
 
-| # | 问题 | 上游核对结论 |
-|---|------|------------|
-| 5 | 双门禁（Momus OKAY + 人工 APPROVED）无获取/记录机制；`sisyphus-execute` 只写了单门禁，与 plan skill/agent 正文矛盾 | slim 无门禁；openagent 有 metis/momus 门禁先例，思路保留但需完整协议 |
-| 6 | Metis 触发条件在 oceanus 卡片、sisyphus.ts 门禁、brainstorm skill 三处定义不一致；sisyphus.ts:44 病句把"复杂任务"与"仅未决方案"混在一句 | oceanus 内部漂移；单一来源化 |
-| 7 | Oceanus 引用 Sisyphus 专属产物（`progress.md` 落盘台账创建时机、`todowrite`）与未注入时的 Task Board 缺省行为 | 双身份导致职责边界模糊，上游无此问题 |
-| 8 | 运行时守卫（LANE_CONFLICT、dispatch-guard、Active/Unreconciled 语义）解释散落，模型只能靠猜 | oceanus 增量；需统一小节 |
+| # | 问题 | 当前状态与实现证据 | 上游核对结论 |
+|---|------|----------------------|------------|
+| 5 | 双门禁无获取/记录机制 | 已修复：Plan 明确 Momus + human APPROVED、Gate Status 与变更失效规则；`gate.test.ts` 覆盖 | slim 无门禁；openagent 有门禁先例 |
+| 6 | Metis 触发条件漂移 | 已修复：统一触发协议并由 `protocol.test.ts`/prompt 测试覆盖 | oceanus 内部漂移 |
+| 7 | Oceanus/Sisyphus 产物与 Task Board 边界模糊 | 已修复：明确会话级 todo、Sisyphus 台账及无注入时缺省行为；`stages.test.ts` 覆盖 | 双身份导致职责边界模糊 |
+| 8 | 运行时守卫语义散落 | 已修复：`RUNTIME_GUARDS` 集中，相关 protocol/dispatch 测试覆盖 | oceanus 增量 |
 
 ### C. 角色与门禁设计（中优先级）
 
-| # | 问题 | 上游核对结论 |
-|---|------|------------|
-| 9 | Momus 承担 CBM 影响面预估（search_graph→trace→code），与 Metis SOLUTION_ANALYSIS 重叠，违背"轻量只读门禁"定位 | oceanus 增量；上移到 Plan 阶段 Sisyphus 自查 |
-| 10 | `sisyphus-finish` 调用未定义的 `decideFinish`，幽灵引用 | oceanus 独有缺陷 |
-| 11 | Failing-First 两份证据（RED+GREEN + 真实表面工件）对所有改动无条件强制，小改动过重 | slim 用计划期声明式开关（TDD strategy: enabled/disabled + 禁用理由）+ "证据缺失即视为未完成"；采纳 slim 方案为主 |
-| 12 | Review 强制重建 CBM 索引无 fail-open/超时预算，大仓库会阻塞主线 | oceanus 增量；需与 Intake fail-open 原则统一 |
+| # | 问题 | 当前状态与实现证据 | 上游核对结论 |
+|---|------|----------------------|------------|
+| 9 | Momus 承担 CBM 影响面预估 | 已修复：Plan 生成 `impact_estimate`，Momus 只校验覆盖；`gate.test.ts`、`cbm/registry.test.ts` 覆盖 | oceanus 增量 |
+| 10 | finish 调用幽灵 `decideFinish` | 已验证代码行为：Finish 使用自包含判定矩阵；`finish.test.ts` 覆盖。尚未在真实 OpenCode Host 执行 Finish 全链路 | oceanus 独有缺陷 |
+| 11 | Failing-First 对所有改动无条件强制 | 已修复：strict/light/exempt 分级与 evidence 契约；`evidence.test.ts` 覆盖 | 采纳 slim 声明式方案 |
+| 12 | Review CBM 无 fail-open/超时预算 | 已修复：一次重建、有限重试、stale/fail-open 与 grep/read 降级；`review-budget.test.ts` 覆盖 | oceanus 增量 |
 
 ### D. 文本与格式质量（低优先级但有执行影响）
 
-| # | 问题 | 上游核对结论 |
-|---|------|------------|
-| 13 | 占位符不统一（`…`、省略号可能被照抄）；"禁止全角标点"规则与自身中文正文表述自相矛盾 | 需区分"工具调用示例"与"说明性正文" |
-| 14 | 步骤编号错乱：brainstorm 两个 "2."、plan 6/7/8 前导空格、intake 缩进混乱；markdown 列表断裂降低指令权重 | slim 用手写 SKILL.md 较规整；根源是 oceanus 内嵌 TS 模板串 |
-| 15 | 禁用 agent 后正文仍残留硬编码引用（@metis/@momus/@oracle/@sisyphus）；`buildMetisMomusGate` 只处理了门禁段 | slim 同病（正文不过滤）；oceanus 已部分领先，应补全 |
-| 16 | 杂项：metis 卡片仍宣传 INTAKE 模式（实现仅 SOLUTION_ANALYSIS，且 `Modes:` 行含不可见分隔符）；`resolvePrompt` 两 agent 参数语义对调；skills frontmatter 与 TS 层双 description | oceanus 内部问题 |
+| # | 问题 | 当前状态与实现证据 | 上游核对结论 |
+|---|------|----------------------|------------|
+| 13 | 占位符与标点规则不统一 | 已修复：占位符与工具参数规则已明确；由 skills/prompt 断言守护 | 区分工具示例与说明正文 |
+| 14 | 步骤编号错乱、Markdown 列表断裂 | 已修复：阶段步骤格式统一；`stages.test.ts` 有序编号断言 | 根源是内嵌 TS 模板串 |
+| 15 | 禁用 agent 后残留硬编码引用 | 已修复：按 `disabledAgents` 参数化过滤；prompt 测试覆盖禁用组合 | slim 同病；oceanus 已部分领先 |
+| 16 | metis 模式、resolvePrompt 与 frontmatter 杂项 | 已修复：模式/解析函数/字段契约已对齐；agent/index 测试覆盖 | oceanus 内部问题 |
 
 ---
 
@@ -182,14 +184,14 @@ index_status_failed:
 处置：允许回退原生工具（grep/glob/read），未阻塞审查主线。
 ```
 
-由此暴露的实现层问题（新增为优化项，编号 C-17/C-18）：
+由此暴露的实现层问题（P11-P14 已覆盖代码与测试层，真实环境仍是验证缺口，编号 C-17/C-18）：
 
 | # | 问题 | 方案 |
 |---|------|------|
-| 17 | CBM CLI 仍以 raw JSON 位置参数方式调用 `cli index_status`，上游已弃用，未来版本会移除 | 迁移到 flags / `--args-file` / piped stdin 调用方式；在 `src/cbm/` 调用层统一封装并加版本兼容测试 |
-| 18 | daemon 30s 无法接受客户端即判定失败，但日志显示 daemon 正在正常初始化（预算 11GB / 总 32GB RAM），属于"冷启动慢"而非"不可用"；当前提示词把该场景一律降级，会丢失本可用的图谱能力 | (a) 区分 `starting` 与 `failed`：starting 时允许一次更长等待或后台重试，仍失败才降级；(b) 与优化项 12（Review 阶段 fail-open 预算）合并实现——降级状态写 `cbm: starting->stale(<时间>)` 而非笼统 failed；(c) 记录 daemon 冷启动耗时基线，作为超时阈值设定依据 |
+| 17 | CBM CLI 仍以 raw JSON 位置参数方式调用 `cli index_status`，上游已弃用，未来版本会移除 | **已验证代码行为**：CLI 优先使用 `--args-file`，并有 raw JSON/旧命令兼容回退；`src/tools/cbm/cli.test.ts` 覆盖。未在真实 CBM CLI 版本矩阵中验证兼容性 |
+| 18 | daemon 30s 无法接受客户端时区分不出冷启动与失败 | **已验证代码行为、真实环境未验证**：已有 starting/stale 状态、一次重建/有限重试、超时预算与 fail-open；测试覆盖 starting→重试决策，但尚未在真实 CBM daemon/Host 冷启动链路验证 |
 
-该事件同时验证了审查结论：**fail-open 降级路径是必要且有效的**（审查未被打断），但当前降级判定粒度过粗（问题 18）。
+该事件提供了 fail-open 降级路径在本次审查中的运行记录（审查未被打断），但不构成真实 daemon 功能成功证据；starting/stale 判定仍需真实环境验证（问题 18）。
 
 ---
 
@@ -197,4 +199,4 @@ index_status_failed:
 
 - slim 侧结论基于本地源码一手核对（`/apple/workspace/ocean/oh-my-opencode-slim/src/agents/orchestrator.ts`、`architect.ts`、`src/skills/architect-*/SKILL.md`）。
 - openagent 侧结论基于 @librarian 远端调研（工厂签名、配置 schema、team-mode 类型、README），**具体提示词正文未获取**；涉及 openagent 的校准动作（问题 6 措辞）在实施前建议再定向抓取 `packages/omo-opencode/src/agents/` 下 prompt 文件。
-- 本文档为审查记录，所有方案**未实施**；实施时以本文档为基线，逐 Wave 更新 `.oceanus/progress/` 台账。
+- 本文档已按 P1-P14 更新；问题 1-16 均有代码/测试证据，问题 17 已完成 CLI 兼容实现但真实版本矩阵未验证，问题 18 已完成 starting/stale 降级实现但真实 daemon/Host 冷启动路径仍需验证；问题 10 同样未宣称真实 Host 全链路成功。

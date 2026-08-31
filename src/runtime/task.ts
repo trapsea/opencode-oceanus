@@ -79,4 +79,68 @@ export async function readSessionOutcome(
   return info?.outcome;
 }
 
+/**
+ * 从单条消息记录中宽松提取文本（兼容 v2 宿主消息的多形态：
+ * 顶层 text / parts:[{type:'text',text}] / content:[{text}]）。
+ */
+function pickMessageText(rec: Record<string, unknown>): string | undefined {
+  if (typeof rec.text === 'string' && rec.text.trim().length > 0) return rec.text;
+  for (const key of ['parts', 'content']) {
+    const v = rec[key];
+    if (!Array.isArray(v)) continue;
+    const joined = v
+      .map((seg) =>
+        typeof seg === 'object' && seg !== null && typeof (seg as Record<string, unknown>).text === 'string'
+          ? ((seg as Record<string, unknown>).text as string)
+          : '',
+      )
+      .filter((s) => s.length > 0)
+      .join('\n');
+    if (joined.trim().length > 0) return joined;
+  }
+  return undefined;
+}
+
+/** 从消息数组倒序提取最后一条 assistant 消息文本（role 兼容顶层与 info.role）。 */
+function extractLastAssistantText(messages: unknown): string | undefined {
+  if (!Array.isArray(messages) || messages.length === 0) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (typeof m !== 'object' || m === null) continue;
+    const rec = m as Record<string, unknown>;
+    const role =
+      typeof rec.role === 'string'
+        ? rec.role
+        : typeof rec.info === 'object' && rec.info !== null && typeof (rec.info as Record<string, unknown>).role === 'string'
+          ? ((rec.info as Record<string, unknown>).role as string)
+          : undefined;
+    if (role !== 'assistant') continue;
+    const text = pickMessageText(rec) ?? (typeof rec.info === 'object' && rec.info !== null ? pickMessageText(rec.info as Record<string, unknown>) : undefined);
+    if (text) return text;
+  }
+  return undefined;
+}
+
+/**
+ * 读取子会话最后一条 assistant 输出文本（task_revive / task_result 内容通道）。
+ * 依赖宿主 `session.context`；未暴露或读取失败一律 fail-open 返回 undefined，
+ * 绝不影响状态机语义。
+ */
+export async function readSessionLastAssistantText(
+  session: SessionLike,
+  sessionId: string | undefined,
+  maxChars = 8000,
+): Promise<string | undefined> {
+  if (!sessionId) return undefined;
+  if (typeof session.context !== 'function') return undefined;
+  try {
+    const messages = await session.context({ sessionID: sessionId });
+    const text = extractLastAssistantText(messages);
+    if (!text) return undefined;
+    return text.length > maxChars ? text.slice(0, maxChars) : text;
+  } catch {
+    return undefined;
+  }
+}
+
 export { isTerminalStatus };

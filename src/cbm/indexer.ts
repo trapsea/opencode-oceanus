@@ -26,7 +26,7 @@ import {
  */
 
 /** 归一化后的项目索引状态。 */
-export type IndexStatusKind = 'indexed' | 'unindexed' | 'indexing' | 'unknown';
+export type IndexStatusKind = 'indexed' | 'unindexed' | 'starting' | 'stale' | 'degraded' | 'unknown';
 
 /** 状态检查失败的错误码（含归一化失败情形）。 */
 export type IndexStatusErrorCode =
@@ -39,6 +39,9 @@ export type IndexStatusErrorCode =
 /** `index_status` 结构化结果归一化。 */
 export interface IndexStatusInfo {
   kind: IndexStatusKind;
+  /** CBM daemon 启动中的观测序号与经过时间。 */
+  attempt?: 1 | 2;
+  elapsedMs?: number;
   errorCode?: IndexStatusErrorCode;
   errorMessage?: string;
 }
@@ -92,6 +95,8 @@ export type IndexerOutcome =
   /** 首次自动索引已触发并成功。 */
   | { kind: 'index_started' }
   /** CBM 自身报告正在索引（查询期间返回 indexing in progress）。 */
+  | { kind: 'starting'; attempt: 1 | 2; elapsedMs: number }
+  /** @deprecated 兼容旧调用方；新状态统一为 starting。 */
   | { kind: 'indexing' }
   /** 未索引且自动索引关闭 → 允许 fallback。 */
   | { kind: 'skipped_auto_index_disabled' }
@@ -100,7 +105,7 @@ export type IndexerOutcome =
   /** 索引/状态检查失败 → 降级，允许 fallback。 */
   | {
       kind: 'degraded';
-      reason: 'index_failed' | 'index_status_failed' | 'exception';
+      reason: 'index_failed' | 'index_status_failed' | 'stale' | 'exception';
       errorCode?: IndexStatusErrorCode;
       message?: string;
     };
@@ -153,10 +158,12 @@ export function normalizeIndexStatus(result: CbmCliResult): IndexStatusInfo {
     return { kind: 'unknown', errorCode: 'empty_result' };
   }
   const d = data as Record<string, unknown>;
-  if (d.in_progress === true || d.indexing === true || d.status === 'indexing') {
-    return { kind: 'indexing' };
-  }
   const status = typeof d.status === 'string' ? d.status.toLowerCase() : undefined;
+  if (d.in_progress === true || d.indexing === true || status === 'indexing' || status === 'starting') {
+    return { kind: 'starting' };
+  }
+  if (status === 'stale') return { kind: 'stale' };
+  if (status === 'degraded') return { kind: 'degraded' };
   if (status === 'indexed' || d.indexed === true) return { kind: 'indexed' };
   if (
     status === 'unindexed' ||
@@ -207,6 +214,7 @@ export function createIndexer(options: IndexerOptions = {}): IndexerHandle {
   const indexedProjects = new Set<string>();
   const inFlight = new Map<string, Promise<IndexerOutcome>>();
   const lastOutcomes = new Map<string, IndexerOutcome>();
+  const startingState = new Map<string, { attempt: 1 | 2; startedAt: number }>();
   const buildEnv = (env?: Record<string, string | undefined>) => ({
     ...options.env,
     ...env,
@@ -271,22 +279,40 @@ export function createIndexer(options: IndexerOptions = {}): IndexerHandle {
       return outcome;
     }
 
-    const check = await checkStatus(projectPath, opts);
+    const state = startingState.get(key);
+    const startedAt = state?.startedAt ?? Date.now();
+    const boundedOpts = (): EnsureIndexedOptions => ({
+      ...opts,
+      timeoutMs: Math.min(opts.timeoutMs, Math.max(0, 90_000 - (Date.now() - startedAt))),
+    });
+    const check = await checkStatus(projectPath, boundedOpts());
     if (check.kind === 'indexed') {
       indexedProjects.add(key);
+      startingState.delete(key);
       const outcome: IndexerOutcome = { kind: 'indexed' };
       lastOutcomes.set(key, outcome);
       return outcome;
     }
-    if (check.kind === 'indexing') {
-      const outcome: IndexerOutcome = { kind: 'indexing' };
+    if (check.kind === 'starting') {
+      if (state?.attempt === 2) {
+        const outcome: IndexerOutcome = {
+          kind: 'degraded', reason: 'stale',
+          message: `CBM daemon remains starting after 2 attempts (${Date.now() - startedAt}ms)`,
+        };
+        startingState.delete(key);
+        lastOutcomes.set(key, outcome);
+        return outcome;
+      }
+      const attempt: 1 | 2 = state?.attempt === 1 ? 2 : 1;
+      const outcome: IndexerOutcome = { kind: 'starting', attempt, elapsedMs: Date.now() - startedAt };
+      startingState.set(key, { attempt, startedAt });
       lastOutcomes.set(key, outcome);
       return outcome;
     }
-    if (check.kind === 'unknown') {
+    if (check.kind === 'unknown' || check.kind === 'stale' || check.kind === 'degraded') {
       const outcome: IndexerOutcome = {
         kind: 'degraded',
-        reason: 'index_status_failed',
+        reason: check.kind === 'stale' ? 'stale' : 'index_status_failed',
         errorCode: check.errorCode,
         message: check.errorMessage,
       };
@@ -295,8 +321,8 @@ export function createIndexer(options: IndexerOptions = {}): IndexerHandle {
     }
 
     // unindexed → 触发首次索引
-    const outcome = await runIndexRepository(projectPath, opts);
-    if (outcome.kind === 'index_started') indexedProjects.add(key);
+    startingState.delete(key);
+    const outcome = await runIndexRepository(projectPath, boundedOpts());
     lastOutcomes.set(key, outcome);
     return outcome;
   }
@@ -354,6 +380,7 @@ export function createIndexer(options: IndexerOptions = {}): IndexerHandle {
       indexedProjects.clear();
       inFlight.clear();
       lastOutcomes.clear();
+      startingState.clear();
     },
   };
 }

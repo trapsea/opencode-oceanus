@@ -20,6 +20,7 @@ import {
 import { buildTaskMessageTool } from './task/message';
 import { buildTaskReviveTool } from './task/revive';
 import { isTerminalStatus, type TaskStatus } from './task/types';
+import { buildClipboardImageTool } from './clipboard-image';
 import { buildCbmTools } from './cbm';
 import type { IndexerHandle, IndexerRunCli } from '../cbm/indexer';
 import type { CbmRunDeps } from './cbm/types';
@@ -31,6 +32,7 @@ import {
   resolveTaskHostStatus,
   cancelChildSession,
   readSessionOutcome,
+  readSessionLastAssistantText,
 } from '../runtime/task';
 import type { ToolContextLike, ToolDefinition, ToolResult, ToolingContext } from '../runtime/types';
 
@@ -406,6 +408,17 @@ function buildTaskResultTool(
         }
       }
       // 终态结果已被读取：打消费标记，放行 dispatch-guard 的同目标重派断路器。
+      // 内容回传：优先 bridge/revive 留存的 resultSummary；缺失时从宿主会话消息
+      // （session.context）兜底读取最后一条 assistant 输出，解开"读取即消费却只有元数据"的死角。
+      let output: string | undefined = rec.resultSummary;
+      if (!output) {
+        output = await readSessionLastAssistantText(wctx.session, rec.taskID).catch(() => undefined);
+        if (output) {
+          await coordinator
+            .markTerminal(taskId, tctx.sessionID, rec.state === 'failed' ? 'failed' : 'completed', output)
+            .catch(() => undefined);
+        }
+      }
       await coordinator.markResultConsumed(taskId, tctx.sessionID).catch(() => undefined);
       return contentResult(
         taskRecordView(rec, {
@@ -414,6 +427,7 @@ function buildTaskResultTool(
           source: host.source,
           verified: host.verified,
           resultSummary: rec.resultSummary,
+          output,
         }),
       );
     },
@@ -488,6 +502,11 @@ const TOOL_BUILDERS: ReadonlyArray<{
   { name: 'task_cancel', build: buildTaskCancelTool },
   { name: 'task_message', build: (ctx, _config, opts) => opts.coordinator ? buildTaskMessageTool(opts.coordinator, ctx.session as any) : unsupported('task_message') },
   { name: 'task_revive', build: (ctx, _config, opts) => opts.coordinator ? buildTaskReviveTool(opts.coordinator, ctx.session) : unsupported('task_revive') },
+  {
+    name: 'clipboard_image',
+    // 剪贴板图片 → 文件（阶段一原子能力）：无 coordinator 依赖，默认启用（isToolEnabled 缺省 true）。
+    build: (ctx, _config, _opts) => buildClipboardImageTool(ctx),
+  },
 ];
 
 /** coordinator 未接线时的占位工具：结构化报错，不静默失效。 */
@@ -501,6 +520,34 @@ function unsupported(name: string): ToolDefinition {
     },
   });
 }
+
+/**
+ * 直接工具集合（codemode: false → 进入会话直接工具目录）。
+ *
+ * 宿主 registry 语义：不设置 options 的注册工具缺省落入 Code Mode catalog，
+ * 只能在 `execute` 的 JS 运行时内经 `tools.<name>` 调用；subagent（fixer 等）
+ * 不会主动走该路径，prompt 引导会失效（实测复现：fixer 回退宿主原生 edit）。
+ * 因此面向 subagent/orchestrator 的高频工具必须显式 `codemode: false`。
+ *
+ * CBM 工具（buildCbmTools，独立 draft.add 循环）保持缺省 Code Mode：
+ * 15+ 查询型工具以 catalog 形式提供，避免撑大每个会话的直接工具目录。
+ *
+ * permission 说明：不设 options.permission，宿主以工具名作为 permission
+ * action，与 config/constants.ts READONLY_DEFAULT_PERMISSION 的 key
+ * （如 hashline_edit/ast_grep_replace = deny）对齐，只读 agent 的
+ * 写入拒绝边界经宿主 permission 系统直接生效。
+ */
+const DIRECT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'ast_grep_search',
+  'ast_grep_replace',
+  'hashline_edit',
+  'task_status',
+  'task_result',
+  'task_cancel',
+  'task_message',
+  'task_revive',
+  'clipboard_image',
+]);
 
 /**
  * 通过 `ctx.tool.transform` 注册全部启用的新增工具。
@@ -530,7 +577,14 @@ export async function registerOceanusTools(
   return ctx.tool.transform((draft) => {
     for (const { name, build } of enabled) {
       try {
-        draft.add(build(ctx, config, opts));
+        const tool = build(ctx, config, opts);
+        // 直接工具（含 unsupported 占位）在注册层统一注入 codemode:false，
+        // 覆盖任何子 builder 遗漏的 options（注入点集中在包装层，
+        // 不要求 task/message.ts 等子 builder 感知）。
+        const options = DIRECT_TOOL_NAMES.has(name)
+          ? { ...tool.options, codemode: false as const }
+          : tool.options;
+        draft.add({ ...tool, ...(options !== undefined ? { options } : {}) });
       } catch (e) {
         log(`[oceanus] 注册工具失败: ${name}`, { error: messageOf(e) });
       }

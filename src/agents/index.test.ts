@@ -78,6 +78,10 @@ describe('agent prompt 工具对齐（tooling-10）', () => {
     expect(sys).toContain('ast_grep_replace is dry-run by default');
     expect(sys).toContain('explicitly pass `dryRun: false`');
     expect(sys).toContain('hashline_edit anchors edits to per-line hashes');
+    expect(sys).toContain('DIRECT tool');
+    expect(sys).toContain('never through a Code Mode `execute` proxy');
+    expect(sys).toContain('MANDATORY: for ANY targeted change to an existing file you MUST use `hashline_edit`');
+    expect(sys).toContain('intentionally NOT in your toolset');
     expect(sys).toContain('read');
     expect(sys).toContain('apply_patch is executed by the host');
     expect(sys).toContain('Hook validates your `patchText`');
@@ -122,6 +126,15 @@ describe('agent prompt 工具对齐（tooling-10）', () => {
       "the plugin's task metadata is only an index and never a substitute for host fact",
     );
     expect(executeSkill).toContain('host facts take priority');
+  });
+
+  test('sisyphus 单次总批准与 3 轮中断上报模板', () => {
+    const sys = byName('sisyphus');
+    expect(sys).toContain('单次总批准（consolidated approval）');
+    expect(sys).toContain('3 轮中断上报模板（统一）');
+    expect(sys).toContain('恰好 2-3 个');
+    expect(sys).toContain('从该循环第一次 REJECT / 失败 / 分歧 / 缺口起算');
+    expect(sys).toContain('最小修订集');
   });
 
   test('sisyphus/oceanus 通信协议：显式 task_status/task_result 查询，不依赖 queue 通知', () => {
@@ -198,6 +211,24 @@ describe('metis/momus 契约：subagent 定义与只读门禁', () => {
     expect(sys).toMatch(/do not delegate|no delegation|不委派/i);
     expect(sys).toMatch(/do not write|never write|不写入/i);
   });
+
+  test('momus REJECT 附最小修订集与分级收敛规则', () => {
+    const sys = byName('momus').system!;
+    expect(sys).toContain('最小修订集');
+    expect(sys).toContain('BLOCKER');
+    expect(sys).toContain('SUGGESTION');
+    expect(sys).toContain('具体修改建议');
+    expect(sys).toContain('验证方式');
+    expect(sys).toMatch(/REJECT.*仅当存在 BLOCKER/);
+    expect(sys).toMatch(/复审轮|N>1/);
+    expect(sys).toMatch(/不得追加/);
+  });
+
+  test('metis 分析输出附建议处理方式', () => {
+    const sys = byName('metis').system!;
+    expect(sys).toMatch(/建议处理方式/);
+    expect(sys).toMatch(/不需反向猜测|直接落实/);
+  });
 });
 
 describe('只读 agent 默认 permission 契约', () => {
@@ -228,6 +259,20 @@ describe('只读 agent 默认 permission 契约', () => {
     return undefined;
   }
 
+  test('写入 subagent（fixer/designer）写入工具族约束', () => {
+    for (const name of ['fixer', 'designer']) {
+      const agent = byName(name);
+      // 宿主 edit/write/apply_patch 共用 action "edit"：deny 即目录级移除
+      expect(action(agent, 'edit')).toBe('deny');
+      // 写入替代通道显式 allow（防宿主默认 ask 的不确定路径）
+      expect(action(agent, 'hashline_edit')).toBe('allow');
+      expect(action(agent, 'ast_grep_replace')).toBe('allow');
+      // 其余 action 不声明 → 注册层 merge 保留宿主默认基线
+      expect(action(agent, 'read')).toBeUndefined();
+      expect(action(agent, 'shell')).toBeUndefined();
+    }
+  });
+
   // 显式清空 disabled_agents，确保 observer 参与（否则默认禁用不会出现在 createAgents() 结果中）
   const allAgents = () => createAgents({ disabled_agents: [] });
   const byName = (name: string) => {
@@ -246,8 +291,8 @@ describe('只读 agent 默认 permission 契约', () => {
     expect(action(byName(name), 'cbm_index')).toBe('deny');
   });
 
-  test('metis 默认允许初始化 CBM', () => {
-    expect(action(byName('metis'), 'cbm_index')).toBe('allow');
+  test('metis 默认禁止初始化 CBM', () => {
+    expect(action(byName('metis'), 'cbm_index')).toBe('deny');
   });
 
   test.each(READONLY_NAMES)('%s 默认显式允许查询 CBM 工具', (name) => {
@@ -581,7 +626,8 @@ describe('CBM-12：agent prompt CBM 调度最终审计', () => {
     expect(sys).toMatch(/agent 参数为 `"momus"`/);
     expect(sys).toMatch(/task_revive/);
     expect(sys).toMatch(/最多 3 轮/);
-    expect(sys).toMatch(/请求决策|上报分歧点/);
+    expect(sys).toMatch(/3 轮中断上报模板|停止重审循环/);
+    expect(sys).toMatch(/不允许静默循环自查/);
   });
 
   test('工具调用协议使用结构化对象与安全字符串表达，禁止伪 TypeScript 签名', () => {

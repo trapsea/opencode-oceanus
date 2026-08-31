@@ -356,21 +356,33 @@ function wirePanel(context: Context): PanelWire {
   const dirtySessions = new Set<string>();
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
   let flushScheduled = false;
-  const runFlush = () => {
+  const runFlush = async () => {
     flushScheduled = false;
     flushTimer = undefined;
     state.presetName = readActivePresetName();
     state.configModels = readConfigAgentModels(directory());
     const pending = [...dirtySessions];
     dirtySessions.clear();
-    for (const sessionID of pending) {
-      void context.data?.session?.sync?.(sessionID).catch(() => undefined);
-    }
-    try {
-      context.renderer?.requestRender?.();
-    } catch {
-      /* 渲染器不可用时忽略（下次宿主重绘自然带上） */
-    }
+    const request = () => {
+      try {
+        context.renderer?.requestRender?.();
+      } catch {
+        /* 渲染器不可用时忽略（下次宿主重绘自然带上） */
+      }
+    };
+    // 先立即渲染一次：事件回调已同步更新 localStatuses，无需等网络。
+    request();
+    // 等待 session.sync 把新/变更会话的 info（agent 字段、parentID 家族关系）
+    // 写入 host store 后再补一次渲染；否则本次渲染读到的 session.list()
+    // 可能缺少刚创建的子会话，● 标记要等下一个事件才出现。
+    const sync = context.data?.session?.sync;
+    if (!sync || pending.length === 0) return;
+    await Promise.allSettled(
+      pending.map((sessionID) =>
+        Promise.resolve(sync(sessionID)).catch(() => undefined),
+      ),
+    );
+    request();
   };
   const flushNow = () => {
     if (flushTimer) {
@@ -457,6 +469,12 @@ function wirePanel(context: Context): PanelWire {
       if (!event.location || sameLocation(event.location, context.location)) {
         refreshAgents();
       }
+    }),
+    // 子会话创建即纳入同步窗口：session.list() 初始不含新会话，等 host store
+    // 自行 sync 是异步且无同步点的；订阅 session.created 让插件在创建瞬间就
+    // 把它加入 dirtySessions 并触发 flush，● 活跃标记随之及时点亮。
+    onData('session.created', (event) => {
+      calibrateStatus(event.data.sessionID);
     }),
     onData('session.inbox.delivered', (event) => {
       // 输入被投递即视为该会话进入执行；同时触发轻量数据刷新。

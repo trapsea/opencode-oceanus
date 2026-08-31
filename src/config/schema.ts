@@ -215,6 +215,12 @@ export const PluginConfigSchema = z
     codebaseMemory: CodebaseMemoryConfigSchema.optional(),
     autoUpdate: AutoUpdateConfigSchema.optional(),
     taskReuse: TaskReuseConfigSchema.optional(),
+    /**
+     * orchestrator 主模型视觉能力声明：
+     * - false：prompt 阶段移除图片附件（避免宿主对非视觉模型报错），仅保留落盘路径提示
+     * - true / auto（默认）：保留图片附件，同时物化并追加路径提示
+     */
+    orchestratorVision: z.enum(['auto', 'true', 'false']).optional(),
   })
   .strict();
 

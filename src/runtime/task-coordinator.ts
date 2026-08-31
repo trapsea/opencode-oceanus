@@ -96,7 +96,8 @@ export function createTaskCoordinator(opts: TaskCoordinatorOptions) {
       const rec = await index.registerLaunch({
         taskID,
         parentSessionID,
-        agent: 'unknown',
+        // 宿主 Session.Info 暴露 agent；缺失才回落 'unknown'。
+        agent: typeof info.agent === 'string' && info.agent ? info.agent : 'unknown',
         // TaskIndex 强制 laneKey 非空；host-fallback 为兜底登记保留 lane（不与真实 lane 冲突）。
         laneKey: 'host-fallback',
         objective: 'host-verified fallback registration',

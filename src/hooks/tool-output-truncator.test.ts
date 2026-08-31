@@ -231,6 +231,97 @@ describe('tool-output-truncator 纯函数', () => {
   });
 });
 
+describe('tool-output-truncator 字符串 output 分支', () => {
+  test('超过限制的字符串 output 被截断并保留头部控制信息', () => {
+    const { result, truncated, limit } = truncateToolResult(
+      'hashline_edit',
+      { output: bigText() },
+      { defaultMaxBytes: 1000 },
+    );
+    expect(truncated).toBe(true);
+    expect(limit).toBe(1000);
+    expect(typeof result.output).toBe('string');
+    const out = result.output as string;
+    expect(bytes(out)).toBeLessThanOrEqual(1000);
+    // 与 content 相同的 marker 语义与控制信息保留。
+    expect(out).toContain('status: running');
+    expect(out).toContain('tk_ab12');
+    expect(out).toContain('hash mismatch');
+    expect(out).toContain(TRUNCATION_MARKER_PREFIX);
+    // 只出现一次 marker。
+    expect(out.split(TRUNCATION_MARKER_PREFIX)).toHaveLength(2);
+  });
+
+  test('低于限制的小字符串 output 不截断（保持原引用）', () => {
+    const result: ToolResult = { output: 'ok' };
+    const r = truncateToolResult('read', result, { defaultMaxBytes: 100 });
+    expect(r.truncated).toBe(false);
+    expect(r.result).toBe(result);
+    expect(r.result.output).toBe('ok');
+  });
+
+  test('字符串 output 截断 marker 幂等：二次截断不改变、不重复标记', () => {
+    const once = truncateToolResult(
+      'hashline_edit',
+      { output: bigText() },
+      { defaultMaxBytes: 1000 },
+    );
+    expect(once.truncated).toBe(true);
+    const twice = truncateToolResult(
+      'hashline_edit',
+      once.result,
+      { defaultMaxBytes: 1000 },
+    );
+    expect(twice.truncated).toBe(false);
+    expect(twice.result).toBe(once.result);
+  });
+
+  test('字符串 output 与超限字符串 content 同时存在时分别截断', () => {
+    const { result, truncated } = truncateToolResult(
+      'shell',
+      { output: bigText(), content: bigText('content-head\n', 'y', 30_000, '\ncontent-tail') },
+      { defaultMaxBytes: 500 },
+    );
+    expect(truncated).toBe(true);
+    const output = result.output as string;
+    const content = result.content as string;
+    expect(bytes(output)).toBeLessThanOrEqual(500);
+    expect(bytes(content)).toBeLessThanOrEqual(500);
+    expect(output).toContain(TRUNCATION_MARKER_PREFIX);
+    expect(content).toContain(TRUNCATION_MARKER_PREFIX);
+  });
+
+  test('字符串 output 截断时，结构化/空 content 字段原样透传', () => {
+    const result: ToolResult = {
+      output: bigText(),
+      content: [{ type: 'file', uri: 'file:///a/b.txt', mime: 'text/plain' }],
+      metadata: { keep: true },
+    };
+    const { result: out, truncated } = truncateToolResult(
+      'hashline_edit',
+      result,
+      { defaultMaxBytes: 300 },
+    );
+    expect(truncated).toBe(true);
+    expect(bytes(out.output as string)).toBeLessThanOrEqual(300);
+    // file content 块与 metadata 不被改动（引用不变）。
+    expect(out.content).toBe(result.content);
+    expect(out.metadata).toBe(result.metadata);
+  });
+
+  test('结构化（非字符串）output 依旧安全透传', () => {
+    const structured: ToolResult = { output: { items: ['x'.repeat(5000)] } };
+    const r1 = truncateToolResult('webfetch', structured, { defaultMaxBytes: 10 });
+    expect(r1.truncated).toBe(false);
+    expect(r1.result).toBe(structured);
+
+    const numbered: ToolResult = { output: 42 };
+    const r2 = truncateToolResult('read', numbered, { defaultMaxBytes: 10 });
+    expect(r2.truncated).toBe(false);
+    expect(r2.result).toBe(numbered);
+  });
+});
+
 describe('tool-output-truncator Hook（execute.after）', () => {
   test('completed 事件直接改写 result.content', () => {
     const event = completed('shell', { content: bigText() });
@@ -243,6 +334,24 @@ describe('tool-output-truncator Hook（execute.after）', () => {
 
   test('未超限的 completed 事件不改写 result（保持原引用）', () => {
     const result: ToolResult = { content: 'small' };
+    const event = completed('read', result);
+    const hook = createToolOutputTruncator({ defaultMaxBytes: 1000 });
+    hook(event);
+    expect(event.result).toBe(result);
+  });
+
+  test('completed 事件直接改写 result.output（hashline 化的字符串输出）', () => {
+    const event = completed('hashline_edit', { output: bigText() });
+    const hook = createToolOutputTruncator({ defaultMaxBytes: 300 });
+    hook(event);
+    expect(typeof event.result.output).toBe('string');
+    const out = event.result.output as string;
+    expect(bytes(out)).toBeLessThanOrEqual(300);
+    expect(out).toContain(TRUNCATION_MARKER_PREFIX);
+  });
+
+  test('completed 事件的短字符串 output 不改写 result（保持原引用）', () => {
+    const result: ToolResult = { output: 'short output' };
     const event = completed('read', result);
     const hook = createToolOutputTruncator({ defaultMaxBytes: 1000 });
     hook(event);

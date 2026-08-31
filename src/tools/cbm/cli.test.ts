@@ -70,17 +70,18 @@ const searchOpts = {
 };
 
 describe('runCbmCli：命令构建（无 shell）', () => {
-  test('命令是 `cli <tool> <json>` 参数数组', async () => {
-    const { spawn, calls } = capturingSpawn(() => procOf('{"ok":true}'));
+  test('命令优先使用 `--args-file` 参数数组', async () => {
+    let fileContents = '';
+    const { spawn, calls } = capturingSpawn((command) => {
+      fileContents = readFileSync(command[4], 'utf8');
+      return procOf('{"ok":true}');
+    });
     const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
     expect(result.ok).toBe(true);
     expect(Array.isArray(calls[0].command)).toBe(true);
-    expect(calls[0].command).toEqual([
-      FAKE_BIN,
-      'cli',
-      'search_graph',
-      '{"query":"findMe","project":"root"}',
-    ]);
+    expect(calls[0].command.slice(0, 4)).toEqual([FAKE_BIN, 'cli', 'search_graph', '--args-file']);
+    expect(fileContents).toBe('{"query":"findMe","project":"root"}');
+    expect(() => readFileSync(calls[0].command[4], 'utf8')).toThrow();
   });
 
   test('真实 spawn：参数原样传递，不经过 shell 解释', async () => {
@@ -89,7 +90,7 @@ describe('runCbmCli：命令构建（无 shell）', () => {
       const script = join(dir, 'echo-args');
       writeFileSync(
         script,
-        '#!/bin/sh\nprintf "%s" "$3" > "$CBM_OUT"\n',
+       '#!/bin/sh\nprintf "%s" "$(cat "$4")" > "$CBM_OUT"\n',
         { mode: 0o755 },
       );
       const out = join(dir, 'out.txt');
@@ -285,12 +286,17 @@ describe('runCbmCli：路径越界', () => {
   });
 
   test('使用当前目录名作为 project', async () => {
-    const { spawn, calls } = capturingSpawn(() => procOf('{"ok":true}'));
+    let fileContents = '';
+    const { spawn, calls } = capturingSpawn((command) => {
+      fileContents = readFileSync(command[4], 'utf8');
+      return procOf('{"ok":true}');
+    });
     const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
     expect(result.ok).toBe(true);
     expect(calls).toHaveLength(1);
-    const target = JSON.parse(calls[0].command[3]) as Record<string, unknown>;
-    expect(target.project).toBe('root');
+      expect(calls[0].command[3]).toBe('--args-file');
+      const target = JSON.parse(fileContents) as Record<string, unknown>;
+      expect(target.project).toBe('root');
   });
 });
 
@@ -337,6 +343,24 @@ describe('runCbmCli：结构化错误', () => {
     expect(result.truncatedReason).toBe('timeout');
   });
 
+  test('stdout 已结束但 stderr/进程未结束时仍受总 timeout 约束', async () => {
+    let killed = false;
+    const pending = () => new Promise<string>(() => {});
+    const { spawn } = capturingSpawn(() => ({
+      stdout: async () => '{}',
+      stderr: pending,
+      exited: pending as unknown as Promise<number>,
+      kill: () => { killed = true; return true; },
+      exitCode: null,
+    }));
+    const result = await runCbmCli(
+      { ...searchOpts, timeoutMs: 30 },
+      { spawn, resolveBinary: () => FAKE_BIN },
+    );
+    expect(result.error?.code).toBe('timeout');
+    expect(killed).toBe(true);
+  });
+
   test('spawn ENOENT → spawn_failed', async () => {
     const err = Object.assign(new Error('spawn codebase-memory-mcp ENOENT'), {
       code: 'ENOENT',
@@ -354,6 +378,58 @@ describe('runCbmCli：结构化错误', () => {
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe('spawn_failed');
     expect(result.error?.message).toMatch(/ENOENT/);
+  });
+});
+
+describe('runCbmCli：新旧输入协议兼容', () => {
+  test('args-file 不支持时回退 stdin，再不支持时回退 raw，并透传 JSON', async () => {
+    const calls: SpawnCall[] = [];
+    const stdinValues: string[] = [];
+    const spawn: SpawnFn = (command, options) => {
+      calls.push({ command, options });
+      if (calls.length < 3) {
+        const proc = procOf('', { stderr: 'error: unknown option --args-file', exitCode: 2 });
+        return { ...proc, stdin: (data: string) => stdinValues.push(data) };
+      }
+      return procOf('{"ok":true}');
+    };
+    // 第二次调用代表 stdin，显式记录 fake stdin 表面。
+    const original = spawn;
+    const observed: SpawnFn = (command, options) => {
+      const proc = original(command, options);
+      return proc;
+    };
+    const result = await runCbmCli(searchOpts, { spawn: observed, resolveBinary: () => FAKE_BIN });
+    expect(result.ok).toBe(true);
+    expect(calls[0].command).toContain('--args-file');
+    expect(calls[1].command).toEqual([FAKE_BIN, 'cli', 'search_graph']);
+    expect(calls[2].command[3]).toBe('{"query":"findMe","project":"root"}');
+    expect(stdinValues).toHaveLength(1);
+  });
+
+  test('业务失败、超时和 invalid JSON 均不触发回退', async () => {
+    for (const proc of [
+      procOf('', { stderr: 'business failure', exitCode: 7 }),
+      procOf('not-json'),
+    ]) {
+      let count = 0;
+      const { spawn } = capturingSpawn(() => { count += 1; return proc; });
+      const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
+      expect(count).toBe(1);
+      expect(result.ok).toBe(false);
+    }
+  });
+
+  test('invalid argument 不被误判为输入协议不支持', async () => {
+    let count = 0;
+    const { spawn } = capturingSpawn(() => {
+      count += 1;
+      return procOf('', { stderr: 'error: invalid argument --query', exitCode: 2 });
+    });
+    const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
+    expect(count).toBe(1);
+    expect(result.error?.code).toBe('exit_nonzero');
+    expect(result.error?.exitCode).toBe(2);
   });
 });
 
@@ -421,9 +497,11 @@ describe('runCbmCli：trace_path canonical 与旧版本 fallback', () => {
     );
     expect(result.ok).toBe(true);
     expect(result.tool).toBe('trace_call_path');
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(4);
     expect(calls[0].command[2]).toBe('trace_path');
-    expect(calls[1].command[2]).toBe('trace_call_path');
+    expect(calls[1].command[2]).toBe('trace_path');
+    expect(calls[2].command[2]).toBe('trace_path');
+    expect(calls[3].command[2]).toBe('trace_call_path');
   });
 
   test('trace_path 失败但不是“工具不存在”时保留原错误，不回退', async () => {
@@ -441,6 +519,15 @@ describe('runCbmCli：trace_path canonical 与旧版本 fallback', () => {
 });
 
 describe('runCbmCli：ensureInstalled / indexer 注入', () => {
+  test('内部异常统一为结构化 internal_error', async () => {
+    const result = await runCbmCli(searchOpts, {
+      ensureInstalled: async () => { throw new Error('installer failed'); },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('internal_error');
+    expect(result.error?.message).toBe('installer failed');
+  });
+
   test('ensureInstalled 被 await，并使用返回的二进制', async () => {
     let installCalls = 0;
     const ensureInstalled = async () => {

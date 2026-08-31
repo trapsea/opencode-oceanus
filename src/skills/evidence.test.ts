@@ -1,0 +1,33 @@
+import { describe, expect, test } from 'bun:test';
+import { SISYPHUS_SKILLS } from './index';
+
+const execute = SISYPHUS_SKILLS.find((skill) => skill.name === 'sisyphus-execute');
+
+describe('Execute evidence tier 契约', () => {
+  test('声明三档 tier 及各自证据要求', () => {
+    const content = execute?.content ?? '';
+    expect(content).toMatch(/strict[\s\S]*RED[\s\S]*GREEN[\s\S]*real-surface/);
+    expect(content).toMatch(/light[\s\S]*test-after[\s\S]*测试/);
+    expect(content).toMatch(/exempt[\s\S]*白名单[\s\S]*理由/);
+  });
+
+  test('拒绝缺失或 stale evidence，并升级公共符号', () => {
+    const content = execute?.content ?? '';
+    expect(content).toMatch(/缺失[\s\S]*未完成/);
+    expect(content).toMatch(/stale[\s\S]*未完成/);
+    expect(content).toMatch(/公共符号[\s\S]*strict/);
+  });
+
+  test('Plan-Change 使双门禁失效并要求重审', () => {
+    const content = execute?.content ?? '';
+    expect(content).toMatch(/Plan-Change[\s\S]*Momus[\s\S]*APPROVED/);
+    expect(content).toMatch(/旧的.*失效/);
+  });
+
+  test('frontmatter 与 TypeScript description 各自唯一且一致', () => {
+    const skill = execute!;
+    const matches = skill.content.match(/^description:\s*(.+)$/gm) ?? [];
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.replace(/^description:\s*/, '')).toBe(skill.description);
+  });
+});

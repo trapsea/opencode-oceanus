@@ -17,3 +17,4 @@ dist/
 *.swp
 
 .oceanus/progress/
+.oceanus/media/

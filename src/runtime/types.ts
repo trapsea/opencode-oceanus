@@ -19,13 +19,24 @@ import type { Tool } from '@opencode-ai/schema/tool';
 /** 会话信息的最小契约（对应 v2 `Session.Info` 的可用字段）。 */
 export interface SessionInfoLike {
   id?: string;
+  agent?: string;
   parentID?: string;
   projectID?: string;
   outcome?: 'succeeded' | 'failed' | 'interrupted';
   location?: { directory?: string; workspaceID?: string };
 }
 
-/** 会话 API 的最小契约（宿主 `ctx.session` 结构兼容）。 */
+/**
+ * 会话 API 的最小契约（宿主 `ctx.session` 结构兼容）。
+ *
+ * 契约（Wave 2A，由 smoke/setup-resilience.test.ts 与
+ * runtime/production-task-harness.test.ts 锁定）：
+ * 宿主 `ctx.session` 是 SessionDomain API 对象，**不含** `sessionID` / `id`
+ * 属性——会话身份只存在于具体会话的事件 payload 与 ToolContext 中。
+ * setup 期不存在真实会话，禁止从本对象读取或伪造 parent sessionID；
+ * 需要会话身份时必须由调用方（工具 `context.sessionID`、事件
+ * `event.sessionID` / `data.sessionID`）显式传入。
+ */
 export interface SessionLike {
   get?(input: { sessionID: string }): Promise<SessionInfoLike | undefined>;
   /** beta 类型未暴露 `active`；用可选字段 + 运行时探测。 */
@@ -50,6 +61,13 @@ export interface SessionLike {
   }): Promise<unknown>;
   /** 官方 v2 插件文档 `SessionContext.wait(input)`：等待会话空闲/结束。 */
   wait?(input: { sessionID: string }): Promise<unknown>;
+  /**
+   * 官方 v2 插件文档 `SessionContext.context(input)`：读取会话消息列表
+   * （`Promise<readonly SessionMessageInfo[]>`）。
+   * 任务续用/结果读取的内容通道（task_revive / task_result 回传子会话输出）；
+   * 宿主未暴露该能力时运行时探测缺省，调用方 fail-open 降级为无内容。
+   */
+  context?(input: { sessionID: string }): Promise<unknown[] | undefined>;
 }
 
 /** Tool execute 上下文的最小契约（对应 v2 `ToolContext`）。 */
@@ -69,6 +87,23 @@ export interface ToolDefinition {
   description: string;
   input: unknown;
   execute(input: any, context: ToolContextLike): Promise<ToolResult>;
+  /**
+   * 对应宿主 `Tool.Options`（@opencode-ai/schema beta-18230）。
+   *
+   * 关键语义（宿主 Tool registry 实证，见 docs/opencode-v2-compatibility.md）：
+   * - `codemode === false` → 进入会话直接工具目录（definitions），所有
+   *   会话/agent（含 subagent）可直接调用；
+   * - `codemode !== false`（含缺省）→ 进入 Code Mode catalog，只能在宿主
+   *   `execute` 工具的 JS 运行时内经 `tools.<name>` 调用。
+   * 宿主原生 write/edit/webfetch/websearch 均显式 `codemode: false`。
+   * `permission` 缺省时宿主以工具名作为 permission action，须与
+   * config/constants.ts 的 permission 表 key 对齐。
+   */
+  options?: {
+    namespace?: string;
+    permission?: string;
+    codemode?: boolean;
+  };
 }
 
 /** wiring 用 Tool transform draft 的最小契约。 */
@@ -143,12 +178,23 @@ export interface PromptInputLike {
  */
 export interface PluginSetupContext {
   /**
-   * 当前插件实例关联的项目目录（宿主按项目实例化插件时提供）。
+   * 新宿主（service 多项目模式，按项目 scope 实例化插件）注入的项目位置：
+   * `ctx.location.directory` 为该实例绑定项目目录的绝对路径（与
+   * `Session.Info.location.directory` 同源）。
    *
-   * 说明：`@opencode-ai/plugin` 类型（beta-18230）的 `Context` 尚未声明该字段，
-   * 但运行时（service 多项目模式）会为每个项目 scope 独立实例化插件并注入
-   * 对应目录（omo-slim 参考实现以 `ctx.directory` 作为按项目配置的键）。
-   * 旧宿主确实未提供时，调用方可回退到 process.cwd()。
+   * 说明：`@opencode-ai/plugin`（beta-18230）的 `Context` 类型尚未声明该
+   * 字段，属于运行时表面契约，读取时必须做运行时探测；统一经
+   * `runtime/host-adapter` 的 `resolvePluginDirectory` 解析，禁止散落取值。
+   */
+  location?: { directory?: string };
+  /**
+   * 旧宿主/参考实现注入的项目目录（omo-slim 以 `ctx.directory` 作为按项目
+   * 配置的键）。仅作兼容兜底：新宿主应优先读取 `ctx.location.directory`。
+   *
+   * 说明：`@opencode-ai/plugin` 类型（beta-18230）的 `Context` 同样尚未声明
+   * 该字段，但旧宿主运行时会为每个项目 scope 独立实例化插件并注入对应目录。
+   * 新旧字段均未提供（或为空）时，调用方回退到 process.cwd()
+   * （统一走 `resolvePluginDirectory`）。
    */
   directory?: string;
   agent: {
@@ -166,7 +212,7 @@ export interface PluginSetupContext {
   session: SessionLike & {
     prompt(input: PromptInputLike): Promise<unknown>;
     /** /preset 命令所需：读取会话当前 agent、切换模型、注入 synthetic 回执。 */
-    get?(sessionID: string): Promise<{ agent?: string } | undefined>;
+    get?(input: { sessionID: string }): Promise<SessionInfoLike | undefined>;
     switchModel?(input: { sessionID: string; model: { providerID: string; id: string; variant?: string } }): Promise<void>;
     synthetic?(input: { sessionID: string; text: string }): Promise<unknown>;
   };

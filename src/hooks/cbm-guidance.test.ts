@@ -127,7 +127,9 @@ describe('cbm-guidance before：首次结构化查询前检查索引', () => {
     const event = makeEvent({ tool: 'cbm_search_graph', result: { content: '{}' } });
     await hook.after(event);
     expect(event.result.content).toContain(CBM_GUIDANCE_MARKER);
-    expect(event.result.content).toContain('indexing in progress');
+    expect(event.result.content).toContain('starting');
+    expect(event.result.content).toContain('stale');
+    expect(event.result.content).toContain('fail-open');
     // 原内容保留
     expect(event.result.content).toContain('{}');
   });

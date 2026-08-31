@@ -105,6 +105,18 @@ export function isHookEnabled(
   return getHookConfig(config, name)?.enabled ?? true;
 }
 
+/**
+ * 解析 orchestratorVision 配置：
+ * - 'false' → 主模型不支持视觉（prompt 阶段移除图片附件）
+ * - 'true' → 支持视觉（保留图片附件）
+ * - 'auto' / 未配置 → 默认按支持处理（保留图片，物化 + 追加提示兜底）
+ */
+export function isOrchestratorVisionSupported(
+  config: PluginConfig | undefined,
+): boolean {
+  return config?.orchestratorVision !== 'false';
+}
+
 /** codebase-memory-mcp 默认固定版本（官方当前受支持基线）。 */
 export const DEFAULT_CODEBASE_MEMORY_VERSION = '0.10.8';
 

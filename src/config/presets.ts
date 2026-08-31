@@ -169,9 +169,8 @@ export function describeOverride(override: AgentOverrideConfig): string {
 /**
  * 仅通过磁盘状态切换 preset（omo-slim switchPresetOnDisk 语义）：
  * 校验 preset 存在后把名称持久化到用户级配置顶层 `preset`。
- * 刻意不触碰内存中的 agent registry，也不刷新 sidebar——会话内热切换
- * 会造成上下文截断、历史 turn 漂移和运行中 subagent 悬空；新 preset 在
- * 下一次 reload/新会话时生效。
+ * 本函数只负责落盘；会话内立即生效（当前会话模型切换 + registry 重建）
+ * 由 /preset 命令层调用 switchSessionModel / rebuildAgents 完成。
  */
 export function switchPresetOnDisk(
   presets: Record<string, Preset>,
@@ -206,7 +205,7 @@ export function switchPresetOnDisk(
   return {
     ok: true,
     presetName,
-    message: `已保存 preset "${presetName}"。新会话（或重启 OpenCode）后生效；当前会话保持现有 agent 模型不变。`,
+    message: `已保存 preset "${presetName}"。当前会话模型已立即切换，agent registry 已重建：后续 subagent 立即使用新模型。`,
     summary: buildPresetSummary(updates),
   };
 }

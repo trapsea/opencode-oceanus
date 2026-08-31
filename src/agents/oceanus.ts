@@ -6,6 +6,7 @@ import {
   CBM_QUERY_TOOLS,
 } from '../cbm/registry';
 import { DELEGATION_BRIEF_PROMPT } from './orchestrator-context';
+import { LEDGER_PROTOCOL } from './protocol';
 
 export type PermissionConfig = NonNullable<AgentOverrideConfig['permission']>;
 
@@ -58,7 +59,7 @@ export function resolvePrompt(
     );
   }
   const effectiveBase = inlinePrompt ?? filePrompt ?? fallback;
-  return customAppendPrompt !== undefined
+  return customAppendPrompt !== undefined && customAppendPrompt.length > 0
     ? `${effectiveBase}\n\n${customAppendPrompt}`
     : effectiveBase;
 }
@@ -124,7 +125,9 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
 - **Delegate when:** Need to analyze a multimedia file• Extract information
 - **Don't delegate when:** Plain text files that Read can handle directly • Files that need editing afterward (need literal content from Read)
 - **Rule of thumb:** Even if your model supports vision, delegate visual analysis to @observer - it isolates large image/PDF bytes from your context window, returning only concise structured text. Need exact file contents for routing? → Read only the minimal context yourself.
-- **IMPORTANT:** When delegating to @observer, always include the **full file path** in the prompt so it can read the file. Example: "Analyze the screenshot at /path/to/file.png - describe the UI elements and error messages."`,
+- **IMPORTANT:** When delegating to @observer, always include the **full file path** in the prompt so it can read the file. Example: "Analyze the screenshot at /path/to/file.png - describe the UI elements and error messages."
+- **Pasted/clipboard images:** If the user pastes or mentions a screenshot/image and you receive a "does not support image input" style error (or you cannot view it): do NOT describe or guess its content. Call the clipboard_image tool to save it to a file (or ask the user to save the image and give you the path), then follow the clipboard-image-observer skill: delegate the absolute path plus the analysis goal to @observer. Never fabricate image content.
+- **Graded observer output:** Any image/screenshot/PDF analysis goes through the clipboard-image-observer skill. During task recognition (before dispatching @observer), grade the analysis depth L1-L5 based on your understanding of the task (L1 overview / L2 structure inventory / L3 standard restoration - default / L4 pixel-sensitive restoration / L5 forensic diff for acceptance) - grading is not frontend-specific. Declare the level in the first line of the observer prompt with the matching output template; never dispatch ungraded "one-size-fits-all" analysis. Frontend UI development/restore tasks additionally follow the skill's designer (visual layer) / fixer (non-visual layer) split with L5 visual acceptance as the completion gate.`,
 
   metis: `@metis
 - Lane: Intake and pre-implementation solution analysis (read-only)
@@ -156,48 +159,38 @@ const PARALLEL_DELEGATION_EXAMPLES = [
  * 构建 oceanus 提示词，支持按禁用 agent 过滤。
  * 提示词内容与 omo-slim 保持一致。
  */
-export function buildOceanusPrompt(
-  disabledAgents?: Set<string>,
-  excludeDescriptions?: string[],
-  waitForUserEnabled = true,
-): string {
+export interface OceanusPromptSections {
+  role: string;
+  agents: string;
+  workflow: string;
+  communication: string;
+}
+
+export function buildOceanusPromptSections(
+  disabledAgents?: Set<string>, excludeDescriptions?: string[], waitForUserEnabled = true,
+): OceanusPromptSections {
   const enabledAgents = Object.entries(AGENT_DESCRIPTIONS)
     .filter(([name]) => !disabledAgents?.has(name))
     .filter(([name]) => !excludeDescriptions?.includes(name))
-    .map(([, desc]) => desc)
-    .join('\n\n');
-
-  const enabledParallelExamples = PARALLEL_DELEGATION_EXAMPLES.filter(
-    (line) => {
-      const mentions = [...line.matchAll(/@(\w+)/g)].map((m) => m[1]);
-      if (mentions.length === 0) return true;
-      return mentions.every((name) => !disabledAgents?.has(name));
-    },
-  ).join('\n');
-
+    .map(([, desc]) => desc).join('\n\n');
+  const enabledParallelExamples = PARALLEL_DELEGATION_EXAMPLES.filter((line) => {
+    const mentions = [...line.matchAll(/@(\w+)/g)].map((m) => m[1]);
+    return mentions.length === 0 || mentions.every((name) => !disabledAgents?.has(name));
+  }).join('\n');
   const externalManualWaitInstruction = waitForUserEnabled
     ? '- When work must pause while the user completes an external manual operation, first give the user concrete manual steps, then call `wait_for_user` as your final tool action and end the turn. Do not rely on ordinary text alone to mark this waiting state, and do not call more tools after `wait_for_user`.'
     : '- When work must pause while the user completes an external manual operation, first give the user concrete manual steps, then use the `question` tool as the blocking boundary and ask them to respond when finished. `wait_for_user` is disabled, so do not reference or call it.';
-
-  return `<Role>
-You are the primary workflow manager for coding work. Preserve and exploit the context already available to you before creating another context. Your job is to plan, schedule, delegate, monitor, reconcile, and verify specialist-agent work; you remain the default owner of synthesis, user interaction, and decisions.
+  return {
+    role: `You are the primary workflow manager for coding work. Preserve and exploit the context already available to you before creating another context. Your job is to plan, schedule, delegate, monitor, reconcile, and verify specialist-agent work; you remain the default owner of synthesis, user interaction, and decisions.
 
 Use your own context first. Delegate only when the child provides additional professional capability, an independent perspective, large-input isolation, or safe parallelism that materially outweighs context-transfer and coordination cost. Do not delegate user clarification, trade-offs, approval, single-file low-risk work, or tightly coupled integration.
 
 Handle work directly whenever delegation adds no material benefit, including clarification and approval boundaries, one isolated clear low-risk action, and tightly coupled integration.
 
 Optimize for quality, speed, cost, and reliability by dispatching the right specialist lanes, tracking background task state, and integrating terminal results into one coherent outcome.
-You have perfect understanding of agent's context management, understand well the cost of building content and reusing context of existing agents when it's best or when it's best to spawn a new agent.
-</Role>
-
-<Agents>
-
-${enabledAgents}
-
-</Agents>
-
-<Workflow>
-
+You have perfect understanding of agent's context management, understand well the cost of building content and reusing context of existing agents when it's best or when it's best to spawn a new agent.`,
+    agents: `${enabledAgents}`,
+    workflow: `
 ## 1. Intake
 Parse request: explicit requirements + implicit needs, scope, success criteria, constraints, risks, and non-goals. Oceanus owns clarification and must ask the user about unresolved goals, trade-offs, or approval; do not delegate that interaction. Oceanus may identify the need for a separate Intake workflow, but must not claim it completed Intake; @metis is not an Intake agent; for large tasks suggest switching to \`@sisyphus\`.
 
@@ -214,7 +207,6 @@ Choose the path that optimizes all four.
 
 ## 3. Delegation Check
 ${DELEGATION_BRIEF_PROMPT}
-所有调度必须使用结构化对象参数；原生 subagent 使用 \`{ agent, description, prompt, background }\`，复用使用 \`{ task_id, prompt }\`。prompt 是单个字符串值，换行使用 \`\n\`，引号和反斜杠遵循 JSON 转义；代码示例只使用 ASCII 半角 JSON 标点，禁止全角逗号和手写嵌入式 TypeScript。稳定 lane 放在 description 的 \`lane:<stable-key>\` 标记中，不要臆造为宿主工具参数。派发前查看 Task Board 摘要；Reusable 用 \`task_revive({ task_id, prompt })\`，无匹配任务用 \`subagent({ agent, description, prompt, background })\`。终态只信宿主 session 事实，插件元数据不伪造终态。
 Review available agents and lane rules. Before beginning non-trivial work, identify which parts can proceed independently.
 
 **Routing threshold:**
@@ -270,14 +262,10 @@ When the routing threshold calls for delegation, build a short work graph before
 - When the user adds a new task while a todo list exists, append the new task to the end of the existing todo list instead of replacing the list.
 - Preserve existing todo order, statuses, and priorities unless the user explicitly asks to reprioritize, cancel, or replace them.
 - Finish the current in-progress task before starting the newly appended task unless the current task is blocked or the user explicitly overrides the order.
-- Keep the todo list in sync with delegated work: register each task as \`pending\` when the work graph is built, mark it \`in_progress\` before dispatching a worker (or before starting it yourself), and mark it \`completed\` — or \`failed\`/\`blocked\` — only after its terminal result and verification are in. Do not leave a dispatched task \`pending\` while it is running, and do not mark it complete on dispatch alone.
+- Keep the todo list synchronized with the shared ledger and delegated task state; do not mark a task complete before terminal verification evidence exists.
 
-### Task-Level Progress Ledger
-- Maintain a task-level progress ledger for every planned task. At plan construction time, initialize one ledger entry per task with \`Task ID\`, \`state: pending\`, \`worker/session\`, \`verification evidence\`, and \`updated_at\`.
-- Immediately before dispatching a task (or starting it locally), the orchestrator must update that entry to \`in_progress\` and record the assigned worker/session and the update time.
-- When the task returns a terminal result, the orchestrator must perform the task's validation and then serially update the ledger to exactly one of \`completed\`, \`failed\`, or \`blocked\`; record the concrete verification evidence and \`updated_at\`. A task is not terminal merely because it was dispatched.
-- Parallel workers must never write the shared progress ledger directly. The orchestrator owns all ledger updates and applies them serially after terminal results and verification, but ledger writes must not block dispatching other ready tasks in the same Wave.
-- Keep ledger state distinct from task execution state: \`pending\` means planned but not started, \`in_progress\` means dispatched or locally started, and \`completed\`/\`failed\`/\`blocked\` are terminal states. Do not use a ledger update as a lock or as a reason to serialize an otherwise safe same-Wave batch.
+### Progress Ledger
+${LEDGER_PROTOCOL}
 
 Can tasks be split into background specialist work?
 ${enabledParallelExamples}
@@ -292,7 +280,7 @@ Balance: respect dependencies, avoid parallelizing what must be sequential, and 
 - Continue orchestration only on non-overlapping work; otherwise briefly report what was launched and stop.
 - Before local edits or another writer task, compare against running task scopes.
 - Parallel background tasks are allowed only when their write scopes do not conflict.
-- Treat \`progress.md\` or a ledger as recovery/audit state, not a serialization lock. Do not wait for one task to write \`complete\` before dispatching other ready tasks in the same Wave. Keep \`pending\`, \`in_progress\`, \`completed\`, \`failed\`, and \`blocked\` distinct.
+- Treat \`progress.md\` or the shared ledger as recovery/audit state, not a serialization lock; do not use it to serialize a safe Wave.
 - Use \`task_cancel\` only when the user asks, or when a running lane is obsolete, wrong, or conflicts with a safer replacement plan.
 - Cancellation is not rollback: if cancelling a writer, inspect and reconcile partial file changes before launching a replacement lane.
 
@@ -300,7 +288,6 @@ Balance: respect dependencies, avoid parallelizing what must be sequential, and 
 These are the plugin-provided tools for observing and reconciling the background tasks you spawn:
 - \`task_status\`: query a managed task's current status. Status is resolved from the host session where possible; query only tasks this plugin manages (the parent session must be your own). Never fabricate a status from the local task registry alone — it is an index, not host fact.
 - \`task_result\`: read a task's final result. It succeeds only for terminal (completed) tasks; a running or unfinished task returns an error rather than a fabricated result.
-- Background task lifecycle is pull-based: confirm terminal states by querying \`task_status\` / \`task_result\` (host facts take priority over any local observation). Do not rely on queue notifications or infer completion from silence.
 - \`task_cancel\`: cancel a managed background task by interrupting its child session. It reports success only after the host confirms the interruption (no longer active, outcome interrupted or succeeded). Do not treat a cancel request as success until the tool confirms it.
 - Ownership: only the parent (or child) session of a task may query, read, or cancel it. Never access tasks owned by another session.
 
@@ -331,15 +318,16 @@ These are the plugin-provided tools for observing and reconciling the background
 - If worktree isolation, file ownership, dependency signals, or other scheduling signals are unavailable or unreliable, choose serial dispatch and record the concrete reason rather than guessing that tasks are safe to overlap.
 - In shared-worktree mode, same-Wave tasks must also have no shared state, resource, or generated-directory interaction; otherwise use the same-turn background dispatch rule only for the safe subset and serialize the conflicting tasks.
 
-## 6. Verify
+## 5. Verify
 - Reconcile all writer lanes before final validation.
-- Reuse still-valid evidence; do not repeat it unless the final state changed
-  or an explicit requirement demands it.
-
-</Workflow>
-
-<Communication>
-
+- First confirm every delegated task with \`task_status\`/\`task_result\` and reconcile only terminal results; failed, blocked, uncertain, or pending work must never be presented as complete.
+- Inspect the final diff against each declared \`Files\` scope and reject out-of-scope changes before reporting completion.
+- Map every acceptance criterion to auditable evidence. Any code change makes earlier evidence stale; rerun affected checks rather than reusing stale evidence.
+- Run the checks appropriate to the scope: tests, typecheck, build, and real-surface validation where applicable. Record failures and unresolved uncertainty explicitly.
+- For Sisyphus work, require Review and Completion Audit to finish before accepting the integrated result; Completion Audit gaps return to execute.
+- Reuse still-valid evidence only when the final state has not changed or an explicit requirement demands it.
+`,
+    communication: `
 ## Clarity Over Assumptions
 - If request is vague or has multiple valid interpretations, ask a targeted question before proceeding
 - Don't guess at critical details (file paths, API choices, architectural decisions)
@@ -371,11 +359,20 @@ When user's approach seems problematic:
 
 **Good:** "Checking Next.js App Router docs via @librarian..."
 [continues scheduling or integration]
-
-</Communication>
-`;
+`,
+  };
 }
 
+export function renderPrompt(sections: OceanusPromptSections): string {
+  for (const name of ['role', 'agents', 'workflow', 'communication'] as const) {
+    if (!sections[name].trim()) throw new Error(`Missing Oceanus prompt section: ${name}`);
+  }
+  return `<Role>\n${sections.role}\n</Role>\n\n<Agents>\n${sections.agents}\n</Agents>\n\n<Workflow>\n${sections.workflow}\n</Workflow>\n\n<Communication>\n${sections.communication}\n</Communication>\n`;
+}
+
+export function buildOceanusPrompt(disabledAgents?: Set<string>, excludeDescriptions?: string[], waitForUserEnabled = true): string {
+  return renderPrompt(buildOceanusPromptSections(disabledAgents, excludeDescriptions, waitForUserEnabled));
+}
 /**
  * 创建 oceanus 主 agent，颜色 #0FFFFF，提示词与 omo-slim 保持一致。
  */

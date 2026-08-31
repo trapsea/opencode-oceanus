@@ -14,7 +14,7 @@ import type { UiOptions, UiStatus } from './ui';
  * - （空）/ status   —— 报告安装与 UI 状态（只读，不触发安装）；
  * - install          —— 后台启动安装，**非阻塞**，安装成功后 fire-and-forget 刷新 MCP；
  * - repair           —— 等待修复完成并回写结果，成功后同步刷新 MCP；
- * - index            —— 触发索引器 ensureIndexed；
+ * - index            —— 兼容命令入口，触发索引器 ensureIndexed；
  * - ui               —— 启动 UI 并回写 URL；
  * - ui stop          —— 停止由本插件持有的 UI；
  * - uninstall        —— 只移除 Oceanus 管理的资源（stopUi + removeMcp），
@@ -58,7 +58,7 @@ export interface CbmCommandHandlers {
   registerMcp?: (opts?: McpRegisterOptions) => Promise<McpRegistrationResult>;
   /** MCP 移除（仅移除 Oceanus 管理 server，保留用户配置）。 */
   removeMcp?: () => Promise<boolean>;
-  /** 索引器（/cbm index）。 */
+  /** 索引器（由已注册的 cbm_index 工具调用）。 */
   indexer?: IndexerHandle;
   /** UI 启动。 */
   startUi?: (opts?: UiOptions) => Promise<UiStatus>;
@@ -68,7 +68,7 @@ export interface CbmCommandHandlers {
   getUiStatus?: (opts?: UiOptions) => UiStatus;
   /** 缓存根目录（缺省 getCacheRoot()）。 */
   getCacheRoot?: () => string;
-  /** 工作区根目录（/cbm index 用，缺省 process.cwd()）。 */
+  /** 工作区根目录（索引工具使用，缺省 process.cwd()）。 */
   getWorkspaceRoot?: () => string;
   /** 向当前 session 回写文本反馈（只透传 sessionID / text / delivery）。 */
   reply: (text: string, invocation: CommandInvocation) => Promise<void>;
@@ -123,8 +123,10 @@ function indexOutcomeText(outcome: IndexerOutcome, root: string): string {
       return `已确认索引: ${root}`;
     case 'index_started':
       return `已触发首次索引: ${root}`;
+    case 'starting':
+      return `索引服务正在启动（第 ${outcome.attempt} 次检查，已耗时 ${outcome.elapsedMs}ms）: ${root}`;
     case 'indexing':
-      return `索引进行中: ${root}`;
+      return `索引服务正在启动: ${root}`;
     case 'skipped_auto_index_disabled':
       return `自动索引已关闭，已跳过: ${root}`;
     case 'skipped_no_project':

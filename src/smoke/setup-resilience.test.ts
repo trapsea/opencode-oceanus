@@ -4,6 +4,9 @@ import { runSetup } from '../index';
 /** 只提供 setup 所需的最小宿主面；测试不触碰真实网络、安装或宿主进程。 */
 function host(overrides: Record<string, unknown> = {}) {
   const calls: string[] = [];
+  // 陷阱记录：SessionDomain 无 sessionID/id 属性；setup 读取即违约。
+  const sessionIdentityReads: string[] = [];
+  const getCalls: Array<{ sessionID: string }> = [];
   const domain = (name: string) => ({
     transform: async (fn: (draft: any) => void) => {
       calls.push(`${name}.transform`);
@@ -21,13 +24,19 @@ function host(overrides: Record<string, unknown> = {}) {
   });
   return {
     calls,
+    sessionIdentityReads,
+    getCalls,
     agent: domain('agent'),
     skill: domain('skill'),
     command: domain('command'),
     mcp: domain('mcp'),
     session: {
-      sessionID: 'smoke-session',
-      get: async () => ({ id: 'smoke-session', location: { directory: process.cwd() } }),
+      get sessionID() { sessionIdentityReads.push('sessionID'); return ''; },
+      get id() { sessionIdentityReads.push('id'); return ''; },
+      get: async (input: { sessionID: string }) => {
+        getCalls.push(input);
+        return { id: input.sessionID, location: { directory: process.cwd() } };
+      },
     },
     ...overrides,
   } as any;
@@ -95,5 +104,28 @@ describe('setup 入口阶段化韧性（RED）', () => {
     expect(typeof cleanup).toBe('function');
     cleanup?.();
     expect(reloads).toBeGreaterThan(0);
+  });
+});
+
+describe('setup 会话身份契约（Wave 2A）', () => {
+  test('setup 不读取 SessionDomain 的 sessionID/id，也不以空 sessionID 调用宿主 get', async () => {
+    const ctx = host();
+    await runSetup(ctx, { loadConfig: config, cbm: cbm() });
+    // 宿主 ctx.session 是 SessionDomain API 对象，没有会话身份字段；
+    // setup 期不存在真实会话，伪造 parentSessionID 属于违约。
+    expect(ctx.sessionIdentityReads).toEqual([]);
+    // eager reconcile 的前置步骤会以空 sessionID 调 session.get；setup 期
+    // 对宿主 get 的调用应为零（含空串）。
+    expect(ctx.getCalls).toEqual([]);
+  });
+
+  test('session.get 缺失（旧宿主最小面）时 setup 仍 fail-open 完成全部注册', async () => {
+    const ctx = host({ session: {} });
+    await expect(runSetup(ctx, { loadConfig: config, cbm: cbm() })).resolves.toBeDefined();
+    // session.get 缺失不得阻断与 session 无关的注册阶段。
+    expect(ctx.calls).toContain('agent.transform');
+    expect(ctx.calls).toContain('skill.transform');
+    expect(ctx.calls).toContain('command.transform');
+    expect(ctx.calls).toContain('mcp.transform');
   });
 });

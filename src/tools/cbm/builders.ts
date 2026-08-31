@@ -84,8 +84,8 @@ function defineTool(def: {
 function contentResult(obj: unknown): ToolResult {
   return { content: JSON.stringify(obj, null, 2) };
 }
-function errorResult(message: string): ToolResult {
-  return contentResult({ error: message });
+function errorResult(message: string, extra?: Record<string, unknown>): ToolResult {
+  return contentResult({ error: message, ...extra });
 }
 
 /** 将 CLI 结果归一化为结构化 ToolResult；错误放入 error 并保留错误码。 */
@@ -152,14 +152,24 @@ async function guardForQuery(
   env: CbmToolEnv,
   root: string,
   timeoutMs: number,
-): Promise<{ allow: boolean; message?: string }> {
+): Promise<{ allow: boolean; message?: string; status?: string; attempt?: 1 | 2; elapsedMs?: number }> {
   const outcome = await env.indexer.ensureIndexed(root, {
     workspaceRoot: root,
     timeoutMs,
     autoIndex: env.autoIndex,
   });
-  if (outcome.kind === 'indexed' || outcome.kind === 'index_started' || outcome.kind === 'indexing') {
+  if (outcome.kind === 'indexed') {
     return { allow: true };
+  }
+  if (outcome.kind === 'index_started') {
+    return { allow: false, status: 'index_started', message: 'CBM 索引已触发但尚未确认完成，可回退 grep/read。' };
+  }
+  if (outcome.kind === 'starting') {
+    return {
+      allow: false,
+      status: 'starting', attempt: outcome.attempt, elapsedMs: outcome.elapsedMs,
+      message: `CBM 索引仍在启动（attempt ${outcome.attempt}，已耗时 ${outcome.elapsedMs}ms）。可回退 grep/read。`,
+    };
   }
   if (outcome.kind === 'degraded') {
     const code = outcome.errorCode ? `:${outcome.errorCode}` : '';
@@ -184,7 +194,13 @@ async function runQuery(
   opts: CbmExecOptions,
 ): Promise<ToolResult> {
   const guard = await guardForQuery(env, root, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-  if (!guard.allow) return errorResult(guard.message ?? 'CBM 索引状态不满足查询条件');
+  if (!guard.allow) {
+    return errorResult(guard.message ?? 'CBM 索引状态不满足查询条件', {
+      ...(guard.status ? { status: guard.status } : {}),
+      ...(guard.attempt !== undefined ? { attempt: guard.attempt } : {}),
+      ...(guard.elapsedMs !== undefined ? { elapsedMs: guard.elapsedMs } : {}),
+    });
+  }
   const result = await env.run(opts, env.runDeps);
   return cbmResult(result);
 }

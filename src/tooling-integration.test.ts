@@ -468,9 +468,37 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
     const mock = createMockCtx();
     await registerOceanusTools(mock.ctx, {});
     await registerOceanusHooks(mock.ctx, {});
-    expect(mock.addedTools).toHaveLength(15);
+    expect(mock.addedTools).toHaveLength(16);
     expect(mock.beforeHooks).toHaveLength(3);
     expect(mock.afterHooks).toHaveLength(5);
+  });
+
+  test('直接工具注入 codemode:false，CBM 工具保持 Code Mode', async () => {
+    const mock = createMockCtx();
+    await registerOceanusTools(mock.ctx, {});
+    const byTool = new Map(mock.addedTools.map((t) => [t.name, t]));
+    // 9 个核心工具必须进入会话直接工具目录（subagent 可直接调用）
+    for (const name of [
+      'ast_grep_search',
+      'ast_grep_replace',
+      'hashline_edit',
+      'task_status',
+      'task_result',
+      'task_cancel',
+      'task_message',
+      'task_revive',
+      'clipboard_image',
+    ]) {
+      const tool = byTool.get(name);
+      expect(tool).toBeDefined();
+      expect(tool?.options?.codemode).toBe(false);
+    }
+    // CBM 工具保持缺省 Code Mode（catalog 形式），不得混入直接目录
+    const cbmRegistered = mock.addedTools.filter((t) => t.name.startsWith('cbm_'));
+    expect(cbmRegistered.length).toBeGreaterThan(0);
+    for (const tool of cbmRegistered) {
+      expect(tool?.options?.codemode).not.toBe(false);
+    }
   });
 
   test('全部禁用矩阵 → 0 工具、0 hooks', async () => {
@@ -479,6 +507,7 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
         'ast_grep_search',
         'ast_grep_replace',
         'hashline_edit',
+        'clipboard_image',
         'task_status',
         'task_result',
         'task_cancel',
@@ -519,8 +548,8 @@ describe('Hook 顺序、配置开关与失败隔离', () => {
     expect(names).toContain('hashline_edit');
     expect(names).toContain('task_result');
     expect(names).toContain('task_cancel');
-    // 未禁用 4 个常规工具 + 默认 7 个 CBM 工具
-    expect(mock.addedTools).toHaveLength(13);
+    // 未禁用 5 个常规工具 + 默认 7 个 CBM 工具
+    expect(mock.addedTools).toHaveLength(14);
     // json 被禁用 → after 只剩 enhancer + truncator + loop-guard + cbm-guidance
     expect(mock.afterHooks).toHaveLength(4);
     expect(mock.beforeHooks).toHaveLength(3); // apply_patch + loop-guard + observer + cbm-guidance

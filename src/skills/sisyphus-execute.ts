@@ -3,7 +3,7 @@ import type { SkillDefinition } from './types';
 const SISYPHUS_EXECUTE_SKILL: SkillDefinition = {
   name: 'sisyphus-execute',
   description:
-    'Phase 4 — Execute: implement task-by-task, dispatch independent work in parallel with the native subagent tool (background: true), keep dependent tasks waiting for terminal results, reconcile outputs, and keep the todo list in sync. Loaded by the sisyphus agent at the start of the execute phase.',
+    'Phase 4 of the Sisyphus workflow — Execute. Implement task-by-task, dispatch independent work in parallel with the native subagent tool (background: true), keep dependent tasks waiting for terminal results, reconcile outputs, and keep the todo list in sync.',
   slash: true,
   content: `---
 name: sisyphus-execute
@@ -15,7 +15,7 @@ exit: 任务终态
 failure: 标记失败并重规划
 verification: 测试与 ledger
 humanReview: conditional
-description: Phase 4 of the Sisyphus workflow — Execute. Implement task-by-task, dispatch independent work in parallel with the native subagent tool (background: true), keep dependent tasks waiting for terminal results, and keep the todo list in sync.
+description: Phase 4 of the Sisyphus workflow — Execute. Implement task-by-task, dispatch independent work in parallel with the native subagent tool (background: true), keep dependent tasks waiting for terminal results, reconcile outputs, and keep the todo list in sync.
 ---
 
 # Sisyphus Phase 4 — Execute
@@ -35,7 +35,7 @@ Implement the plan reliably: parallel where safe, serial where dependent, and fu
 
 ## Worktree Lifecycle（per-task 隔离模式；是否开启由用户在 plan 阶段决定）
 
-参考 Superpowers 的 worktree 生命周期：检测 → 创建 → 基线验证 → 隔离执行 → 合并回收 → 清理。共享 worktree 模式跳过本节，直接在当前目录按 Files 所有权执行。
+按 Worktree Lifecycle 执行：检测 → 创建 → 基线验证 → 隔离执行 → 合并回收 → 清理。共享 worktree 模式跳过本节，直接在当前目录按 Files 所有权执行。
 
 1. **检测复用** — 派发前先检查 \`.worktrees/<task-id>\` 是否已存在（中断恢复场景）；存在则复用并核对任务 Files 一致，不重复创建。
 2. **创建** — 为每个需要隔离的任务创建 worktree（默认 \`.worktrees/<task-id>\`，从当前分支切出临时分支），创建动作只由 orchestrator 执行，worker 不得自行创建/切换。
@@ -48,8 +48,8 @@ Implement the plan reliably: parallel where safe, serial where dependent, and fu
 
 Ordinary execution does **not** re-invoke @metis or @momus on every task — 普通执行不重复调用 @metis 或 @momus；仅当 plan 需要变更时才会触发。 They are only touched when the plan itself must change.
 
-1. **Route re-planning according to the kind of change** — if requirements or acceptance criteria change, pause and first re-run @metis to analyze the new requirements, risks, boundaries, counterexamples, and criteria; then return to plan, revise it, and 重新 call @momus. If only the \`Files\` scope, dependencies, task structure, or a failure-driven re-plan changes, return directly to plan, revise it, and re-run @momus without unnecessarily repeating @metis.
-2. **Only @momus OKAY lets execution continue** — after any re-planning, the revised plan must pass @momus review (计入 momus 3 轮上限). Only when @momus returns OKAY may execution resume; a REJECT means further revision, not execution。第 3 轮仍 REJECT 时停止并向用户上报请求裁决。
+1. **Route re-planning according to the kind of change** — 需求或验收标准变化 → 总批准失效，重新总批准：pause and first re-run @metis to analyze the new requirements, risks, boundaries, counterexamples, and criteria; then return to plan, revise it, and 重新 call @momus 与 human \`question\`。仅 Files/依赖/任务结构变化或失败重规划 → 不重新提问用户，仅重走 @momus：return directly to plan, revise it, and re-run @momus without unnecessarily repeating @metis.
+2. **Only @momus OKAY lets execution continue** — after any re-planning, the revised plan must pass @momus review (计入 momus 3 轮上限). Only when @momus returns OKAY may execution resume; a REJECT means further revision, not execution。第 3 轮仍 REJECT 时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（当前状态摘要 / 原因 / 恰好 2-3 个方案 / 推荐项）。
 3. **Never fake the gate** — do not invent or fabricate a gate result. If @momus was not actually run on the revised plan, record that honestly and do not claim it passed.
 
 ## Failing-First Discipline
@@ -65,6 +65,16 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 4. **Completion requires two proofs per scenario** — a code proof (RED output + GREEN output of the same test) plus a real-surface artifact. Passing tests alone do not make a task complete.
 5. **Exemption whitelist** (may skip RED→GREEN, but record the reason in Findings/ledger) — pure formatting, pure comments, dependency upgrades with no behavior change, pure renames.
 
+## Execute Evidence Tier
+
+每个任务在进入终态前必须声明且执行一个 evidence tier；Execute 仍必须同时具备实际的 Momus \`OKAY\` 与有效总批准（human APPROVED via consolidated），不能以证据档位替代任一门禁。
+
+1. **strict**（默认用于公共符号、接口、路由、配置契约或其它高风险变更）：必须同时记录同一变更状态上的 \`RED\`、\`GREEN\` 与 \`real-surface\` 证据。real-surface 必须来自 CLI 输出、live endpoint、手工 QA 或构建制品，而不是测试通过的复述。
+2. **light**（低风险且不触及公共符号）：允许 \`test-after\`，但仍必须运行并记录测试结果；不得伪称存在 RED 或 real-surface 证据。
+3. **exempt**：只限白名单中的纯格式、纯注释、无行为变化的依赖升级或纯重命名；必须在 Findings/ledger 写明具体白名单项与跳过理由，仍需记录可审计的验证结果。
+
+证据必须绑定时间点与当前代码状态（优先 git state、提交或等价快照）。缺失任一 tier 要求，或证据对应的代码状态已改变而变 stale，任务保持未完成并退回补证；不得复用旧输出。发现公共符号或高风险影响时，必须升级为 strict，并在继续执行前补齐 strict 证据。
+
 ## Checklist
 - [ ] Ready set computed from the plan
 - [ ] Independent tasks dispatched in parallel (\`subagent({ agent, description, prompt, background: true })\`, distinct lane marker per task)
@@ -74,7 +84,9 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 - [ ] Todo list matches task state
 - [ ] Failing-first applied: RED→GREEN captured per change, existing behavior pinned before changes
 - [ ] Each scenario has two proofs: code proof (RED+GREEN) and a real-surface artifact
-- [ ] 修复/重试循环 ≤3 轮，第 3 轮失败即上报用户
+- [ ] Execute evidence tier 已声明：strict=RED+GREEN+real-surface，light=test-after+测试，exempt=白名单+理由
+- [ ] Evidence 完整且绑定当前状态；缺失或 stale 不得通过，公共符号/高风险变更已升级 strict
+- [ ] 修复/重试循环 ≤3 轮，第 3 轮失败停止自动重试并按 3 轮中断上报模板用 \`question\` 上报用户
 - [ ] Worktree 模式：基线验证通过后才派发；任务终态后串行合并回主工作区；review 通过后已清理 worktree 与临时分支
 - [ ] Substantive changes (requirements/Files/dependencies/acceptance) or re-planning routed back to plan and re-passed through @momus before continuing
 
@@ -82,7 +94,7 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 - Use the real background parameter: \`subagent({ agent, description, prompt, background: true })\` with a distinct lane marker in description per task.
 - Poll background tasks explicitly with \`task_status\` / \`task_result\` and cancel obsolete ones with \`task_cancel\`; host facts take priority over any local observation — the plugin's task metadata is only an index and never a substitute for host fact. Do not rely on queue notifications — completion is never pushed by default, and a task must never be treated as terminal without a query.
 - Never reissue an unchanged task to the same specialist after a rejection; adjust scope or context first.
-- **修复循环上限统一 3 轮**：单个任务的失败修复/重派遣最多 3 轮；第 3 轮仍失败则标记 blocked 并向用户上报，不再自动重试。
+- **修复循环上限统一 3 轮**：单个任务的失败修复/重派遣最多 3 轮；第 3 轮仍失败则标记 blocked 并停止自动重试，按 3 轮中断上报模板用 \`question\` 上报。
 - Parallel background tasks are allowed only when write scopes do not conflict.
 - Parallel workers must not write the shared progress ledger; the orchestrator serializes ledger updates so task records cannot overwrite one another.
 - **CBM 边界**：高风险公共符号修改前先做 trace/impact（cbm_trace / cbm_query 分析影响面）；普通机械修改不强制查询；修改后影响面由 Review 阶段复查。
@@ -90,6 +102,7 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 - Follow the Failing-First Discipline above; do not skip RED→GREEN unless the change matches the exemption whitelist and the reason is recorded.
 - Never claim a task complete on passing tests alone; a real-surface artifact is required.
 - Requirement or acceptance changes re-run @metis before plan revision; Files/dependency/task-structure changes and failure re-planning may return directly to plan. Every revised plan must pass an actual @momus OKAY before continuing.
+- Plan-Change 后：需求或验收标准变化 → 旧的 Momus \`OKAY\` 与总批准均失效，重新总批准并重走 Momus 后才可恢复 Execute；仅 Files/依赖/任务结构变化或失败重规划 → 总批准不失效、不重新提问，仅重走 @momus。
 `,
 };
 

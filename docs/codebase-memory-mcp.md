@@ -32,7 +32,7 @@ CBM 子进程使用受限环境变量白名单，不继承 provider token；调�
 /cbm status                 # 查看缓存、安装及 UI 状态（不触发安装）
 /cbm install                # 后台安装（立即返回状态）
 /cbm repair                 # 强制修复并等待
-/cbm index                  # 为当前工作区索引
+cbm_index                  # 为当前工作区索引
 /cbm ui                     # 按配置启动 UI
 /cbm ui stop                # 停止本插件持有的 UI
 /cbm uninstall              # 移除 Oceanus 管理的 MCP/UI 资源
@@ -65,15 +65,15 @@ UI 默认 `enabled=true`、`autoStart=false`、`host="127.0.0.1"`、`port=9749`�
 
 ## 失败回退与 Windows 降级
 
-安装、MCP 注册、索引和 UI 操作均 fail-open：失败只返回可读诊断，不伪造索引结果，也不阻塞其它插件能力。CBM CLI 缺失、超时、非零退出、无效/超大 JSON 输出都会作为结构化错误返回；关闭 `autoIndex` 时查询不会自动索引，可先运行 `/cbm index`。
+安装、MCP 注册、索引和 UI 操作均 fail-open：失败只返回可读诊断，不伪造索引结果，也不阻塞其它插件能力。CBM CLI 缺失、超时、非零退出、无效/超大 JSON 输出都会作为结构化错误返回；关闭 `autoIndex` 时查询不会自动索引，可调用已注册的 `cbm_index`。
 
-Windows 支持下载 `.zip`、`.exe` 二进制及缓存路径；若 Windows 上 `index_repository` 的索引器不可用或失败，插件报告降级并允许回退原生工具，不声称已完成完整索引。可使用有效 `binaryPath`、手动 `/cbm index` 或关闭 CBM 后继续工作。
+Windows 支持下载 `.zip`、`.exe` 二进制及缓存路径；若 Windows 上 `index_repository` 的索引器不可用或失败，插件报告降级并允许回退原生工具，不声称已完成完整索引。可使用有效 `binaryPath`、手动调用 `cbm_index` 或关闭 CBM 后继续工作。
 
 ## Agent 调度矩阵
 
 CBM 沿六阶段工作流形成三阶段主线：
 
-1. **Intake 初始化**：代码或混合任务由 Sisyphus 直接调用一次 `cbm_index`（非代码任务跳过）；失败、超时或 in-progress 均 fail-open 并记录。这是全工作流唯一初始化点，Brainstorm/Plan 不重复初始化，普通文本探索不触发全量索引。
+1. **Intake 初始化**：代码或混合任务由 Sisyphus 直接调用一次 `cbm_index`（非代码任务跳过）；失败、超时或 in-progress 均 fail-open 并记录。这是全工作流唯一初始化点，Brainstorm/Plan 不重复初始化，普通文本探索不触发全量索引。Brainstorm 阶段 metis BACKGROUND_RESEARCH 按分层规则条件触发：Architecture 默认委派，Standard 主 Agent 自查、两波研究后仍存在未知依赖才委派，Trivial 不委派并记录跳过理由；metis 只用查询型 CBM，不初始化索引。
 2. **Momus 影响面预估（plan 门禁）**：`@momus` 审查计划时，对计划声明的修改文件/公共符号用查询型 CBM 排查影响面——`cbm_search_graph` 定位符号 → `cbm_trace` 查调用方/被调用方 → 必要时 `cbm_code` 读源码；发现计划未声明的受影响调用方/契约 → REJECT 并列出具体符号。预估结论（受影响符号与差异）记入 plan status，供 Review 阶段对比。momus 只做查询、不重建索引；CBM 不可用时标注不确定性、不虚构影响面，简单任务跳过预估需记录理由。
 3. **Review 影响面复查**：开始即调用 `cbm_index` 重建索引（execute 已修改代码），再对实际 diff 用 `cbm_trace`/`cbm_detect_changes` 再次排查影响面，并与 plan status 中 momus 的预估对比：一致 → 记为验证证据；不一致（新调用方受影响/预估遗漏）→ 解释或退回 execute；CBM 不可用时明确记录降级证据。
 
@@ -94,7 +94,7 @@ CBM 沿六阶段工作流形成三阶段主线：
 
 ### CBM CLI 参数契约
 
-CLI fallback 统一使用当前 workspace 的目录名作为 `project`，不再使用完整路径拼接名称；建索引时同时传入 `name`，确保后续查询使用同一名称。已使用旧的全路径 project 名建立的索引需要重新执行 `/cbm index`。`search_graph`、`trace_path`、`get_code_snippet`、`query_graph`、`detect_changes` 和 `index_status` 最终只发送 `project`。`index_repository` 最终只发送 `repo_path` 与 `name`。所有路径字段（包括 `projectPath`、`repository_path`、`repo_path`、`project_path`、`path`、`workspace_root`）会在执行前校验不得越出 workspace；越界时不会启动任何 CBM 子进程。
+CLI fallback 统一使用当前 workspace 的目录名作为 `project`，不再使用完整路径拼接名称；建索引时同时传入 `name`，确保后续查询使用同一名称。已使用旧的全路径 project 名建立的索引需要重新调用 `cbm_index`。`search_graph`、`trace_path`、`get_code_snippet`、`query_graph`、`detect_changes` 和 `index_status` 最终只发送 `project`。`index_repository` 最终只发送 `repo_path` 与 `name`。所有路径字段（包括 `projectPath`、`repository_path`、`repo_path`、`project_path`、`path`、`workspace_root`）会在执行前校验不得越出 workspace；越界时不会启动任何 CBM 子进程。
 
 ## 后台任务通信协议（T5）
 

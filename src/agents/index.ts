@@ -21,11 +21,12 @@ import {
   type ModelRef,
   createOceanusAgent,
 } from './oceanus';
+import { CHILD_BLOCKING_PROTOCOL } from './protocol';
 
 export type { AgentDefinition } from './oceanus';
 export { formatDelegationBrief } from './orchestrator-context';
 export type { DelegationBrief } from './orchestrator-context';
-const CHILD_BLOCKING_RULE = '\n缺少委派上下文时不要直接问用户；将问题反馈给父 agent，并输出 STATUS: BLOCKED、QUESTIONS、IMPACT。未明确指定模式时不猜测。\n';
+const CHILD_BLOCKING_RULE = `\n${CHILD_BLOCKING_PROTOCOL}\n`;
 
 type AgentFactory = (
   model?: ModelRef,

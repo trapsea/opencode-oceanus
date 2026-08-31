@@ -5,6 +5,7 @@ import { SISYPHUS_PLAN_SKILL } from './sisyphus-plan';
 import { SISYPHUS_REVIEW_SKILL } from './sisyphus-review';
 import { SISYPHUS_FINISH_SKILL } from './sisyphus-finish';
 import { OPENCODE_OCEANUS_SKILL } from './opencode-oceanus';
+import { CLIPBOARD_IMAGE_OBSERVER_SKILL } from './clipboard-image-observer';
 
 export type { SkillDefinition } from './types';
 
@@ -20,4 +21,5 @@ export const SISYPHUS_SKILLS = [
   SISYPHUS_EXECUTE_SKILL,
   SISYPHUS_REVIEW_SKILL,
   SISYPHUS_FINISH_SKILL,
+  CLIPBOARD_IMAGE_OBSERVER_SKILL,
 ];

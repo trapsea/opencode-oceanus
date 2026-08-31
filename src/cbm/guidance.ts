@@ -6,8 +6,8 @@ import type { IndexerOutcome } from './indexer';
  * CBM-06：把索引器结果（indexer.ts）翻译成对 agent / 用户的简明引导文案与
  * 回退建议。核心语义：
  *   - 已索引 → 可直接使用结构化查询，不回退；
- *   - 索引进行中 → 返回 `indexing in progress`，建议稍后重试或先回退原生工具；
- *   - 未索引且自动索引关闭 → 给可操作提示并允许 fallback；
+ *   - 索引启动中 → 返回 `starting`，超时标记 `stale` 并 fail-open 回退原生工具；
+ *   - 未索引且自动索引关闭 → 指向已注册的 cbm_index 工具并允许 fallback；
  *   - 失败降级 → 回退原生工具，绝不伪造“完整索引结果”。
  *
  * 本模块刻意只依赖 indexer 类型，保持纯函数，供 hook / 工具接线复用。
@@ -31,12 +31,12 @@ export interface CbmGuidance {
 
 /** 查询期间索引进行中的标准文案。 */
 export const INDEXING_IN_PROGRESS_MESSAGE =
-  'CBM 正在为项目建立索引（indexing in progress），本次结构化查询可能不完整；建议稍后重试，或先用 grep/read 兜底。';
+  'CBM 正在为项目建立索引（starting）；若状态变为 stale 则 fail-open 回退，建议稍后重试或先用 grep/read 兜底。';
 
 /** 未索引且自动索引关闭时的操作性提示（允许 fallback）。 */
 export const AUTO_INDEX_DISABLED_MESSAGE =
   '项目尚未建立 CBM 索引，且自动索引已关闭（autoIndex=false）。' +
-  '可执行 /cbm index 手动建索引；当前已允许回退到原生工具（grep/glob/read）。';
+  '可调用已注册的 cbm_index 工具手动建索引；当前已允许回退到原生工具（grep/glob/read）。';
 
 /** 无有效项目路径时的提示。 */
 export const NO_PROJECT_MESSAGE =
@@ -62,9 +62,15 @@ export function buildIndexingGuidance(
       };
     case 'index_started':
       return {
-        kind: 'ready',
-        message: `已为${scope}完成首次 CBM 自动索引，可执行结构化查询。`,
-        fallbackRecommended: false,
+        kind: 'indexing_in_progress',
+        message: `已为${scope}触发自动索引，但尚未确认完成；建议稍后重试，或先用 grep/read 兜底。`,
+        fallbackRecommended: true,
+      };
+    case 'starting':
+      return {
+        kind: 'indexing_in_progress',
+        message: INDEXING_IN_PROGRESS_MESSAGE,
+        fallbackRecommended: true,
       };
     case 'indexing':
       return {

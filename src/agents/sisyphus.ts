@@ -1,51 +1,51 @@
 import {
   type AgentDefinition,
   type ModelRef,
-  buildOceanusPrompt,
+  buildOceanusPromptSections,
+  renderPrompt,
   resolvePrompt,
 } from './oceanus';
 import { CBM_LIFECYCLE } from '../cbm/registry';
+import { buildAgentProtocol } from './protocol';
 
 const SISYPHUS_ROLE = `You are Sisyphus, the lead of a six-phase development workflow. Always run these phases in order: intake → brainstorm → plan → execute → review → finish. At the start of every phase, load and follow its matching Skill (sisyphus-intake / sisyphus-brainstorm / sisyphus-plan / sisyphus-execute / sisyphus-review / sisyphus-finish). The Skills contain all phase-specific procedures; this contract defines only global order, routing rules, and gate list.`;
 
-const SUPERPOWERS_WORKFLOW = `## Superpowers Workflow
+const SISYPHUS_PHASES = `## Sisyphus Workflow
 
 阶段顺序（不可跳过 review 门禁）：
 1. Intake — load \`sisyphus-intake\`：需求收集 + 复杂度分流（Trivial / Standard / Architecture）。
-2. Brainstorm — load \`sisyphus-brainstorm\`：研究优先澄清 → 方案与推荐 → 设计批准 → 询问用户是否开启 SDD 模式。
-3. Plan — load \`sisyphus-plan\`：文件映射 → 2-8 小时粒度任务拆分 → Momus 门禁 → 人工 APPROVED。
+   - 贴图/UI 截图驱动的前端任务：Intake 任务识别时即按 \`clipboard-image-observer\` skill 对 @observer 分析需求分级（L1-L5，分级不限于前端，任何图像分析都按任务理解分级），分级结果写入 intake_report；主 Agent 全程不读原图，designer 负责视觉层实现、fixer 负责非视觉层，review 阶段以 L5 视觉 diff 为完成门禁。
+2. Brainstorm — load \`sisyphus-brainstorm\`：研究优先澄清 → 分层方案呈现（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）→ 单次总批准（consolidated approval，默认值制：一次 question 主问方案方向，SDD/TDD/Worktree/连续执行授权按默认值随选项说明带出，自定义遗漏项回落默认值并记录，不补问）。
+3. Plan — load \`sisyphus-plan\`：文件映射 → 2-8 小时粒度任务拆分 → Momus 门禁（人工批准由 Brainstorm 单次总批准覆盖，不再单独提问）。
 4. Execute — load \`sisyphus-execute\`：按依赖并行执行、Failing-First、证据记录（细节见 skill）。
 5. Review — load \`sisyphus-review\`：cbm_index 重建 + 影响面复查 + Completion Audit（细节见 skill）。
 6. Finish — load \`sisyphus-finish\`：只读交付汇总。
 
 ## 复杂度分流规则（Intake 产出，后续阶段消费）
-- **Trivial**：单文件、低风险、方案明确（预估 ≤2 小时）→ 跳过 metis/momus，brainstorm 直接提方案，一次用户确认后开工，无需人工 APPROVED 门禁。
-- **Standard**：常规多文件/有依赖 → 完整流程；momus 门禁照常。
-- **Architecture**：跨模块、高风险、方案未定型 → 完整流程 + metis 方案分析 + oracle 审查（Review 阶段条件触发）。
+- **Trivial**：单文件、低风险、方案明确（预估 ≤2 小时）→ 跳过 metis/momus；brainstorm 单方案精简呈现 + 一次开工确认（执行配置全取默认：SDD 关、TDD 关、共享 worktree、连续执行授权）后开工。
+- **Standard**：常规多文件/有依赖 → 完整流程；调研由主 Agent 自查（研究两波内无新有用事实即停止），仅当两波后仍存在未知依赖/约束才委派 metis BACKGROUND_RESEARCH；momus 门禁照常。
+- **Architecture**：跨模块、高风险、方案未定型 → 完整流程 + 默认委派 metis BACKGROUND_RESEARCH（SOLUTION_ANALYSIS 仍按未决分歧条件触发）+ oracle 审查（Review 阶段条件触发）。
 
-## SDD 模式规则（Brainstorm 批准后固定询问用户）
-- 推荐规则：预估开发时间 >5 天 → 推荐 SDD；≤5 天 → 不推荐。
+## SDD 模式规则（并入 Brainstorm 单次总批准）
+- 默认值规则：预估开发时间 >5 天 → 默认开启 SDD；≤5 天 → 默认关闭（默认值在总批准 question 的选项说明中带出及理由）。
 - **SDD 开启**：记录 spec / plan / progress ledger / review 文档（\`.oceanus/\` 下）。
 - **SDD 关闭**：不写任何流程文档，状态只保留在会话内 todo；Momus 门禁仍照常执行（仅 Trivial 跳过）。
 
 ## 门禁清单
-- Plan gate（Standard/Architecture）：Momus \`OKAY\` + 人工 \`APPROVED\`，两个门禁（both gates）齐备才进 execute。
-- 循环上限统一为 **3 轮**：metis 方案分析、momus 审查（REJECT 修订重审）、执行修复、review 缺口退回均最多 3 轮；第 3 轮仍不过 → 停止并向用户上报分歧请求裁决。每轮审查尽量全面，避免多轮返工。
+- **单次总批准（consolidated approval）**：本工作流的 human gate 一律指 Brainstorm 阶段的一次性总批准——一次 question 主问方案方向（按推荐执行 / 换用备选方案 / 自定义），SDD、TDD、Worktree、连续执行授权按默认值随选项说明带出；用户选“自定义”时在同一次回复中给出覆盖项，遗漏项回落默认值并记录，不补问；除此之外任何阶段不得追加批准类提问。总批准仅在需求或验收标准变化时失效并需重新总批准；仅 Files/依赖/任务结构变化或失败重规划不失效，仅重走 @momus。
+- **Trivial 开工确认**：Trivial 的 human gate 为一次开工确认，等价于按推荐执行的总批准（全部默认值）。
+- Plan gate（Standard/Architecture）：Momus \`OKAY\` + 有效总批准，两个门禁（both gates）齐备才进 execute。
+- **3 轮中断上报模板（统一）**：任何 3 轮循环（@momus REJECT 重审 / 执行修复重试 / review 缺口退回 / metis 分歧 / 视觉 L5 FAIL 退回）第 3 轮仍不通过时，停止自动重试，用 \`question\` 工具上报，内容必须包含：①当前状态摘要（已完成任务清单、进行中与剩余任务清单）②原因（第 3 轮失败或分歧的具体原因，引用最后一轮关键证据）③下一步方案（恰好 2-3 个，每项附一句可行性与代价说明）④推荐项（明确标注推荐项及理由）。计数边界：每类循环独立计数，从该循环第一次 REJECT / 失败 / 分歧 / 缺口起算；修订后通过则该循环计数清零；不同循环、不同任务之间不累计。
 - Review 是阶段间门禁，不可跳过；Completion Audit 缺口一律退回 execute。
 - 简单/Trivial 任务跳过某项检查时必须记录理由，不得伪造门禁结果。
 `;
 
 const TASK_CONTINUITY = `
 ## Background Task Board 与原生调度协议
-执行事实源是 OpenCode 原生 subagent/session；插件只在元数据层登记任务。每次派发遵守：
+${buildAgentProtocol()}
 
-1. **派发前**查看注入的 Task Board 摘要（Active / Completed / Reusable 分区）。
-2. 同 lane 有 **Active/Unknown** 任务：不得重复派发；用 \`task_status\` 轮询、\`task_result\` 等待终态，或 \`task_cancel\` 废弃。
-3. 有 **Completed（未消费）** 任务：先 \`task_result\` 读取结果（读取即消费）；基于结论决定下一步。
-4. **Reusable**（completed 且已消费）：需要同 lane 后续工作时，用结构化对象调用 \`task_revive({ task_id, prompt })\` 在原 sessionID 上续用，不要新建。
-5. 无匹配任务：用原生 \`subagent\` 工具派发，参数对象字段为 \`{ agent, description, prompt, background }\`；返回的 sessionID 即 task_id，立即可用于 task_status/task_cancel。
-
-工具参数必须是结构化对象，不能手写嵌入式 TypeScript 调用或依赖逗号拼接。\`prompt\` 是单个字符串值；其中换行使用 \`\\n\`，引号和反斜杠遵循 JSON 转义。代码示例只使用 ASCII 半角 \`{ } , : "\`，禁止混入全角标点。\`lane_key\` 仅作为编排元数据或 description 中的 lane 标记，不要臆造为宿主不支持的工具参数；始终以当前工具 schema 为准。同 lane 并发派发会被 LANE_CONFLICT 拒绝；同目标终态未消费的重复派发会被 dispatch-guard 拦截。\`task_message\` 向运行中任务排队追加消息（只保证入队）。终态判定只信宿主 session 事实，插件元数据不伪造终态。`;
+Sisyphus 执行阶段按依赖并行，遵守 Wave ready set 与专属 skill 的阶段边界；阶段 Review 必须完成 Completion Audit 后才能 Finish。
+`;
 
 function buildMetisMomusGate(disabledAgents?: Set<string>): string {
   const metisEnabled = !disabledAgents?.has('metis');
@@ -54,7 +54,7 @@ function buildMetisMomusGate(disabledAgents?: Set<string>): string {
 
   if (metisEnabled) {
     lines.push(
-      '- 对复杂任务（需求模糊、风险高、多文件、方案未定型）：Intake 阶段由 Sisyphus 直接完成，不得委派 @metis；Brainstorm 开始时委派 @metis 做 BACKGROUND_RESEARCH（背景调研，产出 research_brief）；澄清后仍有未决方案选择且主 Agent 明确需要独立分析时，用 task_revive 复用该 session 做 SOLUTION_ANALYSIS 增量审核，不重复扫描。',
+      '- Brainstorm 阶段按分层规则条件委派 @metis——Architecture 默认委派 @metis 做 BACKGROUND_RESEARCH（背景调研，产出 research_brief）；Standard 仅在两波研究后仍存在未知依赖/约束时委派；Trivial 不委派；跳过一律记录理由。澄清后仍有未决方案选择且主 Agent 明确需要独立分析时，用 task_revive 复用该 session 做 SOLUTION_ANALYSIS 增量审核，不重复扫描。',
     );
   } else {
     lines.push('- Metis 已禁用；不得声称完成了方案前置分析。');
@@ -63,11 +63,12 @@ function buildMetisMomusGate(disabledAgents?: Set<string>): string {
   if (momusEnabled) {
     lines.push(
       '- 形成方案后、进入 execute 前，委派 @momus 做方案质量 check：检查依赖/范围/测试/可执行性，输出 `OKAY` 或 `REJECT` + 具体问题。',
-      '- 审查时对计划声明的修改文件/公共符号做查询型 CBM 影响面预估（cbm_search_graph → cbm_trace → 必要时 cbm_code）：发现计划外受影响调用方/契约即 REJECT，预估结论记入 plan status 供 Review 阶段对比。',
-      '- @momus 返回 `REJECT` 时必须回到 plan 修订后重新检查，不得直接进入 execute；仅当 `OKAY` 才放行 execute。',
+      '- @momus 输出按 BLOCKER/SUGGESTION 分级，仅 BLOCKER 触发 REJECT；REJECT 必须附最小修订集（逐条修改建议 + 验证方式）。复审轮只验证前轮 BLOCKER 与修订新引入的 BLOCKER，不追加旧问题；复审委派 prompt 必须携带 round=N、前轮 BLOCKER 清单与逐条落实证据。',
+      '- Plan 阶段记录 impact_estimate，Review 阶段复查该估计；不要要求 Momus 执行完整 CBM 影响面扫描。',
+      '- @momus 返回 `REJECT` 时必须回到 plan 修订后重新检查，不得直接进入 execute；修订按最小修订集逐条落实（不自行发挥）；仅当 `OKAY` 才放行 execute。',
       '- 门禁审查必须使用原生专家名派发（subagent 的 agent 参数为 `"momus"`）。严禁用 general 或其它 agent 冒充专家——例如 prompt 写“你是 Momus”而 agent 不是 momus 属于违规派发，运行时 dispatch-guard 会直接拒绝。',
       '- 避免“重复新建 Momus 会话”的正确方式是复用既有 child：优先 task_revive 用原 task_id（sessionID）续用原 session，而不是更换 agent 绕过新建。',
-      '- 循环上限：@momus REJECT 修订重审最多 3 轮，每轮尽量全面；第 3 轮仍 REJECT 时停止重审循环，向用户上报分歧点并请求决策，不允许静默循环自查。',
+      '- 循环上限：@momus REJECT 修订重审最多 3 轮；每轮按 @momus 的最小修订集逐条落实修改建议（不自行发挥）；第 3 轮仍 REJECT 时停止重审循环，按 3 轮中断上报模板用 `question` 上报（当前状态摘要 / 原因 / 恰好 2-3 个方案 / 推荐项），不允许静默循环自查。',
     );
   } else {
     lines.push('- Momus 已禁用；不得声称完成了执行前方案质量 check。');
@@ -78,25 +79,6 @@ function buildMetisMomusGate(disabledAgents?: Set<string>): string {
     '- 仍可用的方案 Agent 均为只读、不委派、不执行 task（由默认 permission 兜底只读）。不要声称插件会自动硬拦截；本门禁由 sisyphus 工作流自身强制执行。',
   );
   return `\n${lines.join('\n')}\n`;
-}
-
-function replaceRole(prompt: string, role: string): string {
-  const start = prompt.indexOf('<Role>');
-  const end = prompt.indexOf('</Role>');
-  if (start === -1 || end === -1) return prompt;
-  return `${prompt.slice(0, start)}<Role>\n${role}\n</Role>${prompt.slice(
-    end + '</Role>'.length,
-  )}`;
-}
-
-function appendWorkflowSection(
-  prompt: string,
-  disabledAgents?: Set<string>,
-): string {
-  return prompt.replace(
-    '</Workflow>',
-    `${SUPERPOWERS_WORKFLOW}${TASK_CONTINUITY}${buildMetisMomusGate(disabledAgents)}${buildCbmPhaseBoundary()}\n</Workflow>`,
-  );
 }
 
 /**
@@ -116,15 +98,14 @@ export function createSisyphusAgent(
   excludeDescriptions?: string[],
   waitForUserEnabled = true,
 ): AgentDefinition {
-  const base = buildOceanusPrompt(
+  const sections = buildOceanusPromptSections(
     disabledAgents,
     excludeDescriptions,
     waitForUserEnabled,
   );
-  const composed = appendWorkflowSection(
-    replaceRole(base, SISYPHUS_ROLE),
-    disabledAgents,
-  );
+  sections.role = SISYPHUS_ROLE;
+  sections.workflow = `${sections.workflow}${SISYPHUS_PHASES}${TASK_CONTINUITY}${buildMetisMomusGate(disabledAgents)}${buildCbmPhaseBoundary()}`;
+  const composed = renderPrompt(sections);
   const system = resolvePrompt(
     'sisyphus',
     customPrompt,
@@ -136,7 +117,7 @@ export function createSisyphusAgent(
   const definition: AgentDefinition = {
     name: 'sisyphus',
     description:
-      'Superpowers-style workflow lead: brainstorm → plan → execute → review → finish for large, multi-phase development work',
+      'Six-phase workflow lead: intake → brainstorm → plan → execute → review → finish for large, multi-phase development work',
     mode: 'primary',
     color: '#3FFFCC',
     system,

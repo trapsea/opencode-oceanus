@@ -34,7 +34,7 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     const prompt = `${createSisyphusAgent().system!}\n${SISYPHUS_BRAINSTORM_SKILL.content}`;
     expect(prompt).toMatch(/Intake/);
     expect(prompt).toContain('cbm_index');
-    expect(prompt).toMatch(/failure[\s\S]*timeout[\s\S]*in-progress|失败[\s\S]*超时[\s\S]*in-progress/i);
+    expect(prompt).toMatch(/failure[\s\S]*timeout[\s\S]*(starting|stale)|失败[\s\S]*超时[\s\S]*(starting|stale)/i);
     expect(prompt).toMatch(/fail-open/i);
     expect(prompt).toMatch(/code\/mixed|代码\/混合/);
   });

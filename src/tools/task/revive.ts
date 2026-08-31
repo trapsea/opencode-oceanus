@@ -8,6 +8,7 @@
 import type { ToolDefinition, ToolContextLike } from '../../runtime/types';
 import type { TaskCoordinator } from '../../runtime/task-coordinator';
 import type { SessionLike } from '../../runtime/types';
+import { readSessionLastAssistantText } from '../../runtime/task';
 
 export function buildTaskReviveTool(coordinator: TaskCoordinator, session?: SessionLike): ToolDefinition {
   return {
@@ -43,10 +44,13 @@ export function buildTaskReviveTool(coordinator: TaskCoordinator, session?: Sess
         await session.wait({ sessionID: taskId });
         const info = typeof session.get === 'function' ? await session.get({ sessionID: taskId }) : undefined;
         const outcome = (info as { outcome?: string } | undefined)?.outcome;
+        // 内容通道：读取子会话最后一条 assistant 输出，随结果回传并留存 summary
+        // （宿主未暴露 session.context 时 fail-open，仅返回元数据）。
+        const output = await readSessionLastAssistantText(session, taskId).catch(() => undefined);
         if (outcome === 'succeeded') {
-          await coordinator.markTerminal(taskId, ctx.sessionID, 'completed');
+          await coordinator.markTerminal(taskId, ctx.sessionID, 'completed', output);
         } else if (outcome === 'failed') {
-          await coordinator.markTerminal(taskId, ctx.sessionID, 'failed');
+          await coordinator.markTerminal(taskId, ctx.sessionID, 'failed', output);
         } else if (outcome === 'interrupted') {
           // 宿主中断 = 未决可恢复：标记 uncertain（非 cancelled），后续可再次 revive。
           await coordinator.markUncertain(taskId, ctx.sessionID);
@@ -61,6 +65,7 @@ export function buildTaskReviveTool(coordinator: TaskCoordinator, session?: Sess
             generation: revived.generation,
             state: fresh?.state ?? 'running',
             outcome: outcome ?? 'unknown',
+            output,
           }),
         };
       } catch (e: any) {

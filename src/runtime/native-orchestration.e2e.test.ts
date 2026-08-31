@@ -22,9 +22,16 @@ afterEach(async () => { if (workspace) await rm(workspace, { recursive: true, fo
 function fakeCtx(host: { active?: Set<string>; outcomes?: Record<string, string> }) {
   const tools: ToolDefinition[] = [];
   const hooks: { before: any[]; after: any[] } = { before: [], after: [] };
+  // 陷阱：SessionDomain 无 sessionID/id 属性；任何读取都被记录（setup 不得读取）。
+  const sessionIdentityReads: string[] = [];
+  const getCalls: Array<{ sessionID: string }> = [];
   const session: any = {
-    sessionID: 'parent-1', id: 'parent-1',
-    get: async ({ sessionID }: any) => ({ id: sessionID, parentID: 'parent-1', location: { directory: process.cwd() }, outcome: host.outcomes?.[sessionID] }),
+    get sessionID() { sessionIdentityReads.push('sessionID'); return ''; },
+    get id() { sessionIdentityReads.push('id'); return ''; },
+    get: async ({ sessionID }: any) => {
+      getCalls.push({ sessionID });
+      return { id: sessionID, parentID: 'parent-1', location: { directory: process.cwd() }, outcome: host.outcomes?.[sessionID] };
+    },
     active: async () => ({ data: Object.fromEntries([...(host.active ?? [])].map((s) => [s, {}])) }),
     interrupt: async () => ({ interrupted: true }),
     prompt: async (i: any) => { calls.prompt.push(i); },
@@ -42,7 +49,7 @@ function fakeCtx(host: { active?: Set<string>; outcomes?: Record<string, string>
       hook: async (name: string, cb: any) => { name === 'execute.before' ? hooks.before.push(cb) : hooks.after.push(cb); },
     },
   } satisfies PluginSetupContext;
-  return { ctx, tools, hooks, session, calls };
+  return { ctx, tools, hooks, session, calls, sessionIdentityReads, getCalls };
 }
 
 describe('native-session-orchestration 端到端', () => {
@@ -53,6 +60,9 @@ describe('native-session-orchestration 端到端', () => {
     let coordinator: any;
     await runSetup(fake.ctx, { loadConfig: () => ({}) as any, taskLifecycleObserver: (_s, c) => { coordinator ??= c; } });
     expect(coordinator).toBeDefined();
+    // Wave 2A 契约：setup 不读取 SessionDomain 伪造身份，也不以空 sessionID 调用宿主 get。
+    expect(fake.sessionIdentityReads).toEqual([]);
+    expect(fake.getCalls.filter((c) => c.sessionID === '')).toEqual([]);
     // bridge hooks 是 cbm-guidance 之前注册的一对 before/after
     const bridgeBefore = fake.hooks.before[fake.hooks.before.length - 2];
     const bridgeAfter = fake.hooks.after[fake.hooks.after.length - 2];

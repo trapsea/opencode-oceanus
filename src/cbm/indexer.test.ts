@@ -70,10 +70,10 @@ describe('normalizeIndexStatus：list_projects/index_status 结果归一化', ()
     expect(normalizeIndexStatus(okResult({ indexed: false })).kind).toBe('unindexed');
   });
 
-  test('indexing / in_progress 状态', () => {
-    expect(normalizeIndexStatus(okResult({ status: 'indexing' })).kind).toBe('indexing');
-    expect(normalizeIndexStatus(okResult({ in_progress: true })).kind).toBe('indexing');
-    expect(normalizeIndexStatus(okResult({ indexing: true })).kind).toBe('indexing');
+  test('indexing / in_progress 状态统一为 starting', () => {
+    expect(normalizeIndexStatus(okResult({ status: 'indexing' })).kind).toBe('starting');
+    expect(normalizeIndexStatus(okResult({ in_progress: true })).kind).toBe('starting');
+    expect(normalizeIndexStatus(okResult({ indexing: true })).kind).toBe('starting');
   });
 
   test('无法解析 → unknown，不误报已索引', () => {
@@ -149,7 +149,8 @@ describe('createIndexer：未索引自动建图', () => {
 
     const outcome = await h.ensureIndexed('proj', { workspaceRoot: ROOT, timeoutMs: 1000 });
     expect(outcome.kind).toBe('index_started');
-    expect(h.isIndexed('proj', ROOT)).toBe(true);
+    // index_started 仅表示已触发建图，不等同于 daemon 确认 indexed。
+    expect(h.isIndexed('proj', ROOT)).toBe(false);
 
     const indexCalls = calls.filter((c) => c.tool === 'index_repository');
     expect(indexCalls).toHaveLength(1);

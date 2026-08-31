@@ -99,7 +99,7 @@ export function createCbmGuidanceHook(opts: CbmGuidanceHookOptions) {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_CBM_GUIDANCE_TIMEOUT_MS;
 
   /** 已做过首次索引检查的 (session,project) 键。 */
-  const checkedIndex = new Set<string>();
+  const checkedIndex = new Map<string, number>();
   /** 待追加到结构化查询结果上的引导文案 (session,project) → message。 */
   const pendingGuidance = new Map<string, string>();
   /** 每个 session 累计的合格 grep/read 调用数。 */
@@ -121,13 +121,27 @@ export function createCbmGuidanceHook(opts: CbmGuidanceHookOptions) {
         const root = await opts.resolveRoot(event.sessionID);
         if (!root) return;
         const k = key(event.sessionID, root);
-        if (checkedIndex.has(k)) return;
-        checkedIndex.add(k);
+        const previousAttempt = checkedIndex.get(k);
+        // 终态永久去重；starting 只允许再做一次 attempt 2 检查。
+        if (previousAttempt === 2 || previousAttempt === -1) return;
         const outcome = await opts.indexer.ensureIndexed(root, {
           workspaceRoot: root,
           timeoutMs,
         });
-        if (outcome.kind === 'indexed' || outcome.kind === 'index_started') return;
+        if (outcome.kind === 'indexed') {
+          checkedIndex.set(k, -1);
+          return;
+        }
+        if (outcome.kind === 'index_started') {
+          checkedIndex.set(k, 1);
+        }
+        if (outcome.kind === 'starting') {
+          checkedIndex.set(k, outcome.attempt);
+        } else if (outcome.kind === 'degraded' && outcome.reason === 'stale') {
+          checkedIndex.set(k, -1);
+        } else if (outcome.kind !== 'index_started') {
+          checkedIndex.set(k, previousAttempt ?? 0);
+        }
         const guidance = buildIndexingGuidance(outcome, root);
         if (guidance.fallbackRecommended) pendingGuidance.set(k, guidance.message);
       } catch (e) {

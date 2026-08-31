@@ -1,4 +1,4 @@
-import { WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
+import { WRITER_TOOL_PERMISSION, WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
 import type { AgentDefinition, ModelRef } from './oceanus';
 
 const DESIGNER_PROMPT = `You are a Designer - a frontend UI/UX specialist who creates and reviews intentional, polished experiences.
@@ -85,6 +85,9 @@ export function createDesignerAgent(
     mode: 'subagent',
     system,
     temperature: 0.7,
+    // 写入工具族约束：与 fixer 一致（宿主 edit/write/apply_patch 目录级移除，
+    // 写入走 hashline_edit / ast_grep_replace）。见 constants.ts WRITER_TOOL_PERMISSION。
+    permission: WRITER_TOOL_PERMISSION,
   };
 
   if (model) {

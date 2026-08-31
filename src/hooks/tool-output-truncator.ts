@@ -7,11 +7,13 @@
  *
  * 行为与安全边界：
  * - 工具级限制（perToolMaxBytes）覆盖默认限制（defaultMaxBytes）。
- * - 只截断文本（text content）：控制信息（status / task id / diff / hash
- *   mismatch）常出现在头部，因此默认保留约 80% 头部 + 20% 尾部，保证开头与
- *   结尾的控制标记不被截掉。
+ * - 只截断文本（text content 与字符串 output）：控制信息（status / task
+ *   id / diff / hash mismatch）常出现在头部，因此默认保留约 80% 头部 +
+ *   20% 尾部，保证开头与结尾的控制标记不被截掉。
  * - 截断 marker 幂等：已含 marker 的文本不再重复截断，避免叠标记。
- * - 非文本 result（file content、结构化 output、无 content）安全透传，绝不改动。
+ * - 字符串 result.output（如 hashline enhancer 写入的宿主输出）与
+ *   content 使用同一限制与 marker 语义；结构化 output 保持原样透传。
+ * - 非文本 result（file content、结构化 output、无文本）安全透传，绝不改动。
  * - error / status 分支由 Hook 层跳过，错误消息原样保留，绝不被截断。
  * - 只提供纯逻辑 + Hook 处理器，不做注册；适配 v2 的 execute.after 事件形状
  *   （@opencode-ai/plugin 的 ToolHooks["execute.after"]）。
@@ -157,10 +159,18 @@ function isTextContent(block: ToolContent): block is ToolTextContent {
   );
 }
 
+/** truncateToolResult 内部用于记录需要覆写的 result 字段。 */
+type ResultPatch = {
+  readonly output?: string;
+  readonly content?: string | ReadonlyArray<ToolContent>;
+};
+
 /**
  * 对工具结果做输出截断（纯函数）。
+ * - 字符串 output（hashline 化的宿主输出）按同一限制截断；结构化 output
+ *   （非字符串）保持原样。
  * - content 为字符串或文本块数组时才可能截断；file 块、结构化 output 与
- *   无 content 的 result 一律安全透传（返回原引用）。
+ *   无文本的 result 一律安全透传（返回原引用）。
  * - 返回新 result（仅在发生截断时新建对象），绝不原地修改入参。
  */
 export function truncateToolResult(
@@ -172,18 +182,20 @@ export function truncateToolResult(
   const limit = resolveLimit(tool, limits);
   if (limit <= 0) return { result, truncated: false, limit };
 
-  const content = result.content;
-  if (content === undefined || content === null) {
-    return { result, truncated: false, limit };
+  let patch: ResultPatch | undefined;
+
+  // 字符串 output 分支：与 content 共用同一 limit 与 marker 语义；
+  // 结构化（非字符串）output 不进入此分支，保持原样透传。
+  if (typeof result.output === 'string') {
+    const out = truncateTextBlock(result.output, limit, opts);
+    if (out.truncated) patch = { ...patch, output: out.text };
   }
 
+  const content = result.content;
   if (typeof content === 'string') {
     const out = truncateTextBlock(content, limit, opts);
-    if (!out.truncated) return { result, truncated: false, limit };
-    return { result: { ...result, content: out.text }, truncated: true, limit };
-  }
-
-  if (Array.isArray(content)) {
+    if (out.truncated) patch = { ...patch, content: out.text };
+  } else if (Array.isArray(content)) {
     let changed = false;
     const next = content.map((block) => {
       if (!isTextContent(block)) return block; // file / 未知形状：透传
@@ -191,12 +203,12 @@ export function truncateToolResult(
       if (out.truncated) changed = true;
       return out.truncated ? { ...block, text: out.text } : block;
     });
-    if (!changed) return { result, truncated: false, limit };
-    return { result: { ...result, content: next }, truncated: true, limit };
+    if (changed) patch = { ...patch, content: next };
   }
 
   // 其它非文本形状：安全透传。
-  return { result, truncated: false, limit };
+  if (!patch) return { result, truncated: false, limit };
+  return { result: { ...result, ...patch }, truncated: true, limit };
 }
 
 /** v2 execute.after 事件（completed 分支）的结构化镜像。result 可变，Hook 就地改写。 */

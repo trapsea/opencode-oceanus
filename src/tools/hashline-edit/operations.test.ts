@@ -69,6 +69,36 @@ describe("applyAppend / applyPrepend 文件级", () => {
   })
 })
 
+describe("applyAppend 无锚点追加四象限换行语义", () => {
+  test("尾换行文件 + 无换行追加文本：无多余空行且保留尾换行", () => {
+    // "a\nb\n".split("\n") === ["a", "b", ""]，末尾幻影空行代表结尾换行。
+    expect(applyAppend(["a", "b", ""], "c").join("\n")).toBe("a\nb\nc\n")
+  })
+
+  test("尾换行文件 + 带换行追加文本：不重复结尾换行", () => {
+    // "c\n" 归一化为 ["c", ""]，自带结尾换行，不应再补幻影行。
+    expect(applyAppend(["a", "b", ""], "c\n").join("\n")).toBe("a\nb\nc\n")
+  })
+
+  test("无尾换行文件 + 无换行追加文本：保持无尾换行", () => {
+    expect(applyAppend(["a", "b"], "c").join("\n")).toBe("a\nb\nc")
+  })
+
+  test("无尾换行文件 + 带换行追加文本：追加文本自带尾换行", () => {
+    expect(applyAppend(["a", "b"], "c\n").join("\n")).toBe("a\nb\nc\n")
+  })
+
+  test("尾换行文件（末行为空行）追加：保留原空行", () => {
+    // "a\n\n".split("\n") === ["a", "", ""]，倒数第二位才是真实空行。
+    expect(applyAppend(["a", "", ""], "c").join("\n")).toBe("a\n\nc\n")
+  })
+
+  test("仅空行加尾换行文件追加：原空行保留", () => {
+    // "\n".split("\n") === ["", ""]。
+    expect(applyAppend(["", ""], "c").join("\n")).toBe("\nc\n")
+  })
+})
+
 describe("applyHashlineEdits 批量应用", () => {
   test("replace + append + prepend 组合", () => {
     const edits = normalizeHashlineEdits([

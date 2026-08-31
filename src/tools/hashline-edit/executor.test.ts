@@ -47,6 +47,42 @@ describe("applyHashlineEditToFile 集成", () => {
     expect(await read("new.txt")).toBe("hello\nworld")
   })
 
+  test("无锚点 append 四象限：尾换行文件 + 无换行文本", async () => {
+    await write("q1.txt", "a\nb\n")
+    const res = await applyHashlineEditToFile(join(dir, "q1.txt"), [
+      { op: "append", lines: "c" },
+    ])
+    expect(res.ok).toBe(true)
+    expect(await read("q1.txt")).toBe("a\nb\nc\n")
+  })
+
+  test("无锚点 append 四象限：尾换行文件 + 带换行文本", async () => {
+    await write("q2.txt", "a\nb\n")
+    const res = await applyHashlineEditToFile(join(dir, "q2.txt"), [
+      { op: "append", lines: "c\n" },
+    ])
+    expect(res.ok).toBe(true)
+    expect(await read("q2.txt")).toBe("a\nb\nc\n")
+  })
+
+  test("无锚点 append 四象限：无尾换行文件 + 无换行文本", async () => {
+    await write("q3.txt", "a\nb")
+    const res = await applyHashlineEditToFile(join(dir, "q3.txt"), [
+      { op: "append", lines: "c" },
+    ])
+    expect(res.ok).toBe(true)
+    expect(await read("q3.txt")).toBe("a\nb\nc")
+  })
+
+  test("无锚点 append 四象限：无尾换行文件 + 带换行文本", async () => {
+    await write("q4.txt", "a\nb")
+    const res = await applyHashlineEditToFile(join(dir, "q4.txt"), [
+      { op: "append", lines: "c\n" },
+    ])
+    expect(res.ok).toBe(true)
+    expect(await read("q4.txt")).toBe("a\nb\nc\n")
+  })
+
   test("文件不存在且非新建场景返回错误", async () => {
     const res = await applyHashlineEditToFile(join(dir, "missing.ts"), [
       { op: "replace", pos: ref(1, "x"), lines: "y" },

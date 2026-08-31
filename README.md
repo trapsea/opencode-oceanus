@@ -13,7 +13,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 | Agent | 角色 | mode |
 |-------|------|------|
 | `oceanus` | AI 编码编排器（颜色 `#0FFFFF`） | primary |
-| `sisyphus` | superpowers 六阶段工作流主导（intake → brainstorm → plan → execute → review → finish） | primary |
+| `sisyphus` | 六阶段工作流主导（intake → brainstorm → plan → execute → review → finish） | primary |
 | `explorer` | 快速代码库检索 | subagent |
 | `librarian` | 外部文档 / 库研究 | subagent |
 | `oracle` | 架构决策 / 复杂调试 / 评审 | subagent |
@@ -21,7 +21,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 | `fixer` | 有界实现执行 | subagent |
 | `observer` | 视觉 / 多媒体分析（**默认禁用**，需要视觉模型） | subagent |
 | `metis` | 实现前方案分析（需求缺口/风险/边界/反例/验收标准） | subagent |
-| `momus` | 执行前方案质量检查（依赖/范围/测试/可执行性），输出 `OKAY`/`REJECT` | subagent |
+| `momus` | 执行前方案质量检查（依赖/范围/测试/可执行性），输出 `OKAY`/`REJECT`（仅 BLOCKER 触发 REJECT，附最小修订集） | subagent |
 
 `metis`、`momus` **默认启用、只读**，不写文件、不委派、不执行 task；`observer` 默认禁用（需要视觉模型）。
 
@@ -30,7 +30,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 对复杂任务（需求模糊、风险高、多文件、方案未定型），`sisyphus` / `oceanus` 工作流遵循以下协议：
 
 1. 上下文优先：Sisyphus 直接完成 Intake、澄清目标与验收；仅当 Intake 已有、澄清完成后仍有未决方案，且主 Agent 明确需要独立分析时，才条件委派 `@metis` 做方案分析。
-2. `@momus`（执行前方案质量检查）：方案形成后、进入 execute 前检查依赖、范围、测试与可执行性，输出 `OKAY` 或 `REJECT` + 具体问题；`REJECT` 时必须回到 plan 修订后重新检查，`OKAY` 才放行 execute。
+2. `@momus`（执行前方案质量检查）：方案形成后、进入 execute 前检查依赖、范围、测试与可执行性，输出 `OKAY` 或 `REJECT`；问题按 BLOCKER/SUGGESTION 分级，仅 BLOCKER 触发 `REJECT` 且附最小修订集（逐条修改建议 + 验证方式），`REJECT` 时按最小修订集回到 plan 修订后重新检查，`OKAY` 才放行 execute。
 3. 简单任务（单文件、低风险、方案明确）可明确跳过该门禁，并说明跳过理由。
 
 > **重要**：该门禁是 **prompt 工作流门禁**，由 `sisyphus` / `oceanus` 的提示词与工作流约定强制执行，**不是**插件注册的自动运行时 supervisor——插件不会在运行时自动硬拦截执行路径。`metis` / `momus` 只负责分析与判断，最终决策与放行由 orchestrator / sisyphus 决定。
@@ -158,8 +158,8 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 | Skill | 作用 |
 |-------|------|
 | `opencode-oceanus` | 说明 Oceanus 配置、preset 优先级、v2 限制及 `/preset` 命令 |
-| `sisyphus-brainstorm` | 探索上下文、一次一个问题澄清需求、提出 2-3 方案、产出并保存设计 spec 到 `.oceanus/spec/` |
-| `sisyphus-plan` | 映射文件、right-size 任务、保存实现计划到 `.oceanus/plan/`、确认 TDD 与 Worktree 策略 |
+| `sisyphus-brainstorm` | 探索上下文、研究优先澄清需求、按复杂度分层呈现方案（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）、以单次总批准（默认值制单问：主问方案方向，SDD/TDD/Worktree/连续执行授权按默认值随选项带出）一次 question 完成批准；SDD 开启时保存设计 spec 到 `.oceanus/spec/` |
+| `sisyphus-plan` | 映射文件、right-size 任务、保存实现计划到 `.oceanus/plan/`、消费总批准中的 TDD 与 Worktree 决策（默认值制，不重复提问） |
 | `sisyphus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类与 CBM 初始化 |
 | `sisyphus-execute` | 按计划实现、后台并行委派 `task(run_in_background=true)`、同步 todo 状态 |
 | `sisyphus-review` | 阶段间证据化评审、重评审转交 @oracle、验证发现后才接受 |
@@ -170,13 +170,13 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 
 ### Sisyphus 六阶段工作流
 
-`sisyphus` 按 superpowers 风格执行六阶段工作流（`intake → brainstorm → plan → execute → review → finish`），各阶段职责与产物如下：
+`sisyphus` 执行六阶段工作流（`intake → brainstorm → plan → execute → review → finish`），各阶段职责与产物如下：
 
 | 阶段 | 职责 | 产物 / 落点 |
 |------|------|-------------|
 | **Intake** | `Sisyphus 直接了解背景、完成最小需求 intake、分类任务，并在代码任务中初始化 CBM；不做方案决策 | Intake 结构化摘要 |
-| **Brainstorm** | Sisyphus 负责澄清与决策；仅在已有 Intake、澄清后仍有未决方案且主 Agent 明确需要时条件委派 `@metis` | `.oceanus/spec/` |
-| **Plan** | Sisyphus 负责拆分任务并维护进度 ledger；`@momus` 做方案质量门禁后还需人工批准，输出 `OKAY` / `REJECT` | `.oceanus/plan/` + 人工批准 |
+| **Brainstorm** | Sisyphus 负责澄清与决策；调研按分层规则条件委派 `@metis`（Architecture 默认、Standard 两波自查后仍有未知才委派、Trivial 不委派）；澄清完成后以单次总批准（默认值制单问）一次 question 完成方案批准与执行配置确认 | `.oceanus/spec/` |
+| **Plan** | Sisyphus 负责拆分任务并维护进度 ledger；`@momus` 做方案质量门禁，人工批准由 Brainstorm 单次总批准覆盖（不重复提问），输出 `OKAY` / `REJECT` | `.oceanus/plan/` + 总批准记录 |
 | **Execute** | `fixer` / `designer` 实现；若计划发生实质变化或执行失败需重规划，回到 Plan 并**重新经过 momus** | 代码变更 + 更新后的计划 |
 | **Review** | 阶段开始先直接刷新当前项目 CBM 索引，再做证据化审查；高风险变更由 `@oracle` 独立审查 | 审查结论 |
 | **Finish** | Sisyphus 只读 Review 报告并收口，不测试、不构建、不调用 CBM、不委派、不修改文件 | 交付总结 |
@@ -363,7 +363,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 /preset fast         # 直接选择名为 fast 的预设
 ```
 
-选择成功后会原子更新**用户级** `~/.config/opencode/opencode-oceanus.jsonc`（或 `.json`）的顶层 `preset` 字段（全局生效，所有项目共享），不会改写 `presets` 或 `agents`；没有预设、预设不存在或写入失败时命令会报错。preset 名称校验会合并项目级 `.opencode/` 中的 `presets` 定义。命令会刷新后续 agent 定义，但不会热切换正在执行的会话；由于宿主按项目实例化插件并在启动时快照配置，请重启 opencode（或等待项目服务重建）后开启新会话，新的 preset 才会加载。该命令不再由 TUI sidebar 插件重复注册。
+选择成功后会原子更新**用户级** `~/.config/opencode/opencode-oceanus.jsonc`（或 `.json`）的顶层 `preset` 字段（全局生效，所有项目共享），不会改写 `presets` 或 `agents`；没有预设、预设不存在或写入失败时命令会报错。preset 名称校验会合并项目级 `.opencode/` 中的 `presets` 定义。命令同时会**立即生效**：当前会话模型同步切换，agent registry 立即重建，后续 subagent 立即使用新模型；仅正在执行中的 subagent 不受影响。TUI sidebar 由 fs.watch 指纹监听自动刷新（~100ms）。
 
 Sisyphus 执行时还会为每个计划维护任务级进度 ledger：`.oceanus/progress/<plan-name>.md`。ledger 按任务记录 `pending`、`in_progress`、`completed`、`failed` 或 `blocked` 状态、worker/session、验证证据和更新时间。并行 worker 不直接写共享 ledger，由 orchestrator 在派发前及每个任务完成后串行更新。
 
