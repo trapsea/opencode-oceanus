@@ -64,7 +64,6 @@ export interface SessionLike {
   /**
    * 官方 v2 插件文档 `SessionContext.context(input)`：读取会话消息列表
    * （`Promise<readonly SessionMessageInfo[]>`）。
-   * 任务续用/结果读取的内容通道（task_revive / task_result 回传子会话输出）；
    * 宿主未暴露该能力时运行时探测缺省，调用方 fail-open 降级为无内容。
    */
   context?(input: { sessionID: string }): Promise<unknown[] | undefined>;
@@ -87,6 +86,12 @@ export interface ToolDefinition {
   description: string;
   input: unknown;
   execute(input: any, context: ToolContextLike): Promise<ToolResult>;
+  /**
+   * 对应宿主 `Tool.Info.output`（beta-18743 实证）：execute 返回的
+   * `Tool.Result` 若声明 `output` 字段，工具定义必须携带 output schema，
+   * 否则宿主以 "Tool result declared output without an output schema" 拒绝。
+   */
+  output?: unknown;
   /**
    * 对应宿主 `Tool.Options`（@opencode-ai/schema beta-18743）。
    *

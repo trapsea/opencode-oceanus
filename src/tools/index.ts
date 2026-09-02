@@ -2,9 +2,8 @@
  * Oceanus 新增工具的 v2 注册（tooling-9-v2-wiring）。
  *
  * 通过 `ctx.tool.transform` 注册 ast_grep_search / ast_grep_replace / hashline_edit /
- * task_status / task_result / task_cancel，并按配置过滤（默认全部启用）。
+ * 并按配置过滤（默认全部启用）。
  * - AST 与 hashline 的路径必须解析到当前 session 的工作区根内。
- * - task 三件套围绕 v2 session APIs + 本地 task registry 实现。
  * - 不引入 v1 client shim；错误一律以结构化 result 返回，不抛异常。
  */
 import path from 'node:path';
@@ -18,9 +17,6 @@ import {
   presentHashlineSuccess,
   type RawHashlineEdit,
 } from './hashline-edit';
-import { buildTaskMessageTool } from './task/message';
-import { buildTaskReviveTool } from './task/revive';
-import { isTerminalStatus, type TaskStatus } from './task/types';
 import { buildClipboardImageTool } from './clipboard-image';
 import { buildCbmTools } from './cbm';
 import type { IndexerHandle, IndexerRunCli } from '../cbm/indexer';
@@ -28,19 +24,10 @@ import type { CbmRunDeps } from './cbm/types';
 import { isToolEnabled, getToolConfig } from '../config/utils';
 import type { PluginConfig } from '../config/schema';
 import { resolveWorkspaceRoot } from '../runtime/workspace';
-import type { TaskCoordinator } from '../runtime/task-coordinator';
-import {
-  resolveTaskHostStatus,
-  cancelChildSession,
-  readSessionOutcome,
-  readSessionLastAssistantText,
-} from '../runtime/task';
 import type { ToolContextLike, ToolDefinition, ToolResult, ToolingContext } from '../runtime/types';
 
 /** 注册期可选依赖（测试注入）。 */
 export interface RegisterToolsOptions {
-  /** native-session-orchestration：任务元数据协调器（task 工具必需）。 */
-  coordinator?: TaskCoordinator;
   logger?: (message: string, meta?: Record<string, unknown>) => void;
   /** CBM 注入（测试）：替代 runCbmCli 的 CLI 执行函数。 */
   cbmRunCli?: IndexerRunCli;
@@ -50,8 +37,6 @@ export interface RegisterToolsOptions {
   cbmIndexer?: IndexerHandle;
   /** CBM 共享缓存根目录。 */
   cbmCacheRoot?: string;
-  /** 任务生命周期观测：记录生产接线实际收到的 coordinator。 */
-  taskLifecycleObserver?: (coordinator: TaskCoordinator) => void;
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -92,12 +77,15 @@ function defineTool(def: {
   name: string;
   description: string;
   input: Record<string, unknown>;
+  /** 可选 output schema（JSON Schema）。execute 返回值携带 `output` 字段时必须声明，否则宿主报 "Tool result declared output without an output schema"。 */
+  output?: unknown;
   execute(input: any, context: ToolContextLike): Promise<ToolResult>;
 }): ToolDefinition {
   return {
     name: def.name,
     description: def.description,
     input: def.input,
+    ...(def.output !== undefined ? { output: def.output } : {}),
     execute: def.execute,
   } as ToolDefinition;
 }
@@ -219,6 +207,11 @@ function buildHashlineTool(wctx: ToolingContext, config: PluginConfig): ToolDefi
     name: 'hashline_edit',
     description:
       '按文件行 hash 锚点执行 replace / append / prepend，校验文件版本并返回结构化 diff。hash mismatch 时返回可操作的重新读取提示，不会静默重试。目标文件必须位于工作区内。',
+    // 成功结果携带 output 字段（可读 diff 报告），必须声明 output schema。
+    output: {
+      type: 'string',
+      description: '可读结果报告：摘要头（Edited/Created/Renamed/Deleted + 增删统计）+ unified diff + hashlineDiff 锚点段；失败时为结构化 JSON 错误文本',
+    },
     input: {
       type: 'object',
       additionalProperties: false,
@@ -298,205 +291,6 @@ function buildHashlineTool(wctx: ToolingContext, config: PluginConfig): ToolDefi
   });
 }
 
-// ─────────────────────────── task 工具（coordinator + 原生 session facade） ───────────────────────────
-
-function taskRecordView(rec: any, extra: Record<string, unknown>): Record<string, unknown> {
-  return {
-    taskId: rec.taskID,
-    parentSessionId: rec.parentSessionID,
-    agent: rec.agent,
-    laneKey: rec.laneKey,
-    generation: rec.generation,
-    createdAt: rec.createdAt,
-    updatedAt: rec.updatedAt,
-    ...extra,
-  };
-}
-
-/** 从 coordinator 查任务；缺失时返回错误 result。 */
-function findTask(coordinator: TaskCoordinator, taskId: string, sessionID: string): any | undefined {
-  try {
-    return coordinator.listTasks(sessionID).find((t) => t.taskID === taskId);
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * 查任务；登记缺失（bridge 未登记）时以宿主事实兜底登记后再查。
- * ensureRegistered 内部严格校验 parentID，保持按父过滤的安全边界。
- */
-async function findTaskWithHostFallback(
-  coordinator: TaskCoordinator,
-  taskId: string,
-  sessionID: string,
-): Promise<any | undefined> {
-  const direct = findTask(coordinator, taskId, sessionID);
-  if (direct) return direct;
-  // 防御性调用：测试/注入方可能提供不含 ensureRegistered 的 stub coordinator。
-  if (typeof coordinator.ensureRegistered === 'function') {
-    await coordinator.ensureRegistered(taskId, sessionID).catch(() => undefined);
-  }
-  return findTask(coordinator, taskId, sessionID);
-}
-
-function buildTaskStatusTool(
-  wctx: ToolingContext,
-  _config: PluginConfig,
-  opts: RegisterToolsOptions,
-): ToolDefinition {
-  return defineTool({
-    name: 'task_status',
-    description: '查询由本插件登记的后台子任务状态。状态优先来自宿主原生 session（active/get.outcome），其次本地元数据；task_id 即 child session ID。',
-    input: {
-      type: 'object',
-      properties: { taskId: { type: 'string', description: '任务 id' } },
-      required: ['taskId'],
-    },
-    async execute(input, tctx) {
-      const taskId = asString(input?.taskId);
-      if (!taskId) return errorResult('taskId 必填');
-      const coordinator = opts.coordinator;
-      if (!coordinator) return errorResult('coordinator 未接线', 'UNSUPPORTED');
-      const rec = await findTaskWithHostFallback(coordinator, taskId, tctx.sessionID);
-      if (!rec) return errorResult(`task 不存在: ${taskId}`);
-      const host = await resolveTaskHostStatus(wctx.session, {
-        childSessionId: rec.taskID,
-        status: rec.state as TaskStatus,
-      });
-      return contentResult(
-        taskRecordView(rec, {
-          status: host.status,
-          source: host.source,
-          verified: host.verified,
-        }),
-      );
-    },
-  });
-}
-
-function buildTaskResultTool(
-  wctx: ToolingContext,
-  _config: PluginConfig,
-  opts: RegisterToolsOptions,
-): ToolDefinition {
-  return defineTool({
-    name: 'task_result',
-    description: '读取已完成子任务的最终结果。仅返回经宿主原生 session 验证的终态结果；读取成功即消费该结果（放行同目标重派/续用）。',
-    input: {
-      type: 'object',
-      properties: { taskId: { type: 'string', description: '任务 id' } },
-      required: ['taskId'],
-    },
-    async execute(input, tctx) {
-      const taskId = asString(input?.taskId);
-      if (!taskId) return errorResult('taskId 必填');
-      const coordinator = opts.coordinator;
-      if (!coordinator) return errorResult('coordinator 未接线', 'UNSUPPORTED');
-      const rec = await findTaskWithHostFallback(coordinator, taskId, tctx.sessionID);
-      if (!rec) return errorResult(`task 不存在: ${taskId}`);
-      const host = await resolveTaskHostStatus(wctx.session, {
-        childSessionId: rec.taskID,
-        status: rec.state as TaskStatus,
-      });
-      if (host.verified && !isTerminalStatus(host.status)) {
-        return errorResult(
-          `task ${taskId} 尚未完成（当前: ${host.status}）。task_result 只读经宿主验证的终态任务。`,
-        );
-      }
-      if (!host.verified && !isTerminalStatus(rec.state as TaskStatus)) {
-        return errorResult(
-          `task ${taskId} 尚无经确认的终态（本地: ${rec.state}，宿主未确认）。不返回未经确认的结果。`,
-        );
-      }
-      const outcome = await readSessionOutcome(wctx.session, rec.taskID);
-      // 宿主确认终态 → 同步回写本地元数据（避免只读后本地仍 running）。
-      if (host.verified && isTerminalStatus(host.status)) {
-        const mapped = host.status === 'completed' ? 'completed' : host.status === 'failed' ? 'failed' : 'cancelled';
-        if (rec.state !== mapped) {
-          await coordinator.markTerminal(taskId, tctx.sessionID, mapped).catch(() => undefined);
-        }
-      }
-      // 终态结果已被读取：打消费标记，放行 dispatch-guard 的同目标重派断路器。
-      // 内容回传：优先 bridge/revive 留存的 resultSummary；缺失时从宿主会话消息
-      // （session.context）兜底读取最后一条 assistant 输出，解开"读取即消费却只有元数据"的死角。
-      let output: string | undefined = rec.resultSummary;
-      if (!output) {
-        output = await readSessionLastAssistantText(wctx.session, rec.taskID).catch(() => undefined);
-        if (output) {
-          await coordinator
-            .markTerminal(taskId, tctx.sessionID, rec.state === 'failed' ? 'failed' : 'completed', output)
-            .catch(() => undefined);
-        }
-      }
-      await coordinator.markResultConsumed(taskId, tctx.sessionID).catch(() => undefined);
-      return contentResult(
-        taskRecordView(rec, {
-          status: host.verified ? host.status : rec.state,
-          outcome,
-          source: host.source,
-          verified: host.verified,
-          resultSummary: rec.resultSummary,
-          output,
-        }),
-      );
-    },
-  });
-}
-
-function buildTaskCancelTool(
-  wctx: ToolingContext,
-  _config: PluginConfig,
-  opts: RegisterToolsOptions,
-): ToolDefinition {
-  return defineTool({
-    name: 'task_cancel',
-    description:
-      '取消由本插件登记的后台子任务：interrupt 其原生 session 并验证宿主状态。只有 interrupt 成功且验证后不再 active、outcome 明确时才标记 cancelled。',
-    input: {
-      type: 'object',
-      properties: { taskId: { type: 'string', description: '任务 id' } },
-      required: ['taskId'],
-    },
-    async execute(input, tctx) {
-      const taskId = asString(input?.taskId);
-      if (!taskId) return errorResult('taskId 必填');
-      const coordinator = opts.coordinator;
-      if (!coordinator) return errorResult('coordinator 未接线', 'UNSUPPORTED');
-      const rec = await findTaskWithHostFallback(coordinator, taskId, tctx.sessionID);
-      if (!rec) return errorResult(`task 不存在: ${taskId}`);
-      if (!rec.taskID) return errorResult('task 没有关联的子 session，无法取消');
-      try {
-        const verification = await cancelChildSession(wctx.session, rec.taskID);
-        // 只有 interrupt 成功且验证后不再 active、outcome 明确为 interrupted/succeeded
-        // 时才标记 cancelled；否则不伪造，交给 reconcile 收敛。
-        if (
-          verification.interrupted === true &&
-          verification.activeNow !== true &&
-          verification.outcome === 'interrupted'
-        ) {
-          await coordinator.markTerminal(taskId, tctx.sessionID, 'cancelled');
-          return contentResult({ taskId, status: 'cancelled', interrupted: true, outcome: verification.outcome });
-        }
-        if (verification.outcome === 'succeeded' || verification.outcome === 'failed') {
-          await coordinator.markTerminal(
-            taskId,
-            tctx.sessionID,
-            verification.outcome === 'succeeded' ? 'completed' : 'failed',
-          );
-          return contentResult({ taskId, status: verification.outcome === 'succeeded' ? 'completed' : 'failed', interrupted: verification.interrupted, outcome: verification.outcome });
-        }
-        return errorResult(
-          `取消未确认: interrupt=${String(verification.interrupted)}` +
-            `, outcome=${verification.outcome ?? 'unknown'}` +
-            `, activeNow=${String(verification.activeNow)}；状态保持原样，等待 reconcile 收敛`,
-        );
-      } catch (e) {
-        return errorResult(messageOf(e));
-      }
-    },
-  });
-}
 
 // ─────────────────────────── 注册入口 ───────────────────────────
 
@@ -507,11 +301,6 @@ const TOOL_BUILDERS: ReadonlyArray<{
   { name: 'ast_grep_search', build: buildSearchTool },
   { name: 'ast_grep_replace', build: buildReplaceTool },
   { name: 'hashline_edit', build: buildHashlineTool },
-  { name: 'task_status', build: buildTaskStatusTool },
-  { name: 'task_result', build: buildTaskResultTool },
-  { name: 'task_cancel', build: buildTaskCancelTool },
-  { name: 'task_message', build: (ctx, _config, opts) => opts.coordinator ? buildTaskMessageTool(opts.coordinator, ctx.session as any) : unsupported('task_message') },
-  { name: 'task_revive', build: (ctx, _config, opts) => opts.coordinator ? buildTaskReviveTool(opts.coordinator, ctx.session) : unsupported('task_revive') },
   {
     name: 'clipboard_image',
     // 剪贴板图片 → 文件（阶段一原子能力）：无 coordinator 依赖，默认启用（isToolEnabled 缺省 true）。
@@ -519,17 +308,6 @@ const TOOL_BUILDERS: ReadonlyArray<{
   },
 ];
 
-/** coordinator 未接线时的占位工具：结构化报错，不静默失效。 */
-function unsupported(name: string): ToolDefinition {
-  return defineTool({
-    name,
-    description: `${name} 未接线（coordinator 缺失），调用将返回 UNSUPPORTED。`,
-    input: { type: 'object' },
-    async execute() {
-      return errorResult(`${name} 未接线：coordinator 缺失`, 'UNSUPPORTED');
-    },
-  });
-}
 
 /**
  * 直接工具集合（codemode: false → 进入会话直接工具目录）。
@@ -551,11 +329,6 @@ const DIRECT_TOOL_NAMES: ReadonlySet<string> = new Set([
   'ast_grep_search',
   'ast_grep_replace',
   'hashline_edit',
-  'task_status',
-  'task_result',
-  'task_cancel',
-  'task_message',
-  'task_revive',
   'clipboard_image',
 ]);
 
@@ -568,7 +341,6 @@ export async function registerOceanusTools(
   config: PluginConfig,
   opts: RegisterToolsOptions = {},
 ): Promise<unknown> {
-  if (opts.coordinator) opts.taskLifecycleObserver?.(opts.coordinator);
   const log = opts.logger ?? (() => {});
   const enabled = TOOL_BUILDERS.filter(({ name }) => isToolEnabled(config, name));
   // CBM CLI 兜底工具（CBM-09）：尊重 codebaseMemory.enabled / cliFallback 门控，
