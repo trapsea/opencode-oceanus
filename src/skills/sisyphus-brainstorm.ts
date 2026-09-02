@@ -3,11 +3,11 @@ import type { SkillDefinition } from './types';
 const SISYPHUS_BRAINSTORM_SKILL: SkillDefinition = {
   name: 'sisyphus-brainstorm',
   description:
-    'Phase 2 — Brainstorm: consume the Intake handoff, confirm six execution settings (metis audit / momus audit / SDD / TDD / worktree / continuous-execution authorization) via one batched configuration question, each item carrying a recommendation based on estimated task count and requirement complexity, then explore context, clarify remaining ambiguities, present approaches tiered by complexity (trivial: one lean proposal; standard: recommendation plus at most one alternative; architecture: 2-3 full-dimension approaches), and obtain approach approval via a single question; save the spec to .oceanus/spec/ when SDD is enabled. Loaded by the sisyphus agent at the start of the brainstorm phase.',
+    'Phase 2 — Brainstorm: consume the Intake handoff, confirm five execution settings (metis audit / momus audit / SDD / TDD / continuous-execution authorization) via one batched configuration question, then explore context, clarify remaining ambiguities, present approaches tiered by complexity, and obtain approach approval via a single question; save the spec to .oceanus/spec/ when SDD is enabled. Loaded by the sisyphus agent at the start of the brainstorm phase.',
   slash: true,
   content: `---
 name: sisyphus-brainstorm
-description: Phase 2 of the Sisyphus workflow — Brainstorm. Consume the Intake handoff, confirm six execution settings (metis audit / momus audit / SDD / TDD / worktree / continuous-execution authorization) via one batched configuration question with recommendations (basis: estimated task count and requirement complexity), explore context, clarify remaining ambiguities, present approaches tiered by complexity (trivial = one lean proposal; standard = recommendation plus at most one alternative; architecture = 2-3 full-dimension approaches), obtain approach approval via a single question, and save the spec to .oceanus/spec/ when SDD is enabled.
+description: Phase 2 of the Sisyphus workflow — Brainstorm. Consume the Intake handoff, confirm five execution settings (metis audit / momus audit / SDD / TDD / continuous-execution authorization) via one batched configuration question, explore context, clarify remaining ambiguities, present approaches tiered by complexity, obtain approach approval via a single question, and save the spec to .oceanus/spec/ when SDD is enabled.
 input: intake_report
 owner: Sisyphus
 output: approved spec
@@ -25,12 +25,12 @@ Turn a vague request into an approved design spec before any code is written.
 
 ## Steps
 1. **Consume Intake** — load the completed Intake handoff and use its goal, scope, acceptance criteria, risks, constraints, and open questions as the starting contract; do not silently rewrite Intake decisions.
-2. **执行配置批问（Configuration Questions，一问六项）** — 基于 intake_report 的复杂度与初步范围预估（预估拆分任务数），在任何 @metis 委派之前，用一次 \`question\` 批量询问六项执行配置，每项给出推荐值及依据；漏答或含糊项回落推荐值并记录，**不补问**；**Trivial 同样完整批问**（推荐全为关/共享/授予）。推荐规则：
+2. **执行配置批问（Configuration Questions，一问五项）** — 基于 intake_report 的复杂度与初步范围预估，在任何 @metis 委派之前，用一次 question 批量询问五项执行配置，每项给出推荐值及依据；漏答或含糊项回落推荐值并记录，不补问；Trivial 同样完整批问。
    - **Metis 审核**：预估拆分 >12 个任务或 \`architecture\` 复杂度 → 推荐「开」（开启后按步骤 3/5 分层规则执行调研与条件方案审核）；否则 → 推荐「关」（跳过全部 metis 委派，spec 的 Metis 分析小节记「用户关闭」与残余风险）。
    - **Momus 审核**：预估拆分 >12 个任务或 \`architecture\` 复杂度 → 推荐「开」（plan 阶段 Momus OKAY + 方案总批准双门禁照常）；否则 → 推荐「关」（plan 仅保留方案总批准人工门禁，skipped-by-user 与残余风险记入 plan status，不得伪造 OKAY）。
    - **SDD**：预估拆分 >12 个任务 → 推荐「开」（spec/plan/ledger/review 文档落盘）；≤12 个 → 推荐「关」（会话内 todo 维护，不落盘）。
    - **TDD**：预估拆分 >12 个任务 → 推荐「开」（测试先行，配合 execute 阶段 Failing-First 纪律）；≤12 个 → 推荐「关」（先功能后补测试（test-after，按 execute 证据档执行），非免测试）。
-   - **Worktree**：预估拆分 >12 个任务 → 推荐「开」（需求级：整个需求的开发在单一 worktree 内进行，finish 阶段一次性合并回主工作区）；≤12 个 → 推荐「关」（共享主工作区，严禁为单个任务拉 worktree 分支）。
+   - **当前目录执行**：始终在当前目录工作；并行安全依靠 Wave、Files 完全不重叠且无共享状态或生成目录。worker 禁止 git add/commit/reset、分支和隔离工作区操作。
    - **连续执行授权**：推荐「授予」（批准后 Sisyphus 连续执行到 finish，仅 3 轮循环到顶时按 3 轮中断上报模板中断）；「拒绝」则每个阶段结束停顿向用户汇报后再继续。
 3. **分层背景调研** — 按复杂度分层（@metis 委派以执行配置批问中 **Metis 审核=开** 为前提，关闭时全部自查、不委派并记录）：**Architecture** 默认用 \`subagent({ agent: "metis", background: true })\` 委派 @metis BACKGROUND_RESEARCH，产出 research_brief（现状、关键符号 qualified name/路径/行号、约束与依赖、可复用 CBM 事实结论），**记录返回的 task_id（sessionID）**；**Standard** 由 Sisyphus 自查（两波研究内无新有用事实即停止），仅当两波后仍存在未知依赖/约束才委派 @metis BACKGROUND_RESEARCH；**Trivial** 仅做最小自查、不委派。任何跳过委派都记录理由。Sisyphus 消费 brief 后只做必要的少量补充定位（cbm_search_graph/cbm_trace），不再自行大规模探索，也不重复委派 explorer 做背景调研。
 4. **研究优先澄清（research-first）** — 先用代码/文档/CBM 研究消除未知（两波研究内无新有用事实即停止，不无限探索）。研究能解决的疑问一律不再问用户；**但凡存在疑问、歧义、需求描述不清，且研究也没有得到明确结论的，必须用 \`question\` 向用户澄清**。多个相互独立的问题可在一次 \`question\` 中批量提出；有依赖顺序的问题分批问。
@@ -50,7 +50,7 @@ Turn a vague request into an approved design spec before any code is written.
 7. **方案总批准（consolidated approval，单问）** — 用一次 \`question\` 主问方案方向（执行配置已在步骤 2 批问确认，本问**不再携带配置默认值**）。选项固定三类：①**按推荐执行**（接受推荐方案）②**换用备选方案 X**（仅 Standard/Architecture 有备选时提供）③**自定义**（用户在同一次回复中给出方案调整项；仅限方案层面，配置项以步骤 2 的抉择为准，不重复问）。除步骤 2 批问与本问外，任何阶段不得追加批准类提问。Trivial 的批准形式为一次开工确认（"开工" / "调整"），等价于按推荐执行。批准后按 SDD 抉择决定保存：开启 SDD 才把设计写入 \`.oceanus/spec/ 下按任务名称生成的 Markdown 文件\`（含 "Metis 分析" 小节：需求缺口 / 风险 / 边界与非目标 / 反例与边界条件 / 验收标准，或明确记录 @metis 被跳过/禁用/用户关闭的原因）；不开启则不写任何流程文档，设计与决策只保留在会话内供后续阶段消费。
 ## Checklist
 - [ ] Context explored (files read, not guessed)
-- [ ] 执行配置批问完成：一问六项（Metis 审核/Momus 审核/SDD/TDD/Worktree/连续执行授权）均带推荐值及依据（预估任务数与复杂度），漏答回落推荐值并记录，Trivial 亦完整批问，无补问
+- [ ] 执行配置批问完成：一问五项（Metis 审核/Momus 审核/SDD/TDD/连续执行授权）均带推荐值及依据，漏答回落推荐值并记录，不补问，Trivial 亦完整批问，无补问
 - [ ] 分层调研完成（Metis 审核=开时）：Architecture 已委派并消费 @metis BACKGROUND_RESEARCH research_brief（task_id 已记录）；Standard 已自查或按条件委派；Trivial 仅最小自查；Metis 审核=关时确认无任何 @metis 委派且已记录
 - [ ] 研究先行：能由研究解决的疑问未转嫁给用户；研究后仍存疑的需求歧义已用 \`question\` 澄清
 - [ ] 仅按未决方案选择且 Sisyphus 明确需要独立分析的条件调用 @metis 方案审核（≤3 轮，且 Metis 审核=开），否则记录理由
@@ -65,7 +65,7 @@ Turn a vague request into an approved design spec before any code is written.
 - Be honest about skipped or disabled analysis: if @metis was skipped for a simple task, write the skip reason; if it was disabled or turned off by the user, say so instead of implying coverage.
 - If the request is already precise and low-risk, propose the design directly without gratuitous questioning.
 - If the request is vague, ask before assuming.
-- 推荐值必须与推荐规则一致并在批问选项说明中带出（Metis/Momus 依据=预估任务数与需求复杂度；SDD/TDD/Worktree 依据=预估任务数；连续执行授权默认授予），不得虚构。
+- 推荐值必须与推荐规则一致并在批问选项说明中带出；连续执行授权默认授予，不得虚构。
 `,
 };
 

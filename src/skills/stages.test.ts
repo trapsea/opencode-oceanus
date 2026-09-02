@@ -150,17 +150,17 @@ describe('Phase 2 — brainstorm 契约', () => {
     expect(content).toMatch(/任何跳过委派都记录理由/);
   });
 
-  test('执行配置批问为一问六项 + 方案总批准单问（frontmatter exit 同步口径）', () => {
-    expect(content).toMatch(/执行配置批问（Configuration Questions，一问六项）/);
+  test('执行配置批问为一问五项 + 方案总批准单问（frontmatter exit 同步口径）', () => {
+    expect(content).toMatch(/执行配置批问（Configuration Questions，一问五项）/);
     expect(content).toMatch(/方案总批准（consolidated approval，单问）/);
     expect(content).toMatch(/主问方案方向/);
-    // 六项配置各带推荐值及依据；Metis/Momus 依据=任务数+复杂度，其余=任务数
+    // 五项配置各带推荐值及依据；Metis/Momus 依据=任务数+复杂度，其余=任务数
     expect(content).toMatch(/\*\*Metis 审核\*\*：预估拆分 >12 个任务或 \`architecture\` 复杂度 → 推荐「开」/);
     expect(content).toMatch(/\*\*Momus 审核\*\*：预估拆分 >12 个任务或 \`architecture\` 复杂度 → 推荐「开」/);
     expect(content).toMatch(/\*\*SDD\*\*：预估拆分 >12 个任务 → 推荐「开」/);
     expect(content).toMatch(/\*\*TDD\*\*：预估拆分 >12 个任务 → 推荐「开」/);
     expect(content).toMatch(/先功能后补测试（test-after，按 execute 证据档执行），非免测试/);
-    expect(content).toMatch(/\*\*Worktree\*\*：预估拆分 >12 个任务 → 推荐「开」（需求级/);
+    expect(content).toMatch(/当前目录执行/);
     expect(content).toMatch(/\*\*连续执行授权\*\*：推荐「授予」/);
     expect(content).toMatch(/Trivial 同样完整批问/);
     // 漏答回落推荐值并记录、不补问；方案批准不携带配置默认值
@@ -168,7 +168,7 @@ describe('Phase 2 — brainstorm 契约', () => {
     expect(content).toMatch(/不补问/);
     expect(content).not.toMatch(/一次补问/);
     expect(content).toMatch(/不再携带配置默认值/);
-    // 废除时间预估与任务级 worktree 语义
+    // 删除隔离工作区生命周期语义
     expect(content).not.toMatch(/SDD.{0,40}预估 >5 天/);
     expect(content).not.toMatch(/TDD.{0,40}>5 天/);
     expect(content).not.toMatch(/per-task/);
@@ -334,12 +334,12 @@ const REQ_CHANGE_RE = /需求或验收标准变化[^\n]{0,200}(重新执行两�
 const NONREQ_CHANGE_RE = /(Files\/依赖\/任务结构变化或失败重规划|失败重规划)[^\n]{0,200}(不重新提问|仅重走 @momus)/;
 
 describe('方案总批准契约（consolidated approval）', () => {
-  test('brainstorm 两问制：执行配置批问（一问六项）在前、方案总批准单问在后', () => {
+  test('brainstorm 两问制：执行配置批问（一问五项）在前、方案总批准单问在后', () => {
     const content = byName('sisyphus-brainstorm').content;
     expect(content).toContain('方案总批准');
     expect(content).toMatch(/方案总批准（consolidated approval，单问）/);
     expect(content).toMatch(/主问方案方向/);
-    // 配置批问先于任何 @metis 委派；六项各带推荐
+    // 配置批问先于任何 @metis 委派；五项各带推荐
     expect(content).toMatch(/在任何 @metis 委派之前/);
     expect(content).toMatch(/\*\*Metis 审核\*\*/);
     expect(content).toMatch(/\*\*Momus 审核\*\*/);
@@ -363,31 +363,18 @@ describe('方案总批准契约（consolidated approval）', () => {
 
   test('plan 消费总批准，不再单独确认策略', () => {
     const content = byName('sisyphus-plan').content;
-    expect(content).not.toMatch(/用 `question` 与用户确认 TDD 策略与 Worktree 策略/);
+    expect(content).not.toMatch(/用 `question` 与用户确认 TDD 策略/);
     expect(content).toMatch(/沿用 Brainstorm 总批准|consolidated approval|via: 'consolidated'/);
   });
 
-  test('Worktree 语义为需求级：单一 worktree、finish 合并，废除任务级 worktree', () => {
-    const plan = byName('sisyphus-plan').content;
-    const execute = byName('sisyphus-execute').content;
-    const review = byName('sisyphus-review').content;
-    const finish = byName('sisyphus-finish').content;
-    // plan：策略随配置批问呈现，>12 任务默认开启需求级 worktree
-    expect(plan).toMatch(/Worktree 策略.{0,4}（配置批问呈现时依据；需求级，非任务级）/);
-    expect(plan).toMatch(/>12 个任务 → 默认开启需求级 worktree/);
-    expect(plan).not.toMatch(/per-task/);
-    // execute：全程唯一 worktree、无任务级合并
-    expect(execute).toMatch(/Worktree Lifecycle（需求级/);
-    expect(execute).toMatch(/不做任务级合并/);
-    expect(execute).toMatch(/finish 判定 complete 后/);
-    expect(execute).not.toMatch(/per-task/);
-    expect(execute).not.toMatch(/worktrees\/<task-id>/);
-    // review：直接对 worktree 内 diff 复查，不因未合并缩小范围
-    expect(review).toMatch(/worktree 模式（需求级）/);
-    expect(review).toMatch(/合并发生在 finish 阶段/);
-    // finish：判定 complete 后一次性合并清理（唯一允许的写操作）
-    expect(finish).toMatch(/一次性合并回主工作区/);
-    expect(finish).toMatch(/唯一允许的写操作/);
+  test('所有阶段强制当前目录执行并禁止隔离工作区生命周期', () => {
+    const texts = [buildOceanusPrompt(), createSisyphusAgent().system ?? '', ...['sisyphus-brainstorm', 'sisyphus-plan', 'sisyphus-execute', 'sisyphus-review', 'sisyphus-finish'].map((name) => byName(name).content)];
+    for (const text of texts) {
+      expect(text).toMatch(/当前目录|current directory/);
+      expect(text).not.toMatch(/隔离工作区生命周期|创建.*隔离工作区|合并.*主工作区|清理.*隔离工作区/i);
+    }
+    expect(texts.join('\n')).toMatch(/禁止.*(git add|git commit|git reset)|must not run/i);
+    expect(texts.join('\n')).toMatch(/Files.*完全不重叠|Files.*non-overlapping|非重叠/);
   });
 
   test('plan 与 execute 的总批准失效边界一致', () => {
@@ -560,7 +547,7 @@ describe('Wave 1 跨文件契约一致性与全仓禁词', () => {
     expect(sisyphusSystem).toContain('## Sisyphus Workflow');
     expect(sisyphusSystem).toContain('方案总批准（consolidated approval）');
     expect(sisyphusSystem).toMatch(/回落推荐值/);
-    // 执行配置批问：一问六项，Metis/Momus 推荐依据=任务数+复杂度
+    // 执行配置批问：一问五项，Metis/Momus 推荐依据=任务数+复杂度
     expect(sisyphusSystem).toMatch(/执行配置批问（Configuration Questions）/);
     expect(sisyphusSystem).toMatch(/Metis 审核.*预估拆分 >12 个任务或 .architecture. 复杂度/);
     expect(sisyphusSystem).toMatch(/Momus 审核.*预估拆分 >12 个任务或 .architecture. 复杂度/);
@@ -570,11 +557,11 @@ describe('Wave 1 跨文件契约一致性与全仓禁词', () => {
     expect(sisyphusSystem).not.toMatch(BANNED_TERM);
   });
 
-  test('oceanus 通用 Worktree Strategy 与 sisyphus 口径一致：需求级、无任务级 worktree', () => {
+  test('oceanus 通用当前目录执行与 sisyphus 口径一致', () => {
     const oceanusPrompt = buildOceanusPrompt();
-    expect(oceanusPrompt).toMatch(/需求级而非任务级/);
-    expect(oceanusPrompt).toMatch(/严禁为单个任务拉 worktree 分支/);
-    expect(oceanusPrompt).not.toMatch(/per-task Worktree/);
+    expect(oceanusPrompt).toMatch(/current directory/);
+    expect(oceanusPrompt).toMatch(/do not run|禁止.*git add/i);
+    expect(oceanusPrompt).toMatch(/Files.*non-overlapping/);
   });
 
   test('复杂度分层口径在 sisyphus / intake / brainstorm 三处一致', () => {

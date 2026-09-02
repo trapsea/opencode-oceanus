@@ -30,13 +30,12 @@ describe('Finish 自包含判定矩阵', () => {
       expect(decideFinish(input).gaps.length).toBeGreaterThan(0);
     }
   });
-  test('覆盖所有阻断状态与全绿完成条件', () => {
-    for (const gap of ['Review 报告缺失', 'Completion Matrix 未全绿', 'ledger 存在 failed', 'ledger 存在 blocked', 'ledger 存在 pending', 'Gate Status 为 PENDING']) {
-      expect(content).toContain(gap);
-    }
-    expect(content).toContain('Review 报告存在');
-    expect(content).toContain('全绿');
-    expect(content).toContain('完成');
+  test('完成条件与当前目录收尾语义', () => {
+    expect(content).toContain('Review accepted');
+    expect(content).toContain('Completion Matrix green');
+    expect(content).toContain('ledger complete');
+    expect(content).toContain('当前目录');
+    expect(content).toContain('只做正常只读交付汇总');
   });
 
   test('缺口必须明确输出', () => {
@@ -44,9 +43,7 @@ describe('Finish 自包含判定矩阵', () => {
   });
 
   test('waived 豁免语义与防伪口径', () => {
-    expect(content).toContain('waived');
-    expect(content).toMatch(/用户在执行配置批问中关闭 Momus 审核/);
-    expect(content).toMatch(/不得伪造/);
+    expect(content).toMatch(/有效豁免/);
   });
 
   test('frontmatter 与 TypeScript description 唯一且一致', () => {

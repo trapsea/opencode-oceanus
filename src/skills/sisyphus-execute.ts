@@ -34,15 +34,9 @@ Implement the plan reliably: parallel where safe, serial where dependent, and fu
 6. **Sync the todo list** — keep in-memory todo and the ledger (SDD 模式) consistent: register plan tasks as \`pending\`, mark the current task \`in_progress\` before dispatching, and mark it \`completed\`/\`failed\`/\`blocked\` only after its terminal result and validation evidence are in.
 7. **串行 Wave 的条件会话复用** — 串行相邻 wave **默认全新派发**（干净上下文 + 编排者蒸馏的上轮结果 brief，保留纠错机会）。仅当同时满足：①同专家且相邻串行 wave；②Files 范围强重叠或 brief 高度重复；③连续复用 ≤3 轮（累计上下文可控）——才用 \`task_revive({ task_id, prompt })\` 续用上一 wave 的 session。只读 agent（research/分析/复审）优先复用；带写权限的 worker 复用前必须确认上轮已终态且无部分完成的写改动（副作用重跑风险）。复用需会话保留已启用（task_revive 配置，默认关闭），未启用时一律全新派发。复用决策与理由记入 ledger/todo 备注；无论是否复用，编排者都把上一 wave 结果蒸馏进下一个 brief，保证随时可回退到全新派发。
 
-## Worktree Lifecycle（需求级；开启与否随总批准，默认值见 brainstorm 推荐规则）
+## Current-directory execution
 
-Worktree 是需求级而非任务级：开启后整个需求的开发在单一 worktree 内进行，finish 阶段判定完成后一次性合并回主工作区；严禁为单个任务拉 worktree 分支。共享模式（默认）跳过本节，直接在当前目录按 Files 所有权执行。
-
-1. **检测复用** — 开工前检查 \`.worktrees/<plan-name>\`（SDD 关闭时以任务名命名）是否已存在（中断恢复场景）；存在则复用并核对任务清单一致，不重复创建。
-2. **创建（唯一）** — 由 orchestrator 在 execute 开始时创建整个需求唯一的 worktree（默认 \`.worktrees/<plan-name>\`，从当前分支切出临时分支）；worker 不得自行创建或切换。
-3. **基线验证** — worktree 内完成依赖安装后运行现有测试确认绿色基线；基线失败则不派发任何任务，报告并回到 plan 处理。
-4. **并行执行** — 全部 worker 在该 worktree 内按 Files 所有权并行执行，安全边界与共享模式相同（同 Wave Files 完全不重叠、worker 不做任何 git/分支操作）；SDD 流程文档（\`.oceanus/\`）一律写主工作区，worktree 内不写。任务终态只更新 ledger/todo，**不做任务级合并**。
-5. **合并与清理（延至 finish）** — execute 与 review 全程不合并；finish 判定 complete 后由 orchestrator 将该 worktree 一次性合并回主工作区（优先 \`git merge\`，冲突由 orchestrator 亲自解决，不推给 worker），合并成功后删除 worktree 与临时分支（\`git worktree remove\` + 分支删除）；review 未通过或存在缺口时保留 worktree 以便恢复（详见 finish skill）。
+All orchestrators and workers always use the current directory. Parallel workers are allowed only within a Wave when \`Files\` scopes are completely non-overlapping and there is no shared state, resource, or generated-directory interaction. Workers must not run \`git add\`, \`git commit\`, \`git reset\`, branch, or isolated-workspace operations, and must not edit outside their declared \`Files\`.
 
 ## Plan-Change & Re-plan Gate
 
@@ -93,7 +87,7 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 - [ ] Execute evidence tier 已声明：strict=RED+GREEN+real-surface，light=test-after+测试，exempt=白名单+理由
 - [ ] Evidence 完整且绑定当前状态；缺失或 stale 不得通过，公共符号/高风险变更已升级 strict
 - [ ] 修复/重试循环 ≤3 轮，第 3 轮失败停止自动重试并按 3 轮中断上报模板用 \`question\` 上报用户
-- [ ] Worktree 模式（需求级）：基线验证通过后才派发；全程单一 worktree、无任务级合并；合并与清理在 finish 判定 complete 后执行
+- [ ] All work is executed in the current directory; workers use only declared non-overlapping \`Files\` and perform no git, branch, or isolated-workspace operations
 - [ ] Substantive changes (requirements/Files/dependencies/acceptance) or re-planning routed back to plan and re-passed through @momus before continuing
 
 ## Rules
@@ -105,7 +99,7 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 - Parallel background tasks are allowed only when write scopes do not conflict.
 - Parallel workers must not write the shared progress ledger; the orchestrator serializes ledger updates so task records cannot overwrite one another.
 - **CBM 边界**：高风险公共符号修改前先做 trace/impact（cbm_trace / cbm_query 分析影响面）；普通机械修改不强制查询；修改后影响面由 Review 阶段复查。
-- In shared-worktree mode, workers must not run \`git add\`/\`commit\`/\`reset\`, branch or worktree operations, or edit files outside their declared \`Files\`.
+- Workers must not run \`git add\`/\`commit\`/\`reset\`, branch or isolated-workspace operations, or edit files outside their declared \`Files\`.
 - Follow the Failing-First Discipline above; do not skip RED→GREEN unless the change matches the exemption whitelist and the reason is recorded.
 - Never claim a task complete on passing tests alone; a real-surface artifact is required.
 - Requirement or acceptance changes re-run @metis before plan revision; Files/dependency/task-structure changes and failure re-planning may return directly to plan. Every revised plan must pass an actual @momus OKAY before continuing.
