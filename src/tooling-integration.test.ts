@@ -141,15 +141,15 @@ describe('hashline_edit 跨模块：真实文件 → diff → 磁盘', () => {
     const { ctx, addedTools } = createMockCtx({ root: dir });
     await registerOceanusTools(ctx, {});
     const tool = findTool(addedTools, 'hashline_edit');
-    const res = parsed(await tool.execute({
+    const res = (await tool.execute({
       filePath: 'data.txt',
       edits: [{ op: 'replace', pos: `2#${computeLineHash(2, 'beta')}`, lines: 'changed' }],
-    }, { sessionID: 's1' }));
-    expect(res.ok).toBe(true);
+    }, { sessionID: 's1' })) as { content?: unknown };
+    expect((res.content as string).includes('Edited data.txt')).toBe(true);
     expect(await readFile(file, 'utf8')).toContain('changed');
   });
 
-  test('replace 锚点：改写文件并返回包含新旧行的结构化 diff', async () => {
+  test('replace 锚点：改写文件并返回包含新旧行的可读 diff', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'oceanus-int-hl-'));
     tempDirs.push(dir);
     const file = path.join(dir, 'data.txt');
@@ -159,25 +159,23 @@ describe('hashline_edit 跨模块：真实文件 → diff → 磁盘', () => {
     await registerOceanusTools(ctx, {});
     const tool = findTool(addedTools, 'hashline_edit');
     const anchor = `2#${computeLineHash(2, 'beta')}`;
-    const res = parsed(
-      await tool.execute(
-        { filePath: 'data.txt', edits: [{ op: 'replace', pos: anchor, lines: 'beta-CHANGED' }] },
-        { sessionID: 's1' },
-      ),
-    );
+    const res = (await tool.execute(
+      { filePath: 'data.txt', edits: [{ op: 'replace', pos: anchor, lines: 'beta-CHANGED' }] },
+      { sessionID: 's1' },
+    )) as { content?: unknown; metadata?: Record<string, unknown> };
 
-    expect(res.ok).toBe(true);
-    expect(res.changed).toBe(true);
-    expect(res.diff).toContain('beta-CHANGED');
-    expect(res.diff).toContain('beta');
-    expect(res.additions).toBe(1);
-    expect(res.deletions).toBe(1);
+    const text = res.content as string;
+    expect(text).toContain('Edited data.txt (+1 -1)');
+    expect(text).toContain('-beta');
+    expect(text).toContain('+beta-CHANGED');
+    expect(text).toContain('hashlineDiff:');
+    expect(res.metadata?.filediff).toBeDefined();
     const after = await readFile(file, 'utf-8');
     expect(after).toContain('beta-CHANGED');
     expect(after).not.toContain('\nbeta\n');
   });
 
-  test('append 返回结构化的 diff 且带增删统计', async () => {
+  test('append 返回可读 diff 且 metadata 带增删统计', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'oceanus-int-hl3-'));
     tempDirs.push(dir);
     const file = path.join(dir, 'data.txt');
@@ -186,16 +184,12 @@ describe('hashline_edit 跨模块：真实文件 → diff → 磁盘', () => {
     const { ctx, addedTools } = createMockCtx({ root: dir });
     await registerOceanusTools(ctx, {});
     const tool = findTool(addedTools, 'hashline_edit');
-    const res = parsed(
-      await tool.execute(
-        { filePath: 'data.txt', edits: [{ op: 'append', lines: 'omega' }] },
-        { sessionID: 's1' },
-      ),
-    );
-    expect(res.ok).toBe(true);
-    expect(res.changed).toBe(true);
-    expect(res.diff).toContain('omega');
-    expect(res.additions).toBe(1);
+    const res = (await tool.execute(
+      { filePath: 'data.txt', edits: [{ op: 'append', lines: 'omega' }] },
+      { sessionID: 's1' },
+    )) as { content?: unknown; metadata?: Record<string, unknown> };
+    expect((res.content as string).includes('+omega')).toBe(true);
+    expect(res.metadata?.additions).toBe(1);
     expect(await readFile(file, 'utf-8')).toContain('omega');
   });
 

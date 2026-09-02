@@ -421,22 +421,25 @@ describe('工作区根目录解析', () => {
     expect(res.error).toContain('工作区之外');
   });
 
-  test('hashline_edit 真实文件：append 并返回稳定 diff', async () => {
+  test('hashline_edit 真实文件：append 并返回可读 diff 文本', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'oceanus-hl-'));
     const { ctx, addedTools } = createMockCtx({ root: dir });
     await registerOceanusTools(ctx, {});
     await writeFile(path.join(dir, 'notes.txt'), 'line1\nline2\n', 'utf-8');
     const tool = findTool(addedTools, 'hashline_edit');
-    const res = parsed(
-      await tool.execute(
-        { filePath: 'notes.txt', edits: [{ op: 'append', lines: 'line3' }] },
-        { sessionID: 's1' },
-      ),
-    );
-    expect(res.ok).toBe(true);
-    expect(res.changed).toBe(true);
-    expect(res.diff).toContain('line3');
-    expect(res.additions).toBe(1);
+    const res = (await tool.execute(
+      { filePath: 'notes.txt', edits: [{ op: 'append', lines: 'line3' }] },
+      { sessionID: 's1' },
+    )) as { content?: unknown; metadata?: Record<string, unknown> };
+    const text = res.content as string;
+    expect(text).toContain('Edited notes.txt (+1 -0)');
+    expect(text).toContain('@@ ');
+    expect(text).toContain('+line3');
+    // metadata 与宿主 edit 渲染器的 filediff 约定对齐。
+    const filediff = res.metadata?.filediff as { file: string; patch: string };
+    expect(filediff.file).toBe('notes.txt');
+    expect(filediff.patch).toContain('+line3');
+    expect(res.metadata?.additions).toBe(1);
   });
 });
 

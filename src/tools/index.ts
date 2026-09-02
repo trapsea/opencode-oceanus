@@ -15,6 +15,7 @@ import { isPathWithinRoot } from './ast-grep/args';
 import {
   applyHashlineEditToFile,
   DEFAULT_BOUNDARY_LIMITS,
+  presentHashlineSuccess,
   type RawHashlineEdit,
 } from './hashline-edit';
 import { buildTaskMessageTool } from './task/message';
@@ -284,6 +285,14 @@ function buildHashlineTool(wctx: ToolingContext, config: PluginConfig): ToolDefi
         }
       }
       const result = await applyHashlineEditToFile(resolved, (edits ?? []) as RawHashlineEdit[], { limits, root, delete: input?.delete === true, rename: input?.rename });
+      // 成功结果以可读文本展示（宿主 TUI 对插件工具无 diff 渲染器，GenericTool
+      // 原样展示 output 文本）；失败保持结构化 JSON 便于模型读取 error/errorCode。
+      if (result.ok) {
+        const { text, metadata } = presentHashlineSuccess(result);
+        // output 与 content 双写同一文本：宿主读取 result.output（字符串），
+        // content 字符串在各版本映射下兜底，保证 TUI 与模型看到同一份 diff。
+        return { output: text, content: text, metadata };
+      }
       return contentResult(result);
     },
   });

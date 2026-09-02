@@ -66,11 +66,17 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
 
 - 按文件行 hash 锚点执行 `replace` / `append` / `prepend`，校验文件版本并返回
   结构化 diff。
-- 返回的 `diff` 为 unified diff（LCS、3 行上下文、git diff 同款格式，可直接看到
-  修改处前后对比）；`hashlineDiff` 保留锚点风格（仅变化行 `-`/`+`，带行 hash），
-  供锚点消费方使用；另有 `before` / `after` 全文与 `additions` / `deletions` 统计。
-  受宿主 v2 `ToolResult` 类型限制（仅 text/file content），TUI 无法渲染宿主 `edit`
-  那种原生 diff 视图，以文本呈现。
+- **成功结果以可读文本呈现**：头部一行摘要（`Edited <path> (+A -D)` /
+  `Created` / `Renamed` / `Deleted`）+ unified diff（LCS、3 行上下文、
+  git diff 同款格式，`-`/`+` 前后对比直接可见）+ `hashlineDiff:` 锚点段
+  （仅变化行，带行 hash，供锚点消费方使用）。同时 `Tool.Result.metadata`
+  携带 `filediff: { file, patch }` 与增删统计。
+  根因说明：宿主 TUI 按工具名精确匹配内置渲染注册表（`edit` 等内置工具才有
+  专属 diff 渲染器），插件工具回落 GenericTool 原样文本展示，且 v2 TUI 插件
+  API 无渲染注册入口；因此以可读文本 + `metadata.filediff`（与宿主 `edit`
+  渲染器消费的字段约定对齐，上游通用化后可直接生效）为最优呈现。
+- 失败结果保持结构化 JSON（`ok:false` + `error` / `errorCode`），便于模型
+  读取错误语义。
 - 使用前先 `read` 获取行 hash；hash mismatch（文件已被改动）时返回可操作的重新
   读取提示，**不会静默重试**，需要重新 `read` 后再次编辑。
 - 目标文件必须位于工作区内，受文件大小上限（`maxFileBytes`）约束。

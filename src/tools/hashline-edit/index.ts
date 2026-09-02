@@ -16,6 +16,7 @@ export type { HashlineApplyReport } from "./edits"
 export type { FileTextEnvelope } from "./envelope"
 export type { FileBoundaryLimits } from "./boundaries"
 export type { HashlineFileResult, HashlineEditFileOptions } from "./executor"
+export { presentHashlineSuccess, type HashlinePresentation } from "./present"
 
 // 稳定行 hash
 export { computeLineHash, computeLegacyLineHash, formatHashLine, formatHashLines } from "./hash"
