@@ -14,7 +14,7 @@ describe('mergeAgentPermissions（写入工具族 permission 合并语义）', (
   test('以宿主默认基线为底，追加规则优先且保留 .env/外部目录 ask 特例', () => {
     const merged = mergeAgentPermissions(HOST_DEFAULT_PERMISSIONS, [
       { action: 'edit', resource: '*', effect: 'deny' },
-      { action: 'hashline_edit', resource: '*', effect: 'allow' },
+      { action: 'ast_grep_replace', resource: '*', effect: 'allow' },
       { action: 'ast_grep_replace', resource: '*', effect: 'allow' },
     ]);
     // 基线保留（含 ask 特例），追加规则位于尾部（findLast 优先）
@@ -29,7 +29,7 @@ describe('mergeAgentPermissions（写入工具族 permission 合并语义）', (
   test('幂等：transform 重跑同一批规则不叠加', () => {
     const incoming = [
       { action: 'edit', resource: '*', effect: 'deny' },
-      { action: 'hashline_edit', resource: '*', effect: 'allow' },
+      { action: 'ast_grep_replace', resource: '*', effect: 'allow' },
     ];
     const once = mergeAgentPermissions(HOST_DEFAULT_PERMISSIONS, incoming);
     const twice = mergeAgentPermissions(once, incoming);
@@ -47,12 +47,12 @@ describe('mergeAgentPermissions（写入工具族 permission 合并语义）', (
   test('incoming 接管的 action 覆盖基线中的同名规则（如只读 agent 的 edit deny）', () => {
     const readonlyBase = [
       ...HOST_DEFAULT_PERMISSIONS,
-      { action: 'hashline_edit', resource: '*', effect: 'deny' },
+      { action: 'ast_grep_replace', resource: '*', effect: 'deny' },
     ];
     const merged = mergeAgentPermissions(readonlyBase, [
-      { action: 'hashline_edit', resource: '*', effect: 'allow' },
+      { action: 'ast_grep_replace', resource: '*', effect: 'allow' },
     ]);
-    const rules = merged.filter((r) => r.action === 'hashline_edit');
-    expect(rules).toEqual([{ action: 'hashline_edit', resource: '*', effect: 'allow' }]);
+    const rules = merged.filter((r) => r.action === 'ast_grep_replace');
+    expect(rules).toEqual([{ action: 'ast_grep_replace', resource: '*', effect: 'allow' }]);
   });
 });

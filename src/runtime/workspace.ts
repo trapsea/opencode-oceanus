@@ -3,7 +3,7 @@
  *
  * 全部返回 null/undefined 表示"无法确认"，绝不在缺失信息时伪造宿主行为。
  * - 工作区根目录：`session.get({sessionID}) → location.directory`（绝对路径），
- *   作为 AST / hashline / apply-patch 路径校验的 workspace root。
+ *   作为 AST 工具的路径校验 workspace root。
  * - 会话活跃度：优先运行时探测 `session.active()`，缺省回退（返回 undefined）。
  * - 会话结果：`session.get({sessionID}) → outcome`。
  * - 中断：`session.interrupt({sessionID})`，返回是否成功置为中断。

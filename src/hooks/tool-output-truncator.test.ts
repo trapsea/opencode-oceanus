@@ -234,7 +234,7 @@ describe('tool-output-truncator 纯函数', () => {
 describe('tool-output-truncator 字符串 output 分支', () => {
   test('超过限制的字符串 output 被截断并保留头部控制信息', () => {
     const { result, truncated, limit } = truncateToolResult(
-      'hashline_edit',
+      'ast_grep_replace',
       { output: bigText() },
       { defaultMaxBytes: 1000 },
     );
@@ -262,13 +262,13 @@ describe('tool-output-truncator 字符串 output 分支', () => {
 
   test('字符串 output 截断 marker 幂等：二次截断不改变、不重复标记', () => {
     const once = truncateToolResult(
-      'hashline_edit',
+      'ast_grep_replace',
       { output: bigText() },
       { defaultMaxBytes: 1000 },
     );
     expect(once.truncated).toBe(true);
     const twice = truncateToolResult(
-      'hashline_edit',
+      'ast_grep_replace',
       once.result,
       { defaultMaxBytes: 1000 },
     );
@@ -298,7 +298,7 @@ describe('tool-output-truncator 字符串 output 分支', () => {
       metadata: { keep: true },
     };
     const { result: out, truncated } = truncateToolResult(
-      'hashline_edit',
+      'ast_grep_replace',
       result,
       { defaultMaxBytes: 300 },
     );
@@ -340,8 +340,8 @@ describe('tool-output-truncator Hook（execute.after）', () => {
     expect(event.result).toBe(result);
   });
 
-  test('completed 事件直接改写 result.output（hashline 化的字符串输出）', () => {
-    const event = completed('hashline_edit', { output: bigText() });
+  test('completed 事件直接改写 result.output（字符串输出）', () => {
+    const event = completed('ast_grep_replace', { output: bigText() });
     const hook = createToolOutputTruncator({ defaultMaxBytes: 300 });
     hook(event);
     expect(typeof event.result.output).toBe('string');

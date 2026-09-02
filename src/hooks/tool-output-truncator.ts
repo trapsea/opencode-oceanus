@@ -11,7 +11,7 @@
  *   id / diff / hash mismatch）常出现在头部，因此默认保留约 80% 头部 +
  *   20% 尾部，保证开头与结尾的控制标记不被截掉。
  * - 截断 marker 幂等：已含 marker 的文本不再重复截断，避免叠标记。
- * - 字符串 result.output（如 hashline enhancer 写入的宿主输出）与
+ * - 字符串 result.output（宿主/工具写入的输出）与
  *   content 使用同一限制与 marker 语义；结构化 output 保持原样透传。
  * - 非文本 result（file content、结构化 output、无文本）安全透传，绝不改动。
  * - error / status 分支由 Hook 层跳过，错误消息原样保留，绝不被截断。
@@ -106,9 +106,7 @@ export function isAlreadyTruncated(text: string): boolean {
 
 /** 解析某工具生效的限制。 */
 function resolveLimit(tool: string, limits: ToolOutputTruncatorLimits): number {
-  // 别名：hashline 策略下锚定编辑工具以内置名 `edit` 注册，配置 key 仍是
-  // hashline_edit——按别名回查，保证 perToolMaxBytes 配置继续生效。
-  const per = limits.perToolMaxBytes?.[tool] ?? (tool === 'edit' ? limits.perToolMaxBytes?.['hashline_edit'] : undefined);
+  const per = limits.perToolMaxBytes?.[tool];
   if (typeof per === 'number' && per > 0) return per;
   return limits.defaultMaxBytes;
 }
@@ -169,7 +167,7 @@ type ResultPatch = {
 
 /**
  * 对工具结果做输出截断（纯函数）。
- * - 字符串 output（hashline 化的宿主输出）按同一限制截断；结构化 output
+ * - 字符串 output 按同一限制截断；结构化 output
  *   （非字符串）保持原样。
  * - content 为字符串或文本块数组时才可能截断；file 块、结构化 output 与
  *   无文本的 result 一律安全透传（返回原引用）。

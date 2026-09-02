@@ -37,7 +37,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 
 ### 默认只读权限
 
-`explorer`、`librarian`、`oracle`、`observer`、`metis`、`momus` 在无显式 `agents.<name>.permission` 时，集中应用默认只读 v2 permission（allow `read`/`glob`/`grep`/`list`/`lsp`/`codesearch`/`webfetch`/`websearch`，deny `bash`/`edit`/`write`/`apply_patch`/`ast_grep_replace`/`hashline_edit`/`task`/`todowrite`）。显式 `agents.<name>.permission` 始终覆盖该默认值。
+`explorer`、`librarian`、`oracle`、`observer`、`metis`、`momus` 在无显式 `agents.<name>.permission` 时，集中应用默认只读 v2 permission（allow `read`/`glob`/`grep`/`list`/`lsp`/`codesearch`/`webfetch`/`websearch`，deny `bash`/`edit`/`write`/`apply_patch`/`ast_grep_replace`/`task`/`todowrite`）。显式 `agents.<name>.permission` 始终覆盖该默认值。
 
 ### CBM 调度约定
 
@@ -195,9 +195,6 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 |------|------|------|
 | `ast_grep_search` | 按 AST 语法模式搜索 | 只读；支持 `$VAR` / `$$$` 元变量、语言、路径、glob、上下文；受匹配数与输出字节上限、超时保护 |
 | `ast_grep_replace` | 按 AST 语法模式替换 | **默认 dry-run**（只预览不改写）；显式 `dryRun: false` 才真正写入；只改写工作区内的文件 |
-| `edit`（hashline 策略注册名，即锚定编辑；host 策略下名 `hashline_edit`） | 按文件行 hash 锚点精确编辑 | 支持 replace / append / prepend，校验文件版本；成功返回 `metadata.filediff` 驱动的原生 diff 模板 + 可读 unified diff 文本（降级展示），失败返回结构化 JSON 错误；只允许工作区内文件 |
-
-锚定编辑（hashline 策略下工具名 `edit`，host 策略下 `hashline_edit`）使用前应先 `read` 获取行 hash 锚点；出现 hash mismatch（文件已被改动）时返回可操作的重新读取提示，**不会静默重试**，需要重新 `read` 后再编辑。
 
 
 默认**关闭**（避免无限保留子会话与副作用重跑风险），通过配置开启：
@@ -285,7 +282,6 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
   "disabled_hooks": [],
   "tools": {
     "ast_grep_replace": { "enabled": true, "dryRun": true },
-    "hashline_edit": { "enabled": true, "maxFileBytes": 1048576 },
   },
   "hooks": {
     "tool_output_truncator": { "enabled": true, "maxOutputBytes": 200000 },
@@ -307,7 +303,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 - `disabled_hooks`：禁用的 Hook 名称数组，对 Hook 拥有最终禁用权。
 - `tools`：按工具名深合并的结构化配置（见下方「新增工具与运行时保护」）。
 - `hooks`：按 Hook 名深合并的结构化配置（见下方「新增工具与运行时保护」）。
-- `editing`：写入策略配置。字段：`strategy`（`"hashline"` 默认 | `"host"`）——控制 writer subagent（fixer/designer）的编辑工具：`hashline` 把锚定编辑工具以内置名 `edit` 注册（覆盖宿主 edit，借用 TUI 原生 diff 渲染模板；宿主 `edit`/`write`/`apply_patch` 从工具目录移除）；`host` 放开宿主原生工具（`hashline_edit` 原名并存、锚定/AST 通道可用但不强制）。详见 `docs/tooling-and-runtime.md`。
+- 文件编辑使用宿主原生 `edit` / `write` / `apply_patch`（原生 diff 渲染与模型通用心智）；0.43.0 起已移除 hashline 锚定编辑通道与 `editing.strategy` 配置。详见 `docs/tooling-and-runtime.md`。
 - `taskReuse`：subagent 会话复用配置，见「subagent 会话复用」小节。字段：`enabled`（默认 `true`，显式 `false` 可关闭）、`ttlMs`（默认 2h）、`maxRetained`（默认 16）。
 
 `presets.<name>.<agent>` 或 `agents.<agent>` 支持的完整字段：
@@ -375,7 +371,7 @@ bun run typecheck # 类型检查
 │   ├── index.ts        # v2 插件入口：Plugin.define + ctx.agent/skill/command/tool/hook 注册
 │   ├── config/         # jsonc 配置加载与 schema（paths / loader / schema / utils / constants）
 │   ├── agents/         # 各 agent 定义（oceanus / sisyphus + 8 个子 agent）
-│   ├── tools/          # 新增工具（ast-grep / hashline-edit / task）
+│   ├── tools/          # 新增工具（ast-grep / clipboard-image / cbm）
 │   ├── hooks/          # 运行时保护 Hook（apply-patch / json-error-recovery / tool-output-truncator / tool-loop-guard / task-registry-observer）
 │   ├── runtime/        # task registry、workspace 解析等运行时支撑
 │   ├── smoke/          # ast-grep CLI 探测与 v2 host smoke

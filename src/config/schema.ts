@@ -106,7 +106,6 @@ export const ToolsConfigSchema = z
   .object({
     ast_grep_search: ToolConfigSchema.optional(),
     ast_grep_replace: ToolConfigSchema.optional(),
-    hashline_edit: ToolConfigSchema.optional(),
     cbm_status: ToolConfigSchema.optional(),
     cbm_index: ToolConfigSchema.optional(),
     cbm_search_graph: ToolConfigSchema.optional(),
@@ -173,19 +172,6 @@ export const AutoUpdateConfigSchema = z
   .strict();
 
 /**
- * 写入策略配置：writer subagent（fixer/designer）的文件编辑工具选择。
- * - "hashline"（默认）：锁定锚定通道——宿主 edit/write/apply_patch 从工具目录移除，
- *   定点修改必须走 hashline_edit。
- * - "host"：保留宿主原生 edit/write/apply_patch；hashline_edit / ast_grep_replace
- *   仍可用但不强制。
- */
-export const EditingConfigSchema = z
-  .object({
-    strategy: z.enum(['hashline', 'host']).optional(),
-  })
-  .strict();
-
-/**
  * 插件配置文件 schema。
  * 配置文件支持 .json/.jsonc，路径规则同 omo-slim：
  * 用户级 ~/.config/opencode/opencode-oceanus.{json,jsonc}，
@@ -203,7 +189,6 @@ export const PluginConfigSchema = z
     disabled_hooks: z.array(z.string()).optional(),
     tools: ToolsConfigSchema.optional(),
     hooks: HooksConfigSchema.optional(),
-    editing: EditingConfigSchema.optional(),
     codebaseMemory: CodebaseMemoryConfigSchema.optional(),
     autoUpdate: AutoUpdateConfigSchema.optional(),
     /**
@@ -219,7 +204,6 @@ export type PluginConfig = z.infer<typeof PluginConfigSchema>;
 export type AgentOverrideConfig = z.infer<typeof AgentOverrideConfigSchema>;
 export type ToolConfig = z.infer<typeof ToolConfigSchema>;
 export type HookConfig = z.infer<typeof HookConfigSchema>;
-export type EditingConfig = z.infer<typeof EditingConfigSchema>;
 export type ToolsConfig = z.infer<typeof ToolsConfigSchema>;
 export type HooksConfig = z.infer<typeof HooksConfigSchema>;
 export type CodebaseMemoryConfig = z.infer<

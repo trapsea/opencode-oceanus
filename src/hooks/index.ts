@@ -22,7 +22,6 @@ import { applyJsonErrorRecovery } from './json-error-recovery';
 import { createToolOutputTruncator } from './tool-output-truncator';
 import { createToolLoopGuardHook } from './tool-loop-guard';
 import { createCbmGuidanceHook } from './cbm-guidance';
-import { createHashlineReadEnhancer } from './hashline-read-enhancer';
 import { registerImageMaterializer } from './image-materializer';
 import { registerImageErrorHint } from './image-error-hint';
 import {
@@ -153,21 +152,7 @@ export async function registerOceanusHooks(
   }
 
   // 2) tool-output-truncator
-  // hashline enhancer 是固定协议适配器，不受 hooks.enabled/disabled_hooks 控制。
-  {
-    try {
-      const enhancer = createHashlineReadEnhancer();
-      await ctx.tool.hook('execute.after', (event: any) => {
-        try { enhancer(event); } catch (e) {
-          log('[oceanus] hashline-read-enhancer 失败(fail-open)', { error: messageOf(e) });
-        }
-      });
-    } catch (e) {
-      log('[oceanus] 注册 hashline-read-enhancer hook 失败', { error: messageOf(e) });
-    }
-  }
-
-  // 3) tool-output-truncator
+  // 2) tool-output-truncator
   if (isHookEnabled(config, 'tool_output_truncator')) {
     try {
       const hookCfg = getHookConfig(config, 'tool_output_truncator');

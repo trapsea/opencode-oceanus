@@ -22,7 +22,6 @@ import {
   createOceanusAgent,
 } from './oceanus';
 import { CHILD_BLOCKING_PROTOCOL } from './protocol';
-import type { EditStrategy } from '../config/constants';
 
 export type { AgentDefinition } from './oceanus';
 export { formatDelegationBrief } from './orchestrator-context';
@@ -31,7 +30,6 @@ const CHILD_BLOCKING_RULE = `\n${CHILD_BLOCKING_PROTOCOL}\n`;
 
 /** 工厂可选项：当前仅写入策略（fixer/designer 消费，其余工厂忽略）。 */
 export interface AgentFactoryOptions {
-  editStrategy?: EditStrategy;
 }
 
 type AgentFactory = (
@@ -150,8 +148,6 @@ export function createAgents(
 ): AgentDefinition[] {
   const disabled = getDisabledAgents(config);
 
-  // 写入策略（editing.strategy）：仅 writer subagent（fixer/designer）消费。
-  const editStrategy: EditStrategy = config?.editing?.strategy ?? 'hashline';
 
   // 1. 组装子 agent（应用配置覆盖）
   const subAgents = Object.entries(SUBAGENT_FACTORIES)
@@ -159,9 +155,7 @@ export function createAgents(
     .map(([name, factory]) => {
       const override = getAgentOverride(config, name);
       const model = getPrimaryModelFromOverride(override);
-      const writerOptions: AgentFactoryOptions | undefined =
-        name === 'fixer' || name === 'designer' ? { editStrategy } : undefined;
-       const agent = factory(model, override?.prompt, undefined, writerOptions);
+      const agent = factory(model, override?.prompt);
 
        if (!override?.prompt && agent.system) agent.system += CHILD_BLOCKING_RULE;
 

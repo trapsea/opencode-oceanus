@@ -132,7 +132,7 @@ export const READONLY_AGENTS: ReadonlySet<string> = new Set([
  * - allow：read/glob/grep/list/lsp/codesearch/webfetch/websearch/ast_grep_search
  *   以及查询型 codebase-memory 工具
  * - shell：默认允许非修改命令，并按 READONLY_SHELL_PERMISSION 拒绝常见写入模式
- * - deny：subagent/edit/write/apply_patch/ast_grep_replace/hashline_edit/todowrite/clipboard_image
+ * - deny：subagent/edit/write/apply_patch/ast_grep_replace/todowrite/clipboard_image
  *   （写入、委派动作与系统剪贴板读取）
  * 显式 agents.<name>.permission 始终覆盖此默认值。
  */
@@ -162,7 +162,6 @@ export const READONLY_DEFAULT_PERMISSION: NonNullable<
   write: 'deny',
   apply_patch: 'deny',
   ast_grep_replace: 'deny',
-  hashline_edit: 'deny',
   todowrite: 'deny',
   // 剪贴板可能包含与当前任务无关的敏感内容；只允许主编排 agent 按需处理。
   clipboard_image: 'deny',
@@ -178,44 +177,13 @@ export const METIS_DEFAULT_PERMISSION: NonNullable<
 
 /**
  * 写入 subagent（fixer/designer）的工具族 permission：
- * - 宿主 edit / write / apply_patch 三个写入工具共用 permission action "edit"
- *   （宿主二进制实证），`edit: 'deny'` 使三者经 Tool.snapshot 从该 agent 的
- *   工具目录整体移除——写入只剩 hashline_edit / ast_grep_replace 两条
- *   受锚点/预览保护的通道（hashline_edit 支持新建文件、批量编辑、
- *   删除与重命名，能力无损）。
- * - `hashline_edit` / `ast_grep_replace` 显式 allow：二者 action 为工具名，
- *   显式 allow 避免落入宿主 permission 默认 ask 而 auto 批准的不确定路径。
- * - 其他 action 不在此声明：注册层（applyAgentDefinitions）以 merge 语义
- *   追加本表，宿主 Agent.Info 默认基线（`*:* allow` + .env/外部目录 ask
- *   特例）保持生效。
+ * 文件编辑走宿主原生 edit / write / apply_patch（原生 diff 渲染与模型心智），
+ * ast_grep_replace 显式 allow（默认 dry-run 预览，显式 dryRun:false 才写入）。
+ * 其他 action 不在此声明：注册层（applyAgentDefinitions）以 merge 语义追加本表。
  */
 export const WRITER_TOOL_PERMISSION: NonNullable<
   AgentOverrideConfig['permission']
 > = {
-  edit: 'deny',
-  hashline_edit: 'allow',
   ast_grep_replace: 'allow',
 };
 
-/** 写入策略：hashline（默认，锚定通道锁定）| host（宿主原生工具放开）。 */
-export type EditStrategy = 'hashline' | 'host';
-
-/**
- * editing.strategy = "host" 时写入 subagent（fixer/designer）的 permission：
- * 不声明 action "edit"（宿主 edit/write/apply_patch 保留在工具目录），
- * hashline_edit / ast_grep_replace 显式 allow（可用但不强制）。
- * 显式 agents.<name>.permission 始终覆盖此默认值。
- */
-export const HOST_WRITER_TOOL_PERMISSION: NonNullable<
-  AgentOverrideConfig['permission']
-> = {
-  hashline_edit: 'allow',
-  ast_grep_replace: 'allow',
-};
-
-/** 按写入策略解析 writer subagent 的默认 permission。 */
-export function writerPermissionFor(strategy: EditStrategy = 'hashline') {
-  return strategy === 'host'
-    ? HOST_WRITER_TOOL_PERMISSION
-    : WRITER_TOOL_PERMISSION;
-}

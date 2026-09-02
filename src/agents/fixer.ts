@@ -1,19 +1,12 @@
-import {
-  type EditStrategy,
-  WRITABLE_FILE_OPERATIONS_RULES,
-  writerPermissionFor,
-} from '../config/constants';
+import { WRITABLE_FILE_OPERATIONS_RULES, WRITER_TOOL_PERMISSION } from '../config/constants';
 import { cbmSection } from '../cbm/registry';
 import type { AgentDefinition, ModelRef } from './oceanus';
 
-/** hashline 策略（默认）：定点修改强制 hashline_edit，宿主写入工具不在工具目录。 */
-const HASHLINE_WRITE_GUARD = `- The \`edit\` tool in your catalog is the hashline-anchored editor (it replaces the built-in edit under the same name in this environment) — call it by name, never through a Code Mode \`execute\` proxy. WORKFLOW: (1) \`read\` the target file — its output already carries line-hash anchors (\`N#hash|\` prefixes); (2) build \`edits\` referencing those \`pos\`/\`end\` anchors; (3) call \`edit\` once — it validates anchors and returns a readable report (header line, then a unified diff with 3-line context, then \`hashlineDiff:\` anchors). On a hash mismatch it returns an actionable re-read prompt — re-read and retry once. MANDATORY: for ANY targeted change to an existing file you MUST use \`edit\` (single edit or batched edits array). The host \`write\` / \`apply_patch\` tools are intentionally NOT in your toolset — \`edit\` covers every case: new files (edits on a nonexistent path create it), batched edits, delete and rename. Do not attempt to call other host file-writing tools; if \`edit\` genuinely cannot express a change, report STATUS BLOCKED instead of improvising with shell writes.`;
+/** 写入工具指引：宿主原生 edit/write/apply_patch + ast_grep_replace（预览保护）。 */
+const WRITE_GUARD = `- File edits use the host-native tools: \`edit\` (precise single change — \`oldString\` must match the file exactly and uniquely), \`write\` (create or fully rewrite files), \`apply_patch\` (batch patches, preferred automatically on some models). For structural/syntax-level rewrites \`ast_grep_replace\` is available (default dry-run preview; pass \`dryRun: false\` to write). Never write source files via shell redirection (\`>\` / \`>>\` / \`tee\`).`;
 
-/** host 策略：宿主原生写入工具放开，锚定/AST 通道可用但不强制。 */
-const HOST_WRITE_GUARD = `- editing.strategy = host：宿主 \`edit\` / \`write\` / \`apply_patch\` 已在你的工具目录中，任意文件变更（新建、定点修改、批量、删除）直接使用宿主工具即可。\`hashline_edit\`（行锚定批量编辑：先 \`read\` 取 \`N#hash|\` 锚点，一次提交 edits 数组并返回结构化 diff）与 \`ast_grep_replace\`（AST 结构替换，默认 dry-run 需显式 \`dryRun: false\` 才写入）仍可用，适合需要锚点校验或语法级替换的场景，按需选择。无论用哪套工具，禁止用 shell 重定向（\`>\` / \`>>\` / \`tee\`）写源码文件。`;
-
-function buildFixerPrompt(strategy: EditStrategy = 'hashline'): string {
-  const writeGuard = strategy === 'host' ? HOST_WRITE_GUARD : HASHLINE_WRITE_GUARD;
+function buildFixerPrompt(): string {
+  const writeGuard = WRITE_GUARD;
   return `You are Fixer - a fast, focused implementation specialist.
 
 **Role**: Execute code changes efficiently. You receive complete context from research agents and clear task specifications from the Orchestrator. Your job is to implement, not plan or research.
@@ -66,19 +59,12 @@ Brief summary of what was implemented
 `;
 }
 
-export interface FixerAgentOptions {
-  /** 写入策略；缺省 hashline（锁定锚定通道）。 */
-  editStrategy?: EditStrategy;
-}
-
 export function createFixerAgent(
   model?: ModelRef,
   customPrompt?: string,
   customAppendPrompt?: string,
-  options?: FixerAgentOptions,
 ): AgentDefinition {
-  const editStrategy = options?.editStrategy ?? 'hashline';
-  const basePrompt = buildFixerPrompt(editStrategy);
+  const basePrompt = buildFixerPrompt();
   let system = basePrompt;
 
   if (customPrompt) {
@@ -94,12 +80,8 @@ export function createFixerAgent(
     mode: 'subagent',
     system,
     temperature: 0.2,
-    // 写入工具族约束按 editing.strategy 切换：
-    // hashline（默认）——宿主 edit/write/apply_patch 共用 action "edit"，deny 后从
-    // 工具目录移除，写入只剩 hashline_edit / ast_grep_replace（锚点/预览保护通道）；
-    // host——不 deny edit，宿主原生写入工具保留，锚定/AST 通道可用但不强制。
-    // 见 config/constants.ts WRITER_TOOL_PERMISSION / HOST_WRITER_TOOL_PERMISSION。
-    permission: writerPermissionFor(editStrategy),
+    // 写入走宿主原生工具 + ast_grep_replace（默认 dry-run 预览保护）。
+    permission: WRITER_TOOL_PERMISSION,
   };
 
   if (model) {

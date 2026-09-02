@@ -25,25 +25,20 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
 - **直接工具 vs Code Mode（宿主 registry 实证，beta-18230）**：注册工具不设置
   `options.codemode` 时缺省落入 Code Mode catalog——只能在该会话 `execute` 工具
   的 JS 运行时内经 `tools.<name>` 调用；subagent 虽有 `execute`，但模型几乎不会
-  为单次编辑绕道 Code Mode（实测 fixer 回退宿主原生 `edit`，hashline 引导失效）。
-  因此 `registerOceanusTools` 在注册包装层为 9 个核心工具
+  为单次编辑绕道 Code Mode（实测 subagent 几乎不绕道）。
+  因此 `registerOceanusTools` 在注册包装层为核心工具
   统一注入 `options.codemode: false`，使其进入所有会话（含 subagent）的
   **直接工具目录**；CBM 工具保持缺省 Code Mode（catalog 形式，见
   codebase-memory-mcp.md）。宿主原生 write/edit/webfetch/websearch 同样显式
   `codemode: false`。`permission` 不单独设置：宿主以工具名作为 permission
-  action，与 `READONLY_DEFAULT_PERMISSION` 的 deny key（hashline_edit /
-  ast_grep_replace 等）对齐，只读 agent 的写入边界经宿主权限系统直接生效。
+  action，与 `READONLY_DEFAULT_PERMISSION` 的 deny key（ast_grep_replace
+  等）对齐，只读 agent 的写入边界经宿主权限系统直接生效。
   Agent prompt 中"call directly, never through a Code Mode `execute` proxy"
   的既有措辞在直接化后语义更准（这些工具与宿主工具同级），无需弱化。
-- **写入 subagent 的工具族硬约束（WRITER_TOOL_PERMISSION）**：直接化只解决
-  "可用"，实测（3/3）模型仍偏好宿主原生 `edit`。宿主 `edit` / `write` /
-  `apply_patch` 共用 permission action `"edit"`（二进制实证），因此对
-  fixer/designer 声明 `edit: 'deny'` 即经宿主 `Tool.snapshot(permissions)`
-  把三个宿主写入工具从其工具目录整体移除；`hashline_edit`（支持新建文件、
-  批量编辑、删除、重命名）与 `ast_grep_replace` 为仅存写入通道并显式
-  `allow`。注册层 `mergeAgentPermissions` 以 merge 语义追加（保留宿主
-  `*:* allow` 基线与 .env/外部目录 ask 特例、幂等、findLast 下追加规则
-  优先），不整体替换 agent.permissions。
+- **写入 subagent 的工具族约束（WRITER_TOOL_PERMISSION）**：文件编辑使用宿主原生
+  `edit` / `write` / `apply_patch`（原生 diff 渲染与模型通用心智，0.43.0 起移除
+  hashline 锚定通道）；`ast_grep_replace` 显式 `allow`（默认 dry-run 预览保护）。
+  注册层 `mergeAgentPermissions` 以 merge 语义追加，不整体替换 agent.permissions。
 - 工具与 Hook 各自独立容错：单个初始化或执行失败不阻止其它 Hook 与插件启动。
 - 工具一律以结构化 result 返回错误，不抛异常。
 - 不引入 v1 client/session shim，不重复实现宿主已有的 `read` / `glob` / `grep` /
@@ -60,64 +55,7 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
   显式 `dryRun: false` 才真正写入。只改写工作区内文件。
 - 两个工具都要求真实 ast-grep CLI；缺失时返回诊断信息。
 
-### `hashline_edit`
-
-- 按文件行 hash 锚点执行 `replace` / `append` / `prepend`，校验文件版本并返回
-  结构化 diff。
-- **注册名按 `editing.strategy` 切换**（0.42.0+）：
-  - `hashline`（默认）：以内置名 **`edit`** 注册——官方语义"插件工具与内置工具
-    同名时插件优先"。宿主 TUI 按工具名匹配 `edit` 专属渲染器，读取
-    `metadata.filediff`（`{ file, patch }`）渲染**原生 diff 模板**（红绿行、
-    行号、hunk、DiffChanges 增删徽章）；`options.permission` 保持
-    `hashline_edit`（权限表不随注册名漂移）。若某宿主版本重名覆盖不生效，
-    回落 GenericTool 原样展示 output 文本 diff（优雅降级，不会比文本展示更差）。
-  - `host`：保留 `hashline_edit` 原名，与宿主原生 `edit`/`write`/`apply_patch`
-    并存。
-- **成功结果以可读文本呈现**：头部一行摘要（`Edited <path> (+A -D)` /
-  `Created` / `Renamed` / `Deleted`）+ unified diff（LCS、3 行上下文、
-  git diff 同款格式，`-`/`+` 前后对比直接可见）+ `hashlineDiff:` 锚点段
-  （仅变化行，带行 hash，供锚点消费方使用）。同时 `Tool.Result.metadata`
-  携带 `filediff: { file, patch }` 与增删统计——即上文的渲染器消费字段。
-- 失败结果保持结构化 JSON（`ok:false` + `error` / `errorCode`），便于模型
-  读取错误语义。
-- 使用前先 `read` 获取行 hash；hash mismatch（文件已被改动）时返回可操作的重新
-  读取提示，**不会静默重试**，需要重新 `read` 后再次编辑。
-- 目标文件必须位于工作区内，受文件大小上限（`maxFileBytes`）约束。
-- 删除 / 重命名能力在路径安全检查明确前不开放。
-
-### `editing.strategy`（写入策略）
-
-writer subagent（fixer/designer）的文件编辑工具选择，默认 `"hashline"`：
-
-- `"hashline"`（默认）：锁定锚定通道——锚定编辑工具以内置名 **`edit`** 注册
-  （官方"插件工具与内置同名时插件优先"语义），TUI 借用宿主 `edit` 渲染器
-  原生渲染 diff 模板；宿主原生 `edit` / `write` / `apply_patch` 共用
-  action `edit`，`deny` 后从工具目录整体移除；定点修改必须走锚定
-  `edit`（prompt 中为 MANDATORY 约束），`ast_grep_replace` 显式
-  `dryRun: false` 后可写。
-- `"host"`：放开宿主原生工具——不 deny `edit`，`edit`/`write`/`apply_patch` 保留在
-  工具目录；`hashline_edit` / `ast_grep_replace` 仍可用但不强制，prompt 指引同步
-  切换。适合偏好原生体验或锚点工作流不适应的场景。
-
-```jsonc
-{ "editing": { "strategy": "host" } }
-```
-
-显式 `agents.<name>.permission` 始终覆盖策略默认；主 agent（oceanus/sisyphus）不受
-此配置影响（本就两套工具都可用）。
-
-
-
-围绕 Oceanus 轻量 task registry + v2 session API 实现，只管理本插件创建的后台子任务。
-
-  可用的宿主 session 事实（`session.active` / `session.get` / 事件快照），当前 beta
-  插件类型未暴露 `session.active` 时诚实降级为 `session.get` / registry，并标记未验证。
-  「registry 中明确存储的终态观察结果」，否则返回错误；不会把 registry 的
-  `completed` 状态本身当作宿主事实。
-  父或子 session；可传 `parentID` / `childID` 交叉校验 ownership。仅当宿主确认
-  interrupt 成功、session 不再 active、且 outcome 明确为 `interrupted` / `succeeded`
-  时才报告 `cancelled`，否则返回结构化错误，不伪造取消结果（interrupt 失败但
-  outcome 已为自然终态时同样不伪造 cancelled）。
+> 0.43.0 起已移除 `editing.strategy` 配置与 hashline 锚定编辑通道：文件编辑统一使用宿主原生 `edit` / `write` / `apply_patch`（原生 diff 渲染、模型通用心智），结构性替换用 `ast_grep_replace`。
 
 ## 内置 Hook
 
@@ -127,7 +65,7 @@ writer subagent（fixer/designer）的文件编辑工具选择，默认 `"hashli
 
 ```text
 before: apply-patch → loop-guard.before → task-registry-observer.before → cbm-guidance.before
-after:  json-error-recovery → hashline-read-enhancer → tool-output-truncator → tool-loop-guard → task-registry-observer.after → cbm-guidance.after
+after:  json-error-recovery → tool-output-truncator → tool-loop-guard → task-registry-observer.after → cbm-guidance.after
 ```
 
 | Hook | 作用 | fail-open / fail-closed 边界 |
@@ -151,7 +89,6 @@ after:  json-error-recovery → hashline-read-enhancer → tool-output-truncator
   "tools": {
     "ast_grep_search": { "enabled": true, "timeoutMs": 30000, "maxMatches": 200, "maxOutputBytes": 262144 },
     "ast_grep_replace": { "enabled": true, "dryRun": true },
-    "hashline_edit": { "enabled": true, "maxFileBytes": 1048576 },
     "clipboard_image": { "enabled": true }
   },
   "hooks": {
@@ -210,9 +147,9 @@ CLI 集成并输出诊断**，不把环境缺失误报为产品失败。
 
 ## 测试与验证
 
-- 单元测试覆盖工具参数、CLI 解析、hashline 编辑、task registry、CBM 与各 Hook。
+- 单元测试覆盖工具参数、CLI 解析、CBM 与各 Hook。
 - `src/tooling-integration.test.ts` / `src/smoke/host-smoke.test.ts` 在 bun test 下用 mock ctx
-  验证注册契约（16 个工具：9 个 Oceanus 工具 + 7 个 CBM 工具、3 个 before + 5 个 after Hook）；生产 coordinator 接线还会
+  验证注册契约（Oceanus 工具 + CBM 工具、before + after Hook 的数量与顺序）；生产 coordinator 接线还会
   注册 subagent bridge，实际为 4 个 before + 6 个 after。
 - 真实 ast-grep CLI 集成测试仅在探针确认可用时运行（`describe.skipIf`）。
 - 真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内
