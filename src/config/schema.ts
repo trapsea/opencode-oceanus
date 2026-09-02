@@ -107,11 +107,6 @@ export const ToolsConfigSchema = z
     ast_grep_search: ToolConfigSchema.optional(),
     ast_grep_replace: ToolConfigSchema.optional(),
     hashline_edit: ToolConfigSchema.optional(),
-    task_status: ToolConfigSchema.optional(),
-    task_message: ToolConfigSchema.optional(),
-    task_revive: ToolConfigSchema.optional(),
-    task_result: ToolConfigSchema.optional(),
-    task_cancel: ToolConfigSchema.optional(),
     cbm_status: ToolConfigSchema.optional(),
     cbm_index: ToolConfigSchema.optional(),
     cbm_search_graph: ToolConfigSchema.optional(),
@@ -129,7 +124,6 @@ export const HooksConfigSchema = z
     tool_output_truncator: HookConfigSchema.optional(),
     json_error_recovery: HookConfigSchema.optional(),
     tool_loop_guard: HookConfigSchema.optional(),
-    task_registry_observer: HookConfigSchema.optional(),
     cbm_guidance: HookConfigSchema.optional(),
   })
   .strict();
@@ -179,22 +173,6 @@ export const AutoUpdateConfigSchema = z
   .strict();
 
 /**
- * subagent 会话复用配置（`task_revive` / `task_message` 的真实续用能力）。
- * 默认开启：允许完成任务保留 child session 供显式复用；显式 false 可关闭。
- * 开启后仅保留成功（completed）任务的 child session 用于复用。
- */
-export const TaskReuseConfigSchema = z
-  .object({
-    /** 是否启用已完成 subagent 会话复用；默认 true。 */
-    enabled: z.boolean().optional(),
-    /** 复用前保留会话的 TTL（ms）；默认 2 小时。 */
-    ttlMs: z.number().int().positive().optional(),
-    /** 同一时刻最多保留的可复用任务数；默认 16。 */
-    maxRetained: z.number().int().positive().optional(),
-  })
-  .strict();
-
-/**
  * 写入策略配置：writer subagent（fixer/designer）的文件编辑工具选择。
  * - "hashline"（默认）：锁定锚定通道——宿主 edit/write/apply_patch 从工具目录移除，
  *   定点修改必须走 hashline_edit。
@@ -228,7 +206,6 @@ export const PluginConfigSchema = z
     editing: EditingConfigSchema.optional(),
     codebaseMemory: CodebaseMemoryConfigSchema.optional(),
     autoUpdate: AutoUpdateConfigSchema.optional(),
-    taskReuse: TaskReuseConfigSchema.optional(),
     /**
      * orchestrator 主模型视觉能力声明：
      * - false：prompt 阶段移除图片附件（避免宿主对非视觉模型报错），仅保留落盘路径提示
@@ -249,7 +226,6 @@ export type CodebaseMemoryConfig = z.infer<
   typeof CodebaseMemoryConfigSchema
 >;
 export type AutoUpdateConfig = z.infer<typeof AutoUpdateConfigSchema>;
-export type TaskReuseConfig = z.infer<typeof TaskReuseConfigSchema>;
 export type CodebaseMemoryUiConfig = z.infer<
   typeof CodebaseMemoryUiConfigSchema
 >;

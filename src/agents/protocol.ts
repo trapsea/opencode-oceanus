@@ -1,12 +1,6 @@
 /** Agent 编排协议的单一来源；各提示词只负责组合，不复制通用规则。 */
 export const DISPATCH_PROTOCOL = `### Dispatch Protocol
-所有调度使用结构化对象参数：subagent({ agent, description, prompt, background })；复用 task_revive({ task_id, prompt })。prompt 是单个字符串值，换行使用 \\n，遵守引号和反斜杠的 JSON 转义，示例使用 ASCII 标点。派发前查看 Task Board，声明稳定 lane 与文件边界；Do not rely on queue notifications，必须主动查询确认。`;
-
-export const TASK_BOARD_PROTOCOL = `### Task Board Protocol
-Background Job Board 摘要必须包含 task_id、state、worker/session 和 result summary；Active/Unknown 不得重复派发，Completed 未消费先读取，Reusable 使用 task_revive。`;
-
-export const TERMINAL_STATE_PROTOCOL = `### Terminal State Protocol
-终态只信宿主 session 事实，必须用 \`task_status\` / \`task_result\` 确认；failed、blocked、uncertain、pending 或未确认结果不得伪装完成。`;
+所有调度使用结构化对象参数：subagent({ agent, description, prompt, background })。prompt 是单个字符串值，换行使用 \n，遵守引号和反斜杠的 JSON 转义，示例使用 ASCII 标点。派发前声明稳定 lane 与文件边界；不要依赖队列通知。`;
 
 export const LEDGER_PROTOCOL = `### Progress Ledger Protocol
 ledger 区分 pending、in_progress 与 completed/failed/blocked；记录验证 evidence 和 updated_at。并行 worker 不直接写共享 ledger。`;
@@ -19,7 +13,7 @@ export const THREE_ROUND_TEMPLATE = `**3 轮中断上报模板（统一）**：�
 
 /** Momus 门禁输出与复审协议（单一来源）；sisyphus.ts 与 sisyphus-plan skill 共同引用。 */
 export const MOMUS_GATE_PROTOCOL = `- @momus 输出按 BLOCKER/SUGGESTION 分级，仅 BLOCKER 触发 REJECT；REJECT 必须附最小修订集（逐条修改建议 + 验证方式）。复审轮只验证前轮 BLOCKER 与修订新引入的 BLOCKER，不追加旧问题。
-- 复审委派 prompt 必须携带 round=N、前轮 BLOCKER 清单与逐条落实证据。SDD 开启时证据优先用文件引用（plan 文件路径 + 修订处任务 ID/行锚点 + git diff 范围）替代全文转述；SDD 关闭时保留逐条转述。复审续用通道：前台门禁复审优先以原生 \`subagent\` 显式传 \`sessionID\` 续用原会话（dispatch-guard 将显式 sessionID 视为续用通道）；后台任务用 \`task_revive\`。
+- 复审委派 prompt 必须携带 round=N、前轮 BLOCKER 清单与逐条落实证据。SDD 开启时证据优先用文件引用（plan 文件路径 + 修订处任务 ID/行锚点 + git diff 范围）替代全文转述；SDD 关闭时保留逐条转述。复审优先使用原生 \`subagent\` 显式传 \`sessionID\` 续用原会话。
 - @momus 返回 \`REJECT\` 时必须回到 plan 修订后重新检查，不得直接进入 execute；修订按最小修订集逐条落实（不自行发挥）；仅当 \`OKAY\` 才放行 execute。
 - 循环上限：@momus REJECT 修订重审最多 3 轮；每轮按最小修订集逐条落实（不自行发挥）；第 3 轮仍 REJECT 时停止重审循环，按 3 轮中断上报模板上报，不允许静默循环自查。`;
 
@@ -33,5 +27,5 @@ export const CHILD_BLOCKING_PROTOCOL =
   '缺少委派上下文时不要直接问用户；将问题反馈给父 agent，并输出 STATUS: BLOCKED、QUESTIONS、IMPACT。未明确指定模式时不猜测。';
 
 export function buildAgentProtocol(): string {
-  return [DISPATCH_PROTOCOL, TASK_BOARD_PROTOCOL, TERMINAL_STATE_PROTOCOL, LEDGER_PROTOCOL, RUNTIME_GUARDS_PROTOCOL].join('\n\n');
+  return [DISPATCH_PROTOCOL, LEDGER_PROTOCOL, RUNTIME_GUARDS_PROTOCOL].join('\n\n');
 }

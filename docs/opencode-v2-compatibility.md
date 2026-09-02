@@ -36,7 +36,6 @@
 
 - setup 阶段不从 `ctx.session` 读取当前会话 ID：该对象是 `SessionDomain` API 域，不是会话实例。任务索引根使用插件实例目录；真实父会话 ID 只在工具/事件上下文中使用。参见 `src/index.ts:168-184` 与 `src/runtime/types.ts:166-175`。
 - `taskReuse` 的代码默认值为启用；可用配置显式关闭。不要沿用旧文档中“默认关闭”的表述：`src/config/utils.ts:243-247`、`src/config/schema.ts:188`。
-- `task_revive` 对已完成子会话再次 `prompt` 是否保留上下文，取决于真实 v2 Host；插件在宿主能力不足或续用失败时返回不确定/降级状态，不伪造成功。参见 `README.md:219-221` 和 `src/runtime/`。
 - `session.active`、`interrupt` 等真实 Host 能力在普通 `bun test` 中没有真实宿主；相关 smoke 会 skip 或使用 mock，不等价于真实 Host 通过。参见 `README.md:245`、`src/smoke/host-smoke.test.ts`。
 - 图片 `prompt` / `retry` hook 属于运行时能力：beta-18721+ 类型联合已正式覆盖 `prompt`/`retry`，注册仍保留运行时能力探测并 fail-open（类型声明不等于运行时保证）；`retry` 不可用不得影响 `prompt`。参见 `src/hooks/index.ts:253-293` 与 `src/hooks/image-*.ts`。
 - CBM 二进制版本与 npm 插件版本解耦；当前默认 CBM 版本为 `0.10.8`，下载必须经过内置 manifest 的 SHA-256 校验。参见 [`codebase-memory-mcp.md`](codebase-memory-mcp.md)。
@@ -53,7 +52,6 @@
 ### 未验证或需真实宿主复测
 
 - beta-18743 对当前 OpenCode 应用发行版的精确对应关系。
-- 已完成 subagent 子会话的上下文保留和 `task_revive` 全链路。
 - 真实 Host 中 `session.active`、`interrupt`、skill draft 形态、CLI/TUI 加载字段的最终行为。
 - 真实 Host 是否接受图片 `prompt` / `retry` hook 名称，以及 `/builtin/...` skill location 是否要求可直接访问的物理文件。
 - 不同 OpenCode beta 版本的向后兼容性。

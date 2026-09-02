@@ -58,12 +58,9 @@ description: Unified image workflow — materialize to a file, grade analysis de
 
 ### 5. 整合
 - 回收 observer 的结构化结论；不重复读取原始图片
-- 主 Agent 校验模板完整性；缺节 → task_revive 补齐（≤3 轮）；第 3 轮仍缺节 → 停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）
 - 「不确定项清单」是向用户 question 澄清的**唯一来源**；禁止 observer 以猜测替代用户决策
-- spec 落盘与 SDD 模式绑定：SDD 开启 → 主 Agent 将 L3/L4/L5 输出写入 \`.oceanus/spec/ui-spec.md\`（observer 保持只读，主 Agent 代写），各 worker 引用路径；SDD 关闭 → 不落盘，内联进消费方 prompt，验收基准取 observer 会话 task_result 原文
 
 ### 6. 会话复用
-- 深度升级只升不降：L2→L4 用 task_revive，prompt 注明"在已有分析基础上补充"；降级由主 Agent 自行压缩摘要，不重派
 - L5 验收必复用当初分析的 observer 会话（它已读过基准图），不重开
 
 ## 前端消费场景（L3-L5 的典型下游，非本 skill 的全部）

@@ -25,6 +25,8 @@ Sisyphus 主 Agent 持有计划、调度、ledger 与验收上下文；仅将无
 
 Implement the plan reliably: parallel where safe, serial where dependent, and fully tracked.
 
+## 无上下文执行协议
+执行者不得依赖聊天历史：先读取唯一 Spec 与 Plan，再核对当前 Task 的 Task ID、Goal/Context、Files、Interfaces、Dependencies、Preconditions、checkbox、Validation/Expected、Acceptance、风险与状态字段。缺少任一字段或 Spec 未绑定时立即阻塞并返回父 agent，不自行猜测。每一步记录命令、预期结果与实际结果；只修改声明的 Files。完成时输出实现摘要、验证证据（含实际输出/状态）、实际 diff 行数与剩余风险。
 ## Steps
 1. **Load the plan and ledger** — SDD 开启时从 \`.oceanus/plan/\` 与 \`.oceanus/progress/<plan-name>.md\` 加载；SDD 关闭时使用会话内计划与 todo。compute the ready set (dependencies terminal, wave eligible)。
 2. **Dispatch in parallel** — for ready tasks with non-overlapping \`Files\` scopes and no shared state, issue multiple independent \`subagent({ agent, description, prompt, background })\` calls in the same turn (each with a lane marker in description). Never serialize a ready batch on progress-ledger updates.
@@ -32,7 +34,6 @@ Implement the plan reliably: parallel where safe, serial where dependent, and fu
 4. **Update before dispatch（SDD 模式）** — SDD 开启时，派发前把该任务 ledger 行从 \`pending\` 更新为 \`in_progress\`（含 worker/session 与时间戳），ledger 由 orchestrator 串行写入。SDD 关闭时用 \`todowrite\` 同步 todo 即可，不写文件。
 5. **Reconcile and update after each task** — when any task returns, integrate its result, run or verify its declared validation, then immediately record \`completed\`/\`failed\`/\`blocked\`（SDD 模式写入 ledger 行，含证据、时间戳、备注；非 SDD 更新 todo）。同时记录该任务**实际实现代码 diff 行数**（git diff --stat 或等价方式，测试代码不计入），与 plan 预估行数一并写入备注，供 review 对比。Do this for every task, including parallel tasks, without waiting for the rest of the Wave to finish.
 6. **Sync the todo list** — keep in-memory todo and the ledger (SDD 模式) consistent: register plan tasks as \`pending\`, mark the current task \`in_progress\` before dispatching, and mark it \`completed\`/\`failed\`/\`blocked\` only after its terminal result and validation evidence are in.
-7. **串行 Wave 的条件会话复用** — 串行相邻 wave **默认全新派发**（干净上下文 + 编排者蒸馏的上轮结果 brief，保留纠错机会）。仅当同时满足：①同专家且相邻串行 wave；②Files 范围强重叠或 brief 高度重复；③连续复用 ≤3 轮（累计上下文可控）——才用 \`task_revive({ task_id, prompt })\` 续用上一 wave 的 session。只读 agent（research/分析/复审）优先复用；带写权限的 worker 复用前必须确认上轮已终态且无部分完成的写改动（副作用重跑风险）。复用需会话保留已启用（task_revive 配置，默认关闭），未启用时一律全新派发。复用决策与理由记入 ledger/todo 备注；无论是否复用，编排者都把上一 wave 结果蒸馏进下一个 brief，保证随时可回退到全新派发。
 
 ## Current-directory execution
 
@@ -81,7 +82,6 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 - [ ] Results reconciled and conflicts resolved
 - [ ] SDD 模式：ledger 在派发前与每任务终态后更新；非 SDD：todo 与任务状态一致
 - [ ] Todo list matches task state
-- [ ] 串行 Wave 复用决策已记录：默认全新派发；仅同专家+相邻串行+上下文强耦合且连续 ≤3 轮时 task_revive 复用（写入 worker 复用前已确认上轮终态无半成品写改动）
 - [ ] Failing-first applied: RED→GREEN captured per change, existing behavior pinned before changes
 - [ ] Each scenario has two proofs: code proof (TDD on: RED+GREEN; TDD off: characterization baseline + final-state GREEN) and a real-surface artifact
 - [ ] Execute evidence tier 已声明：strict=RED+GREEN+real-surface，light=test-after+测试，exempt=白名单+理由
@@ -92,7 +92,6 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 
 ## Rules
 - Use the real background parameter: \`subagent({ agent, description, prompt, background: true })\` with a distinct lane marker in description per task.
-- Poll background tasks explicitly with \`task_status\` / \`task_result\` and cancel obsolete ones with \`task_cancel\`; host facts take priority over any local observation — the plugin's task metadata is only an index and never a substitute for host fact. Do not rely on queue notifications — completion is never pushed by default, and a task must never be treated as terminal without a query.
 - Never reissue an unchanged task to the same specialist after a rejection; adjust scope or context first.
 - **修复循环上限统一 3 轮**：单个任务的失败修复/重派遣最多 3 轮；第 3 轮仍失败则标记 blocked 并停止自动重试，按 3 轮中断上报模板用 \`question\` 上报。
 - **探索性尝试循环上限**：同一目标的探索性尝试（环境/实例启动、隔离环境搭建、绕行 workaround、探测性命令）连续失败达 3 次必须停止换路：回到 plan 重估前提，或按 3 轮中断上报模板上报（模板须含推荐项及理由）；不得无限换姿势重试。

@@ -36,6 +36,7 @@ Concise answer to the question
 **Constraints**:
 - READ-ONLY: Search and report, don't modify
 - Only read-only tools: grep, glob, read, ast_grep_search. Never call ast_grep_replace, hashline_edit, or apply_patch.
+- Never call \`clipboard_image\`; 系统剪贴板不是代码库的一部分，只有主编排 agent 在明确的图片处理流程中才能读取。
 - Be exhaustive but concise
 - Include line numbers when relevant
 `;

@@ -196,15 +196,9 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 | `ast_grep_search` | 按 AST 语法模式搜索 | 只读；支持 `$VAR` / `$$$` 元变量、语言、路径、glob、上下文；受匹配数与输出字节上限、超时保护 |
 | `ast_grep_replace` | 按 AST 语法模式替换 | **默认 dry-run**（只预览不改写）；显式 `dryRun: false` 才真正写入；只改写工作区内的文件 |
 | `hashline_edit` | 按文件行 hash 锚点精确编辑 | 支持 replace / append / prepend，校验文件版本；成功返回可读 unified diff 前后对比（+ metadata.filediff），失败返回结构化 JSON 错误；只允许工作区内文件 |
-| `task_status` | 查询后台子任务状态 | 只读；仅可访问本插件管理且属于当前 session 的任务；优先使用运行时可用的宿主 session 事实，能力缺失时诚实降级为本地索引 |
-| `task_result` | 读取已完成子任务结果 | 只读；**仅限已完成任务**，未完成会返回错误，不伪装完成 |
-| `task_cancel` | 取消后台子任务 | 中断子 session 并验证宿主状态；调用方须为任务的父/子 session，可传 `parentID`/`childID` 交叉校验 ownership；仅当宿主确认中断成功才报告 cancelled |
-| `task_message` | 向运行中的子任务发送或读取消息 | 经真实 v2 `session.prompt` 投递，只报告 `queued`（已入队），不声称子 agent 已收到；投递失败报告 `undelivered`/`queued_not_delivered` |
-| `task_revive` | 恢复 blocked 或可复用终态任务 | 经真实 v2 `session.prompt` + `session.wait` 续用已保留的 `child_session_id`；续用失败进入 `uncertain`，不伪造 `revived` |
 
 `hashline_edit` 使用前应先 `read` 获取行 hash 锚点；出现 hash mismatch（文件已被改动）时返回可操作的重新读取提示，**不会静默重试**，需要重新 `read` 后再编辑。
 
-### subagent 会话复用（task_revive / task_message）
 
 默认**关闭**（避免无限保留子会话与副作用重跑风险），通过配置开启：
 
@@ -218,7 +212,6 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 }
 ```
 
-开启后，仅以 `completed` 终态结束且带明确 child session 的 subagent 任务会被标记为可复用，`task_revive` 可对其续用上下文。续用与投递使用 opencode v2 文档化的 `ctx.session.prompt` / `ctx.session.wait`（插件不依赖不存在的 `resumeChild` / `sendMessage`）。`task_revive` 返回 `revived` + `delivery`（succeeded/failed/interrupted/delivered）；宿主缺 `prompt`/`wait`、续用失败或超时则返回 `uncertain` + `reason`，进入 fail-open。超过 `ttlMs` 或 `maxRetained` 的可复用标记会被自动回收。
 
 > **验证边界**：是否接受对已完成 subagent 子会话再次 `prompt` 并保留上下文，取决于 opencode v2 运行时的实际能力（官方文档未明确承诺）。插件对此 fail-open（`ok:false → uncertain`），不把"请求被接受"当成"续用成功"。建议在真实 opencode v2 host 上做一次 smoke 确认后再广泛依赖该能力。
 
@@ -231,8 +224,6 @@ Hook 通过 `execute.before` / `execute.after` 注册，每个 Hook 独立容错
 | `apply_patch` | before | 校验并保守规范化 `apply_patch` 输入（解析 Codex 风格 patch、路径边界、无损重写） | 工作区外路径、只读输入 **fail-open**（交由宿主处理）；输入/校验/内部异常 **fail-closed**（抛错阻断执行） |
 | `json_error_recovery` | after | 修正工具返回的错误 JSON 参数，避免错误被当作结果吞掉 | **fail-open**：恢复失败不阻断已完成结果 |
 | `tool_output_truncator` | after | 截断超长工具输出，避免破坏上下文 | **fail-open**，保留错误、状态、diff 与 hash mismatch 等控制信息 |
-| `tool_loop_guard` | before + after | 检测重复工具调用（达到 `warnAt` 提示、`blockAt` 熔断） | **fail-open**，且不阻止 `task_status` 等合法轮询调用 |
-| `task_registry_observer` | before + after | 观察宿主 `task` / `subagent` 调用，把明确可识别的任务记录写入本地 task registry（任务 id、父子 ownership、child session、受限结果摘要） | **fail-open**：不拦截、不抛错；未知结果形状不猜测 child session、不伪造终态 |
 
 ### AST CLI 安装与诊断
 
@@ -246,7 +237,6 @@ bun add -D @ast-grep/cli   # 或 cargo install ast-grep、brew install ast-grep
 
 或设置 `AST_GREP_BIN=/path/to/ast-grep` 指向已有二进制。环境中没有真正可用的 ast-grep 时，工具会返回诊断信息；测试（`src/smoke/host-smoke.test.ts`）也会**明确 skip 真实 CLI 集成并输出诊断**，而不是把环境缺失误报为产品失败。真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内执行插件时验证；当前 beta 插件类型未暴露 `session.active` 时，运行时会探测并诚实降级，当前 bun test 环境无真实 host 时相关 smoke 会 skip，仅用 mock ctx 验证注册契约，不声称真实 host 已通过。
 
-> 说明：任务运行事实持久化于 `.oceanus/task-board.json`。Job Board 是调度运行态的权威来源，TaskRegistry 仅作本地索引，progress ledger 仅记录计划与受限运行摘要；宿主事实优先于插件推断。二者通过单向 bridge 同步，不互相覆盖：ledger 不覆盖 Job Board 运行态，Job Board 也不伪造计划完成。`task_message` 用于发送任务消息，`task_revive` 用于显式恢复；v2 能力不可用时诚实标记 degraded。取消不会回滚已发生的工作。子 agent 报告 `BLOCKED` 时由父 Sisyphus 统一向用户提问。
 
 ## 配置
 
@@ -292,17 +282,14 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
     "designer": { "color": "#FFB3BA" }
   },
   "disabled_agents": [],
-  "disabled_tools": ["task_cancel"],
   "disabled_hooks": [],
   "tools": {
     "ast_grep_replace": { "enabled": true, "dryRun": true },
     "hashline_edit": { "enabled": true, "maxFileBytes": 1048576 },
-    "task_status": { "enabled": true }
   },
   "hooks": {
     "tool_output_truncator": { "enabled": true, "maxOutputBytes": 200000 },
     "tool_loop_guard": { "enabled": true, "warnAt": 3, "blockAt": 5 },
-    "task_registry_observer": { "enabled": true }
   },
   "taskReuse": { "enabled": true }
 }
@@ -395,3 +382,6 @@ bun run typecheck # 类型检查
 │   └── skills/         # sisyphus 四个阶段 skill（插件注入，安装无需拷贝）
 └── dist/               # 构建产物
 ```
+
+## Sisyphus 文档骨架速查
+SDD 开启时 Spec 使用 `Goal / Context / Scope / Non-goals / Requirements / Architecture / Acceptance Criteria / Files touched map / Metis Analysis`；Plan 以 `Spec: .oceanus/spec/<唯一文件>.md` 绑定，并为每个 Task 写明 Files、Consumes/Produces、checkbox、Validation + Expected 与 Acceptance。Execute 先读二者，Review 用 `criterion -> evidence -> status -> gap/next action` 矩阵。

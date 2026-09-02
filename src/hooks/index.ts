@@ -25,8 +25,6 @@ import { createCbmGuidanceHook } from './cbm-guidance';
 import { createHashlineReadEnhancer } from './hashline-read-enhancer';
 import { registerImageMaterializer } from './image-materializer';
 import { registerImageErrorHint } from './image-error-hint';
-import { createSubagentBridge } from '../runtime/subagent-bridge';
-import type { TaskCoordinator } from '../runtime/task-coordinator';
 import {
   isHookEnabled,
   getHookConfig,
@@ -53,10 +51,6 @@ export interface RegisterHooksOptions {
   indexer?: IndexerHandle;
   /** cbm-guidance 索引检查超时（毫秒）。 */
   timeoutMs?: number;
-  /** native-session-orchestration：任务元数据协调器（subagent-bridge 必需）。 */
-  coordinator?: TaskCoordinator;
-  /** 任务生命周期观测：记录生产接线实际收到的 coordinator。 */
-  taskLifecycleObserver?: (coordinator: TaskCoordinator) => void;
 }
 
 /** 默认输出截断上限（与规格一致）。 */
@@ -199,23 +193,6 @@ export async function registerOceanusHooks(
       await ctx.tool.hook('execute.after', loopGuard['tool.execute.after'] as never);
     } catch (e) {
       log('[oceanus] 注册 tool-loop-guard.after 失败', { error: messageOf(e) });
-    }
-  }
-
-  // ── subagent-bridge：原生 subagent 调用即登记元数据 + dispatch-guard ──
-  if (isHookEnabled(config, 'task_registry_observer')) {
-    try {
-      if (opts.coordinator) {
-        opts.taskLifecycleObserver?.(opts.coordinator);
-        const bridge = createSubagentBridge({
-          coordinator: opts.coordinator,
-          logger: (message, meta) => log(`[oceanus] ${message}`, meta),
-        });
-        await ctx.tool.hook('execute.before', bridge['execute.before'] as never);
-        await ctx.tool.hook('execute.after', bridge['execute.after'] as never);
-      }
-    } catch (e) {
-      log('[oceanus] 注册 subagent-bridge 失败', { error: messageOf(e) });
     }
   }
 

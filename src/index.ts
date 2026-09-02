@@ -16,7 +16,6 @@ import { registerAutoUpdate } from './update';
 import { installStaged, resolveOpenCodeInstallContext } from './update/cache';
 import { syncEntryVersion, PACKAGE_NAME, type ConfigEntry } from './update/config-entry';
 import { hasNativePluginUpdate, updateViaHost, waitForHostVersion } from './update/host-update';
-import { createTaskCoordinator, type TaskCoordinator } from './runtime/task-coordinator';
 import { resolvePluginDirectory } from './runtime/host-adapter';
 import { createCleanupRunner, createHostCleanup, runOptionalStages } from './runtime/setup-stages';
 
@@ -150,8 +149,6 @@ export interface RunSetupOptions {
   loadConfig?: (opts: { directory: string }) => PluginConfig;
   /** CBM 接线注入（测试替换网络/进程；缺省走真实实现）。 */
   cbm?: CbmWiringInjections;
-  /** 可选任务生命周期观测器；缺省不改变任务接线行为。 */
-  taskLifecycleObserver?: (source: 'supervisor' | 'tools' | 'hooks', coordinator: TaskCoordinator) => void;
 }
 
 /**
@@ -191,21 +188,6 @@ export async function runSetup(
     managedNames: new Set(),
     configuredSettings: new Map(),
   };
-  let taskCoordinator: TaskCoordinator | undefined;
-  // setup 期不存在真实会话：宿主 ctx.session 是 SessionDomain API 对象，
-  // 没有 sessionID/id 属性（契约见 runtime/types.ts）；绝不从中读取或伪造
-  // parent sessionID，也不以空 ID 调用宿主 session.get。
-  // TaskIndex 根使用插件实例绑定的项目目录（与配置解析同源；新宿主按项目
-  // scope 实例化插件，session.location.directory 与之同源），而非 service cwd。
-  try {
-    taskCoordinator = createTaskCoordinator({ workspaceRoot: directory, session: ctx.session });
-    await taskCoordinator.ready();
-    // 不做 eager reconcile：setup 期没有真实 parent sessionID，以空/伪造 ID
-    // reconcile 只会产生无效宿主查询（甚至篡改 parent 为空的遗留记录）。
-    // 重启后的状态收敛只能由真实会话驱动：task_status/task_result 每次以
-    // 宿主 active/outcome 为准应答，task_revive 允许恢复非 running 记录。
-    options.taskLifecycleObserver?.('supervisor', taskCoordinator);
-  } catch { /* fail-open */ }
 
   // 1) 共享 CBM 依赖：cacheRoot = 显式 cacheDir ?? 默认；供 provision/MCP/CLI/UI 复用。
   const shared = buildCbmSharedDeps(config, options.cbm);
@@ -370,8 +352,6 @@ export async function runSetup(
       cbmRunDeps: shared.runDeps,
       cbmIndexer: shared.indexer,
       cbmCacheRoot: shared.cacheRoot,
-      coordinator: taskCoordinator,
-      taskLifecycleObserver: taskCoordinator ? (c) => options.taskLifecycleObserver?.('tools', c) : undefined,
         });
       },
     },
@@ -383,11 +363,6 @@ export async function runSetup(
         await registerOceanusHooks(ctx, config, {
       runDeps: shared.runDeps,
       indexer: shared.indexer,
-      coordinator: taskCoordinator,
-      // bridge 登记失败/事件异常必须可见（此前 logger 缺省为 noop，诊断被静默丢弃）。
-      // hooks 层消息已自带 [oceanus] 前缀，此处透传避免 `[oceanus] [oceanus]` 双重前缀。
-      logger: (message, meta) => log(message, meta),
-      taskLifecycleObserver: taskCoordinator ? (c) => options.taskLifecycleObserver?.('hooks', c) : undefined,
         });
       },
     },

@@ -43,11 +43,6 @@ export const LOOP_GUARD_BLOCK_AT = 5;
  */
 export const LOOP_GUARD_EXEMPT: Record<string, true> = {
   task: true,
-  task_status: true,
-  task_result: true,
-  task_cancel: true,
-  task_message: true,
-  task_revive: true,
   wait_for_user: true,
   wait_for_background_tasks: true,
 };

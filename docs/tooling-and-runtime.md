@@ -8,13 +8,13 @@
 
 六阶段工作流（Intake → Brainstorm → Plan → Execute → Review → Finish）由 Agent/Skill 的
 prompt 契约驱动：Agent 负责编排与委派，Skill 规定阶段边界；工具和 Hook 只提供运行时
-能力，不是阶段 supervisor。执行配置（Metis 审核/Momus 审核/SDD/TDD/Worktree/连续执行
-授权）由 Brainstorm 前置的执行配置批问确认——一次 question 批量问六项，各带推荐值及
+能力，不是阶段 supervisor。执行配置（Metis 审核/Momus 审核/SDD/TDD/连续执行授权）由
+Brainstorm 前置的执行配置批问确认——一次 question 批量问五项，各带推荐值及
 依据（Metis/Momus 依据=预估拆分任务数与需求复杂度，其余依据=预估任务数），漏答回落
 推荐值并记录、不补问；方案方向由方案总批准单问覆盖。Momus 审核=开时 Plan 必须经过
 `@momus` 的 `OKAY` + 有效方案总批准；关闭时降级为仅人工批准并记录 SKIPPED_BY_USER。
 Review 由 review subagent、`@momus` 复核并运行测试。Finish 只读 Review 报告，不再测试、
-构建、调用 CBM、委派或写文件（worktree 收尾除外）。
+构建、调用 CBM、委派或写文件。
 
 Ledger 与 Review 报告是不同契约：Ledger 记录任务 id、状态、父子关系和时间等进度视图；
 Review schema 记录 success criteria、证据、发现、验证结果和结论。二者都不能把 registry
@@ -27,8 +27,6 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
   的 JS 运行时内经 `tools.<name>` 调用；subagent 虽有 `execute`，但模型几乎不会
   为单次编辑绕道 Code Mode（实测 fixer 回退宿主原生 `edit`，hashline 引导失效）。
   因此 `registerOceanusTools` 在注册包装层为 9 个核心工具
-  （ast_grep_search / ast_grep_replace / hashline_edit / task_status /
-  task_result / task_cancel / task_message / task_revive / clipboard_image）
   统一注入 `options.codemode: false`，使其进入所有会话（含 subagent）的
   **直接工具目录**；CBM 工具保持缺省 Code Mode（catalog 形式，见
   codebase-memory-mcp.md）。宿主原生 write/edit/webfetch/websearch 同样显式
@@ -101,17 +99,13 @@ writer subagent（fixer/designer）的文件编辑工具选择，默认 `"hashli
 此配置影响（本就两套工具都可用）。
 
 
-### task 三件套：`task_status` / `task_result` / `task_cancel`
 
 围绕 Oceanus 轻量 task registry + v2 session API 实现，只管理本插件创建的后台子任务。
 
-- `task_status`：查询任务状态。只读；仅可访问当前 session 能访问的任务；优先使用运行时
   可用的宿主 session 事实（`session.active` / `session.get` / 事件快照），当前 beta
   插件类型未暴露 `session.active` 时诚实降级为 `session.get` / registry，并标记未验证。
-- `task_result`：读取**已完成**任务的最终结果。只接受「宿主已验证的终态」或
   「registry 中明确存储的终态观察结果」，否则返回错误；不会把 registry 的
   `completed` 状态本身当作宿主事实。
-- `task_cancel`：取消任务，中断其子 session 并通过宿主状态验证。调用方必须是任务的
   父或子 session；可传 `parentID` / `childID` 交叉校验 ownership。仅当宿主确认
   interrupt 成功、session 不再 active、且 outcome 明确为 `interrupted` / `succeeded`
   时才报告 `cancelled`，否则返回结构化错误，不伪造取消结果（interrupt 失败但
@@ -120,7 +114,6 @@ writer subagent（fixer/designer）的文件编辑工具选择，默认 `"hashli
 ## 内置 Hook
 
 固定执行顺序：无 coordinator 的 mock 注册为 3 个 before、5 个 after；生产接线另含
-`subagent-bridge`，因此为 4 个 before、6 个 after（共 10 个 Hook）。图片相关的
 `image_materializer` / `image_error_hint` 是 session hook，只有真实 Host 暴露相应 API
 时才注册，不计入上述 execute Hook 数量。
 
@@ -135,7 +128,6 @@ after:  json-error-recovery → hashline-read-enhancer → tool-output-truncator
 | `json_error_recovery` | 修正工具返回的错误 JSON，避免错误被当作结果吞掉 | after Hook 默认 **fail-open** |
 | `tool_output_truncator` | 截断超长工具输出，避免破坏上下文；保留错误、状态、diff 与 hash mismatch 等控制信息 | **fail-open** |
 | `tool_loop_guard` | 检测重复工具调用：达到 `warnAt` 提示、`blockAt` 熔断；不阻止合法 task polling | **fail-open** |
-| `task_registry_observer` | 观察宿主 `task` / `subagent` 的 before/after，把明确可识别的任务记录写入本地 task registry（任务 id、父子 ownership、观察到的 child session、受限结果摘要） | **fail-open**：不拦截、不抛错；未知结果形状不猜测、不伪造 child session 与终态 |
 | `cbm_guidance` | 在工具执行前后提供 CBM 使用建议与状态提示 | **fail-open**：CBM 不可用时标记不确定性并继续 |
 
 > after Hook 默认 fail-open：保护逻辑失败不阻断已完成的宿主工具结果。
@@ -147,17 +139,11 @@ after:  json-error-recovery → hashline-read-enhancer → tool-output-truncator
 
 ```jsonc
 {
-  "disabled_tools": ["task_cancel"],
   "disabled_hooks": [],
   "tools": {
     "ast_grep_search": { "enabled": true, "timeoutMs": 30000, "maxMatches": 200, "maxOutputBytes": 262144 },
     "ast_grep_replace": { "enabled": true, "dryRun": true },
     "hashline_edit": { "enabled": true, "maxFileBytes": 1048576 },
-    "task_status": { "enabled": true },
-    "task_result": { "enabled": true },
-    "task_cancel": { "enabled": true },
-    "task_message": { "enabled": true },
-    "task_revive": { "enabled": true },
     "clipboard_image": { "enabled": true }
   },
   "hooks": {
@@ -165,7 +151,6 @@ after:  json-error-recovery → hashline-read-enhancer → tool-output-truncator
     "tool_output_truncator": { "enabled": true, "maxOutputBytes": 200000 },
     "json_error_recovery": { "enabled": true },
     "tool_loop_guard": { "enabled": true, "warnAt": 3, "blockAt": 5, "maxSessions": 512 },
-    "task_registry_observer": { "enabled": true },
     "cbm_guidance": { "enabled": true }
   }
 }
@@ -239,3 +224,6 @@ CBM 工具共注册 7 个：`cbm_status`、`cbm_index`、`cbm_search_graph`、`c
 parent-wake / generation fence、
 v1 `PluginInput` / client shim、multiplexer / team mode / ACP / smartfetch /
 session-manager、telemetry 与长期 memory。
+
+## Spec / Plan / Review 输出契约
+最小骨架：Spec 说明 Goal、Context、Scope、Design、边界和可验证 Acceptance；Plan 写唯一 Spec 路径、Files map、依赖及逐 Task 的 Files、Interfaces、checkbox、`Validation command + expected output`；Review 逐条输出 `criterion -> evidence -> status -> gap/next action`。禁止 TBD/TODO/later 和未定义引用。

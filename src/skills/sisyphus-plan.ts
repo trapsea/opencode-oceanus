@@ -21,6 +21,8 @@ description: Phase 3 of the Sisyphus workflow — Plan. Consume Intake and the a
 
 # Sisyphus Phase 3 — Plan
 
+Sisyphus 在进入 Momus 门禁前先完成 \`impact_estimate\`，并处理影响面缺失或覆盖不足；Momus 只检查已有覆盖，不代替计算。
+
 ## Goal
 Sisyphus 主 Agent 持有 Intake/spec 上下文与计划写入权；仅按复杂计划门禁条件委派 @momus。
 
@@ -34,7 +36,6 @@ Turn the approved spec into a bite-sized, dependency-aware implementation plan, 
 5. **Write the plan（仅 SDD 模式）** — SDD 开启时保存到 \`.oceanus/plan/\`，记录每任务的目标、文件、依赖与预期验证证据；SDD 关闭时计划只在会话内呈现，不落盘。
  6. **Acceptance self-check（机械自查，先于 @momus）** — 委派门禁前按下列 rubric 逐条自查，缺口当场补齐，不得留给门禁首轮拦截（rubric 与 momus checklist 的 Test/acceptance coverage 维度同源）：
    ${PLAN_ACCEPTANCE_RUBRIC.split('\n').filter((l) => l.trim().length > 0).join('\n   ')}
- 7. **Call @momus before execute（Standard/Architecture；仅当执行配置批问中 Momus 审核=开）** — once the plan, dependencies, Files scope, and ledger are complete, invoke \`@momus\` to review the plan. **用户关闭 Momus 审核时跳过本步**：plan status 记录 \`momus: { verdict: 'SKIPPED_BY_USER', reason }\` 与残余风险（open issue），人工门禁沿用方案总批准，不得伪造 OKAY。门禁输出分级、REJECT 最小修订集、复审携带 round=N 与落实证据（SDD 开启时优先文件引用：plan 路径 + 修订锚点 + git diff 范围；SDD 关闭时逐条转述）、前台复审优先原生 \`subagent\` 显式传 \`sessionID\` 续用原会话、后台任务用 \`task_revive\`——均见全局门禁清单的 Momus 门禁协议（单一来源）。Plan 先由 Sisyphus 计算并记录 \`impact_estimate\`；缺失或覆盖不足时必须补齐估计或记录未决风险，Momus 只检查覆盖，不代替计算。**Momus 审查最多 3 轮，每轮尽量全面（一次性覆盖下述全部检查维度），避免多轮返工**；第 3 轮仍 \`REJECT\` 时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）。Momus must check:
    - **Dependency order** — are all dependencies before their dependents, acyclic and terminal-ready?
    - **Scope overreach** — does each task's \`Files\` scope stay inside its ownership and avoid conflicts?
    - **Test / acceptance coverage** — does every task carry a testable success criterion and validation evidence that covers it?
@@ -55,6 +56,26 @@ Turn the approved spec into a bite-sized, dependency-aware implementation plan, 
 - **Simple tasks may skip, but record why**: if a task is trivially simple and review is skipped, record the skip reason and the skipped verification time in the plan status.
 - **Never fake the review**: if Momus was disabled or turned off by the user, do not invent an \`OKAY\`. Record that the review was not performed and log the risk as an open issue in the plan status before any execute proceeds.
 
+## Plan 固定输出模板
+计划必须绑定唯一 Spec 路径，执行者必须同时读取二者；冲突时以 Spec 的设计约束为准。
+\`\`\`markdown
+# <标题>
+## Goal
+## Architecture
+## Tech Stack
+## Spec: .oceanus/spec/<唯一文件>.md
+## Global Constraints
+## Files touched map
+## Dependencies / Assumptions
+## Gate Status
+## Impact Estimate
+## Task 1（按依赖顺序）
+Task ID / Goal / Context / Files（Create, Modify, Test） / Interfaces（Consumes, Produces） / Dependencies / Preconditions
+- [ ] 具体文件、符号与动作
+Validation: \`<command>\`；Expected: \`<预期输出>\`
+Acceptance criteria / Risks & rollback / status / owner / wave / updated / expected diff lines
+\`\`\`
+每个 Task 必须独立可理解，2-5 分钟仅为粒度指导，不得拆成空步骤；禁止 TBD/TODO/later、未定义引用和占位符。计划末尾必须自检：Spec 唯一路径存在且已批准；文件地图与任务一致；依赖无环；每步含具体文件/符号/动作；验证命令带预期结果；验收可证；门禁状态真实；风险有回滚；无禁止占位符。
 ## Checklist
 - [ ] Files mapped and related
 - [ ] Tasks right-sized（行数/文件数粒度：普通 ≤2000 行且 ≤8 文件、高风险 ≤500 行，每任务含预估实现 diff 行数）and dependency-ordered

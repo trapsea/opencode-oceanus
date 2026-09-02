@@ -17,7 +17,6 @@ Use at the start of Brainstorm, after Intake classification. Scan the codebase a
 - 约束与依赖：影响方案选择的既有契约、配置、调用关系
 - 已有事实结论：可直接被后续阶段复用的 CBM 查询结果（符号/调用链/影响面）
 
-**会话复用**：BACKGROUND_RESEARCH 产出的背景保留在 session 上下文中；后续方案审核应通过 task_revive 续用同一 session 的 SOLUTION_ANALYSIS，直接基于已有背景做增量分析，不重复扫描。
 
 ### SOLUTION_ANALYSIS
 

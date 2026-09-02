@@ -32,9 +32,8 @@ Turn a vague request into an approved design spec before any code is written.
    - **TDD**：预估拆分 >12 个任务 → 推荐「开」（测试先行，配合 execute 阶段 Failing-First 纪律）；≤12 个 → 推荐「关」（先功能后补测试（test-after，按 execute 证据档执行），非免测试）。
    - **当前目录执行**：始终在当前目录工作；并行安全依靠 Wave、Files 完全不重叠且无共享状态或生成目录。worker 禁止 git add/commit/reset、分支和隔离工作区操作。
    - **连续执行授权**：推荐「授予」（批准后 Sisyphus 连续执行到 finish，仅 3 轮循环到顶时按 3 轮中断上报模板中断）；「拒绝」则每个阶段结束停顿向用户汇报后再继续。
-3. **分层背景调研** — 按复杂度分层（@metis 委派以执行配置批问中 **Metis 审核=开** 为前提，关闭时全部自查、不委派并记录）：**Architecture** 默认用 \`subagent({ agent: "metis", background: true })\` 委派 @metis BACKGROUND_RESEARCH，产出 research_brief（现状、关键符号 qualified name/路径/行号、约束与依赖、可复用 CBM 事实结论），**记录返回的 task_id（sessionID）**；**Standard** 由 Sisyphus 自查（两波研究内无新有用事实即停止），仅当两波后仍存在未知依赖/约束才委派 @metis BACKGROUND_RESEARCH；**Trivial** 仅做最小自查、不委派。任何跳过委派都记录理由。Sisyphus 消费 brief 后只做必要的少量补充定位（cbm_search_graph/cbm_trace），不再自行大规模探索，也不重复委派 explorer 做背景调研。
+3. **分层背景调研** — 按复杂度分层（@metis 委派以执行配置批问中 **Metis 审核=开** 为前提，关闭时全部自查、不委派并记录）：**Architecture** 默认用 \`subagent({ agent: "metis", background: true })\` 委派 @metis BACKGROUND_RESEARCH，产出 research_brief（现状、关键符号 qualified name/路径/行号、约束与依赖、可复用 CBM 事实结论），**记录返回的 task_id（sessionID）**；**Standard** 由 Sisyphus 自查（两波研究内无新有用事实即停止），仅当两波后仍存在未知依赖/约束才委派 @metis BACKGROUND_RESEARCH；**Trivial** 仅做最小自查、不委派。任何跳过委派都记录理由。Sisyphus 消费 brief 后只做必要的少量补充定位（cbm_search_graph/cbm_trace），不触发全量索引（索引初始化仅在 Intake），也不再自行大规模探索，不重复委派 explorer 做背景调研。
 4. **研究优先澄清（research-first）** — 先用代码/文档/CBM 研究消除未知（两波研究内无新有用事实即停止，不无限探索）。研究能解决的疑问一律不再问用户；**但凡存在疑问、歧义、需求描述不清，且研究也没有得到明确结论的，必须用 \`question\` 向用户澄清**。多个相互独立的问题可在一次 \`question\` 中批量提出；有依赖顺序的问题分批问。
-5. **条件使用 @metis 方案审核（复用调研会话）** — 前提：执行配置批问中 **Metis 审核=开**（关闭时不委派方案审核，方案分歧在呈现中直接说明并记录）。完成 Intake 且澄清后仍存在未决方案选择时（如 Standard 的备选分歧或 Architecture 的方案间分歧），只有 Sisyphus 明确需要独立分析才委派方案审核。**优先用 \`task_revive({ task_id, prompt })\` 续用步骤 3 的 BACKGROUND_RESEARCH session**（背景已在 metis 上下文中，直接增量验证），仅在调研被跳过或 session 不可用时新建。委派 prompt 必须按步骤 6 对应复杂度的结构化格式逐方案传入（含权衡、依赖/迁移、风险、边界、反例、决策标准），让 Metis 做增量验证与挑错，而不是从零重建分析。复杂度、多文件或高风险本身不触发；否则记录跳过原因。**metis 分析最多 3 轮，每轮尽量全面**，第 3 轮仍有分歧时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）。消费 @metis 分析时，连同每项的建议处理方式一起并入方案呈现与 spec，使修订有据可依。
 6. **分层呈现方案** — 按 intake_report 的 complexity 分层呈现，并给出明确推荐及理由：
    - **Trivial**：单一方案精简呈现（一句话概述 / 验收标准 / 主要风险），无需 Metis 七维度全展开；
    - **Standard**：推荐方案 + 至多 1 个备选，按维度精简呈现（概述、需求覆盖、权衡、风险、边界与反例）；
@@ -48,6 +47,28 @@ Turn a vague request into an approved design spec before any code is written.
      - **反例/边界条件**：需显式处理的输入、失败与空场景；
      - **可验证的决策标准**：如何客观判定该方案优于其它方案（可测判据，非主观偏好）。
 7. **方案总批准（consolidated approval，单问）** — 用一次 \`question\` 主问方案方向（执行配置已在步骤 2 批问确认，本问**不再携带配置默认值**）。选项固定三类：①**按推荐执行**（接受推荐方案）②**换用备选方案 X**（仅 Standard/Architecture 有备选时提供）③**自定义**（用户在同一次回复中给出方案调整项；仅限方案层面，配置项以步骤 2 的抉择为准，不重复问）。除步骤 2 批问与本问外，任何阶段不得追加批准类提问。Trivial 的批准形式为一次开工确认（"开工" / "调整"），等价于按推荐执行。批准后按 SDD 抉择决定保存：开启 SDD 才把设计写入 \`.oceanus/spec/ 下按任务名称生成的 Markdown 文件\`（含 "Metis 分析" 小节：需求缺口 / 风险 / 边界与非目标 / 反例与边界条件 / 验收标准，或明确记录 @metis 被跳过/禁用/用户关闭的原因）；不开启则不写任何流程文档，设计与决策只保留在会话内供后续阶段消费。
+## Spec 固定输出模板（SDD 开启时落盘）
+spec 必须是下游无聊天上下文执行者可独立消费的设计文档，且不得混入任务拆分、逐步实现顺序或提交步骤。按以下顺序完整填写：
+\`\`\`markdown
+# <标题>
+Status: approved | draft | blocked
+## Goal
+## Context（术语、现状、接口与数据流定义）
+## Scope
+## Non-goals
+## Requirements
+## Architecture / Design
+## Tech Stack / Constraints
+## Decisions & Alternatives
+## Risks & Mitigations
+## Edge Cases / Failure Handling
+## Acceptance Criteria（每项可验证）
+## Implementation Notes（仅设计约束，不写计划步骤）
+## Files touched map（文件、符号/区域、变更目的）
+## Metis Analysis（七维：需求缺口、风险、边界与非目标、反例、依赖、迁移/回滚、验收；若跳过须写明确原因）
+\`\`\`
+禁止 \`TBD\`、\`TODO\`、\`later\`、占位符、未定义引用及“write tests for above”等空泛语句；接口、术语、输入输出和失败语义必须定义。
+Spec 自检：目标/范围清楚；每项需求可追溯到设计；数据流和边界已写明；文件地图完整；验收可复现；Metis 七维或跳过原因完整；无计划细节与禁止占位符。
 ## Checklist
 - [ ] Context explored (files read, not guessed)
 - [ ] 执行配置批问完成：一问五项（Metis 审核/Momus 审核/SDD/TDD/连续执行授权）均带推荐值及依据，漏答回落推荐值并记录，不补问，Trivial 亦完整批问，无补问

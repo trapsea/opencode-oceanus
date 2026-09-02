@@ -5,8 +5,6 @@ import { DELEGATION_BRIEF_PROMPT } from './orchestrator-context';
 import {
   DISPATCH_PROTOCOL,
   LEDGER_PROTOCOL,
-  TASK_BOARD_PROTOCOL,
-  TERMINAL_STATE_PROTOCOL,
 } from './protocol';
 
 export type PermissionConfig = NonNullable<AgentOverrideConfig['permission']>;
@@ -234,10 +232,6 @@ ${DELEGATION_BRIEF_PROMPT}
 
 ${DISPATCH_PROTOCOL}
 
-${TASK_BOARD_PROTOCOL}
-
-${TERMINAL_STATE_PROTOCOL}
-
 Review available agents and lane rules. Before beginning non-trivial work, identify which parts can proceed independently.
 
 **Routing threshold:**
@@ -312,14 +306,10 @@ Balance: respect dependencies, avoid parallelizing what must be sequential, and 
 - Before local edits or another writer task, compare against running task scopes.
 - Parallel background tasks are allowed only when their write scopes do not conflict.
 - Treat \`progress.md\` or the shared ledger as recovery/audit state, not a serialization lock; do not use it to serialize a safe Wave.
-- Use \`task_cancel\` only when the user asks, or when a running lane is obsolete, wrong, or conflicts with a safer replacement plan.
 - Cancellation is not rollback: if cancelling a writer, inspect and reconcile partial file changes before launching a replacement lane.
 
 ### Task Lifecycle Tools
 These are the plugin-provided tools for observing and reconciling the background tasks you spawn:
-- \`task_status\`: query a managed task's current status. Status is resolved from the host session where possible; query only tasks this plugin manages (the parent session must be your own). Never fabricate a status from the local task registry alone — it is an index, not host fact.
-- \`task_result\`: read a task's final result. It succeeds only for terminal (completed) tasks; a running or unfinished task returns an error rather than a fabricated result.
-- \`task_cancel\`: cancel a managed background task by interrupting its child session. It reports success only after the host confirms the interruption (no longer active, outcome interrupted or succeeded). Do not treat a cancel request as success until the tool confirms it.
 - Ownership: only the parent (or child) session of a task may query, read, or cancel it. Never access tasks owned by another session.
 
 ### Active Task Amendments
@@ -337,8 +327,6 @@ These are the plugin-provided tools for observing and reconciling the background
 
 ### Session Reuse
 - Smartly reuse context already in your own session - avoid re-discovering what you already know.
-- The native \`subagent\`/\`task\` tool accepts an explicit \`sessionID\` to continue an existing child session — pass the prior \`task_id\`/session to resume that specialist's retained context instead of spawning a fresh session. \`task_revive\` does the same for plugin-managed tasks (generation+1, continuing the original session with a new brief).
-- Interrupted-lane recovery: when your own session resumes after an interruption (server restart / model or provider failure / user interrupt), first call \`task_status\` to inspect each lane. A task in \`uncertain\`/interrupted state has no reliable terminal result — recover it with \`task_revive(task_id=…)\` to continue the original session, or re-dispatch a fresh task with the same objective. Never treat an interrupted lane as silently done or cancelled.
 ${sessionReuseSisyphusNote}
 - Prefer finishing a small follow-up in your own context over spawning a new specialist when the prior work is too unrelated to justify a fresh session.
 
@@ -353,7 +341,6 @@ ${sessionReuseSisyphusNote}
 
 ## 5. Verify
 - Reconcile all writer lanes before final validation.
-- First confirm every delegated task with \`task_status\`/\`task_result\` and reconcile only terminal results; failed, blocked, uncertain, or pending work must never be presented as complete.
 - Inspect the final diff against each declared \`Files\` scope and reject out-of-scope changes before reporting completion.
 - Map every acceptance criterion to auditable evidence. Any code change makes earlier evidence stale; rerun affected checks rather than reusing stale evidence.
 - Run the checks appropriate to the scope: tests, typecheck, build, and real-surface validation where applicable. Record failures and unresolved uncertainty explicitly.

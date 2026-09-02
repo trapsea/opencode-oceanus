@@ -100,7 +100,5 @@ CLI fallback 统一使用当前 workspace 的目录名作为 `project`，不再�
 
 `oceanus` / `sisyphus` 与后台子任务之间的通信是拉取式（pull-based）协议：
 
-- 终态确认必须通过 `task_status` / `task_result` 显式查询；宿主事实（session active / outcome）优先于 registry 本地观察，registry 只是索引。
 - 不存在默认的 queue 完成通知：prompt 不得要求或暗示等待 queue 推送终态；沉默不代表完成。
-- `task_result` 只读终态：宿主已确认 running 时旧 observation 的终态一律不返回；宿主已确认终态时以宿主 outcome 为准；任务被 revive（generation 递增）后，旧 generation 的结果以 `STALE_GENERATION` 拒绝。
 - 宿主无法确认状态时返回 `verified:false` / `certainty:uncertain`，绝不伪装完成；跨 parent 访问统一返回 `PARENT_OWNERSHIP`。

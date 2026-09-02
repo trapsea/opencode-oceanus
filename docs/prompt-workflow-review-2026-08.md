@@ -86,7 +86,6 @@
 - `LEDGER_PROTOCOL`（pending/in_progress/terminal 语义、台账非锁）
 - `TERMINAL_STATE_RULE`（拉取式确认、running 不当结果、沉默≠完成）
 - `METIS_TRIGGER`（唯一触发条件：Intake 完成 + 澄清完成 + ≥2 可行方案未决且需要独立分析；复杂度/文件数/风险本身不触发）
-- `RUNTIME_GUARDS`（LANE_CONFLICT、dispatch-guard、Active/Unreconciled 语义集中一处）
 
 Oceanus 正文、`DELEGATION_BRIEF_PROMPT`、Sisyphus `TASK_CONTINUITY`、门禁段全部改为引用。补 `protocol.test.ts`：断言关键串出现次数防复制粘贴回归。
 

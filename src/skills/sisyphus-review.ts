@@ -44,6 +44,13 @@ Review subagent 只读检查，不修改代码、不运行 task；测试由 Revi
 - **Momus is not the default implementation or code-review agent** — Momus reviews the plan (Phase 3), not code, and does not replace @oracle for independent code review.
 - **Advisory findings don't shift ownership** — if a finding merely checks whether the implementation deviates from the plan, record it as advisory and keep the primary review ownership above unchanged.
 
+## Completion Matrix（固定格式）
+审查报告必须逐行使用 \`criterion -> evidence -> status -> gap/next action\`：
+\`\`\`markdown
+| criterion | evidence（命令/输出或当前 diff 状态） | status | gap / next action |
+|---|---|---|---|
+\`\`\`
+逐条覆盖 Spec acceptance criteria、Plan 每个 Task acceptance criteria，以及测试、构建、real-surface 证据；缺口必须具体指出缺哪个准则和证据，并回退 execute，不得只写 \`review failed\`。
 ## Completion Audit (Coverage Matrix)
 
 Before accepting any task or scenario as truly done, run a completion audit: treat each success criterion as a row and the collected evidence as coverage of those rows.
@@ -64,7 +71,6 @@ Before accepting any task or scenario as truly done, run a completion audit: tre
 
 ## Rules
 - Review is a gate between phases, not an optional extra.
-- A terminal claim is credible only when backed by \`task_status\` / \`task_result\` host facts (verified); do not accept completion claims based on queue notifications or silence.
 - Do not repeat evidence you already have unless the final state changed.
 - If a finding cannot be verified, state that uncertainty explicitly instead of assuming.
 - **CBM 边界**：对变更入口与影响面做独立验证——按 Steps 1-3 复查流程执行（重建索引 → 对实际 diff 再次排查 → 与 momus 预估对比，一致记为验证证据、不一致解释或退回 execute）；CBM 不可用时明确记录降级证据。

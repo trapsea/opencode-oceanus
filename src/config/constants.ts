@@ -129,10 +129,11 @@ export const READONLY_AGENTS: ReadonlySet<string> = new Set([
 
 /**
  * 只读 agent 的默认 permission：
- * - allow：read/glob/grep/list/lsp/codesearch/webfetch/websearch/ast_grep_search/task_status/task_result
+ * - allow：read/glob/grep/list/lsp/codesearch/webfetch/websearch/ast_grep_search
  *   以及查询型 codebase-memory 工具
  * - shell：默认允许非修改命令，并按 READONLY_SHELL_PERMISSION 拒绝常见写入模式
- * - deny：subagent/edit/write/apply_patch/ast_grep_replace/hashline_edit/todowrite（写入与委派动作）
+ * - deny：subagent/edit/write/apply_patch/ast_grep_replace/hashline_edit/todowrite/clipboard_image
+ *   （写入、委派动作与系统剪贴板读取）
  * 显式 agents.<name>.permission 始终覆盖此默认值。
  */
 export const READONLY_DEFAULT_PERMISSION: NonNullable<
@@ -147,8 +148,6 @@ export const READONLY_DEFAULT_PERMISSION: NonNullable<
   webfetch: 'allow',
   websearch: 'allow',
   ast_grep_search: 'allow',
-  task_status: 'allow',
-  task_result: 'allow',
   cbm_status: 'allow',
   cbm_index: 'deny',
   cbm_search_graph: 'allow',
@@ -165,6 +164,8 @@ export const READONLY_DEFAULT_PERMISSION: NonNullable<
   ast_grep_replace: 'deny',
   hashline_edit: 'deny',
   todowrite: 'deny',
+  // 剪贴板可能包含与当前任务无关的敏感内容；只允许主编排 agent 按需处理。
+  clipboard_image: 'deny',
 };
 
 /** Metis 的只读权限：方案分析仅允许查询，索引初始化由 Intake 主流程负责。 */
