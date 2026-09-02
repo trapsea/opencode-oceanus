@@ -36,8 +36,8 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
   Agent prompt 中"call directly, never through a Code Mode `execute` proxy"
   的既有措辞在直接化后语义更准（这些工具与宿主工具同级），无需弱化。
 - **写入 subagent 的工具族约束（WRITER_TOOL_PERMISSION）**：文件编辑使用宿主原生
-  `edit` / `write` / `apply_patch`（原生 diff 渲染与模型通用心智，0.43.0 起移除
-  hashline 锚定通道）；`ast_grep_replace` 显式 `allow`（默认 dry-run 预览保护）。
+  `edit` / `write` / `apply_patch`（原生 diff 渲染与模型通用心智）；`ast_grep_replace`
+  显式 `allow`（默认 dry-run 预览保护）。
   注册层 `mergeAgentPermissions` 以 merge 语义追加，不整体替换 agent.permissions。
 - 工具与 Hook 各自独立容错：单个初始化或执行失败不阻止其它 Hook 与插件启动。
 - 工具一律以结构化 result 返回错误，不抛异常。
@@ -55,7 +55,7 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
   显式 `dryRun: false` 才真正写入。只改写工作区内文件。
 - 两个工具都要求真实 ast-grep CLI；缺失时返回诊断信息。
 
-> 0.43.0 起已移除 `editing.strategy` 配置与 hashline 锚定编辑通道：文件编辑统一使用宿主原生 `edit` / `write` / `apply_patch`（原生 diff 渲染、模型通用心智），结构性替换用 `ast_grep_replace`。
+文件编辑统一使用宿主原生 `edit` / `write` / `apply_patch`（原生 diff 渲染、模型通用心智），结构性替换用 `ast_grep_replace`。
 
 ## 内置 Hook
 

@@ -3,8 +3,7 @@
  *
  * 通过 `ctx.tool.transform` 注册 ast_grep_search / ast_grep_replace / clipboard_image /
  * CBM 兑底工具，并按配置过滤（默认全部启用）。
- * - 文件编辑使用宿主原生 edit / write / apply_patch（原生 diff 渲染与模型心智）；
- *   hashline 锚定通道已于 0.43.0 移除。
+ * - 文件编辑使用宿主原生 edit / write / apply_patch（原生 diff 渲染与模型心智）。
  * - 不引入 v1 client shim；错误一律以结构化 result 返回，不抛异常。
  */
 import path from 'node:path';
