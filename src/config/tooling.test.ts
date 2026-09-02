@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   PluginConfigSchema,
+  type EditingConfig,
   type HookConfig,
   type ToolConfig,
 } from './schema';
@@ -87,8 +88,7 @@ describe('工具/Hook 结构化配置 schema', () => {
   });
 });
 
-describe('tools/hooks 深度合并', () => {
-  test('同一项只覆盖显式提供的字段（工具）', () => {
+describe('tools/hooks 深度合并', () => {  test('同一项只覆盖显式提供的字段（工具）', () => {
     const merged = mergePluginConfigs(
       {
         tools: {
@@ -238,5 +238,24 @@ describe('与 preset/agent 配置共存', () => {
       enabled: true,
       timeoutMs: 5000,
     });
+  });
+});
+
+describe('editing.strategy 写入策略配置', () => {
+  test('接受 hashline/host，editing 可整体省略', () => {
+    expect(PluginConfigSchema.safeParse({ editing: { strategy: 'hashline' } }).success).toBe(true);
+    expect(PluginConfigSchema.safeParse({ editing: { strategy: 'host' } }).success).toBe(true);
+    expect(PluginConfigSchema.safeParse({ editing: {} }).success).toBe(true);
+    expect(PluginConfigSchema.safeParse({}).success).toBe(true);
+  });
+
+  test('拒绝未知策略值与未知字段（strict）', () => {
+    expect(PluginConfigSchema.safeParse({ editing: { strategy: 'both' } }).success).toBe(false);
+    expect(PluginConfigSchema.safeParse({ editing: { strategy: 'host', extra: 1 } }).success).toBe(false);
+  });
+
+  test('EditingConfig 类型导出且 strategy 可选', () => {
+    const editing: EditingConfig = {};
+    expect(editing.strategy).toBeUndefined();
   });
 });

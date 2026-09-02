@@ -1,4 +1,8 @@
-import { WRITER_TOOL_PERMISSION, WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
+import {
+  type EditStrategy,
+  WRITABLE_FILE_OPERATIONS_RULES,
+  writerPermissionFor,
+} from '../config/constants';
 import type { AgentDefinition, ModelRef } from './oceanus';
 
 const DESIGNER_PROMPT = `You are a Designer - a frontend UI/UX specialist who creates and reviews intentional, polished experiences.
@@ -65,11 +69,18 @@ ${WRITABLE_FILE_OPERATIONS_RULES}
 ## Output Quality
 You're capable of extraordinary creative work. Commit fully to distinctive visions and show what's possible when breaking conventions thoughtfully.`;
 
+export interface DesignerAgentOptions {
+  /** 写入策略；缺省 hashline（锁定锚定通道）。 */
+  editStrategy?: EditStrategy;
+}
+
 export function createDesignerAgent(
   model?: ModelRef,
   customPrompt?: string,
   customAppendPrompt?: string,
+  options?: DesignerAgentOptions,
 ): AgentDefinition {
+  const editStrategy = options?.editStrategy ?? 'hashline';
   let system = DESIGNER_PROMPT;
 
   if (customPrompt) {
@@ -85,9 +96,11 @@ export function createDesignerAgent(
     mode: 'subagent',
     system,
     temperature: 0.7,
-    // 写入工具族约束：与 fixer 一致（宿主 edit/write/apply_patch 目录级移除，
-    // 写入走 hashline_edit / ast_grep_replace）。见 constants.ts WRITER_TOOL_PERMISSION。
-    permission: WRITER_TOOL_PERMISSION,
+    // 写入工具族约束按 editing.strategy 切换（与 fixer 一致）：
+    // hashline（默认）——宿主 edit/write/apply_patch 目录级移除，写入走
+    // hashline_edit / ast_grep_replace；host——宿主原生写入工具保留，
+    // 锚定/AST 通道可用但不强制。见 constants.ts writerPermissionFor。
+    permission: writerPermissionFor(editStrategy),
   };
 
   if (model) {

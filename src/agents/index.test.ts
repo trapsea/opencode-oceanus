@@ -273,6 +273,36 @@ describe('只读 agent 默认 permission 契约', () => {
     }
   });
 
+  test('editing.strategy 默认 hashline：writer 锁定锚定通道（现状）', () => {
+    const agents = createAgents({});
+    for (const name of ['fixer', 'designer']) {
+      const agent = agents.find((a) => a.name === name)!;
+      expect(agent).toBeDefined();
+      expect(action(agent, 'edit')).toBe('deny');
+      expect(action(agent, 'hashline_edit')).toBe('allow');
+    }
+    const fixer = agents.find((a) => a.name === 'fixer')!;
+    expect(fixer.system).toContain('MANDATORY: for ANY targeted change');
+    expect(fixer.system).not.toContain('editing.strategy = host');
+  });
+
+  test('editing.strategy=host：writer 保留宿主写入工具，锚定通道可用但不强制', () => {
+    const agents = createAgents({ editing: { strategy: 'host' } });
+    for (const name of ['fixer', 'designer']) {
+      const agent = agents.find((a) => a.name === name)!;
+      expect(agent).toBeDefined();
+      // 不声明 edit：宿主 edit/write/apply_patch 保留在工具目录
+      expect(action(agent, 'edit')).toBeUndefined();
+      // 锚定/AST 通道仍显式 allow，但不强制
+      expect(action(agent, 'hashline_edit')).toBe('allow');
+      expect(action(agent, 'ast_grep_replace')).toBe('allow');
+    }
+    const fixer = agents.find((a) => a.name === 'fixer')!;
+    expect(fixer.system).toContain('editing.strategy = host');
+    expect(fixer.system).not.toContain('MANDATORY: for ANY targeted change');
+    expect(fixer.system).not.toContain('intentionally NOT in your toolset');
+  });
+
   // 显式清空 disabled_agents，确保 observer 参与（否则默认禁用不会出现在 createAgents() 结果中）
   const allAgents = () => createAgents({ disabled_agents: [] });
   const byName = (name: string) => {

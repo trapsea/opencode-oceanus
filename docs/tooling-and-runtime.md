@@ -71,6 +71,25 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
 - 目标文件必须位于工作区内，受文件大小上限（`maxFileBytes`）约束。
 - 删除 / 重命名能力在路径安全检查明确前不开放。
 
+### `editing.strategy`（写入策略）
+
+writer subagent（fixer/designer）的文件编辑工具选择，默认 `"hashline"`：
+
+- `"hashline"`（默认）：锁定锚定通道——宿主 `edit` / `write` / `apply_patch` 共用
+  action `edit`，`deny` 后从工具目录整体移除；定点修改必须走 `hashline_edit`
+  （prompt 中为 MANDATORY 约束），`ast_grep_replace` 显式 `dryRun: false` 后可写。
+- `"host"`：放开宿主原生工具——不 deny `edit`，`edit`/`write`/`apply_patch` 保留在
+  工具目录；`hashline_edit` / `ast_grep_replace` 仍可用但不强制，prompt 指引同步
+  切换。适合偏好原生体验或锚点工作流不适应的场景。
+
+```jsonc
+{ "editing": { "strategy": "host" } }
+```
+
+显式 `agents.<name>.permission` 始终覆盖策略默认；主 agent（oceanus/sisyphus）不受
+此配置影响（本就两套工具都可用）。
+
+
 ### task 三件套：`task_status` / `task_result` / `task_cancel`
 
 围绕 Oceanus 轻量 task registry + v2 session API 实现，只管理本插件创建的后台子任务。

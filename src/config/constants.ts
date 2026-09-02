@@ -195,3 +195,26 @@ export const WRITER_TOOL_PERMISSION: NonNullable<
   hashline_edit: 'allow',
   ast_grep_replace: 'allow',
 };
+
+/** 写入策略：hashline（默认，锚定通道锁定）| host（宿主原生工具放开）。 */
+export type EditStrategy = 'hashline' | 'host';
+
+/**
+ * editing.strategy = "host" 时写入 subagent（fixer/designer）的 permission：
+ * 不声明 action "edit"（宿主 edit/write/apply_patch 保留在工具目录），
+ * hashline_edit / ast_grep_replace 显式 allow（可用但不强制）。
+ * 显式 agents.<name>.permission 始终覆盖此默认值。
+ */
+export const HOST_WRITER_TOOL_PERMISSION: NonNullable<
+  AgentOverrideConfig['permission']
+> = {
+  hashline_edit: 'allow',
+  ast_grep_replace: 'allow',
+};
+
+/** 按写入策略解析 writer subagent 的默认 permission。 */
+export function writerPermissionFor(strategy: EditStrategy = 'hashline') {
+  return strategy === 'host'
+    ? HOST_WRITER_TOOL_PERMISSION
+    : WRITER_TOOL_PERMISSION;
+}

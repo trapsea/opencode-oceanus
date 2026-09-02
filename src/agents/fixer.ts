@@ -1,8 +1,20 @@
-import { WRITER_TOOL_PERMISSION, WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
+import {
+  type EditStrategy,
+  WRITABLE_FILE_OPERATIONS_RULES,
+  writerPermissionFor,
+} from '../config/constants';
 import { cbmSection } from '../cbm/registry';
 import type { AgentDefinition, ModelRef } from './oceanus';
 
-const FIXER_PROMPT = `You are Fixer - a fast, focused implementation specialist.
+/** hashline 策略（默认）：定点修改强制 hashline_edit，宿主写入工具不在工具目录。 */
+const HASHLINE_WRITE_GUARD = `- hashline_edit anchors edits to per-line hashes and is a DIRECT tool in your catalog — call it by name, never through a Code Mode \`execute\` proxy. WORKFLOW: (1) \`read\` the target file — its output already carries line-hash anchors (\`N#hash|\` prefixes); (2) build \`edits\` referencing those \`pos\`/\`end\` anchors; (3) call \`hashline_edit\` once — it validates anchors and returns a structured diff. On a hash mismatch it returns an actionable re-read prompt — re-read and retry once. MANDATORY: for ANY targeted change to an existing file you MUST use \`hashline_edit\` (single edit or batched edits array). The host \`edit\` / \`write\` / \`apply_patch\` tools are intentionally NOT in your toolset — \`hashline_edit\` covers every case: new files (edits on a nonexistent path create it), batched edits, delete and rename. Do not attempt to call host file-writing tools; if \`hashline_edit\` genuinely cannot express a change, report STATUS BLOCKED instead of improvising with shell writes.`;
+
+/** host 策略：宿主原生写入工具放开，锚定/AST 通道可用但不强制。 */
+const HOST_WRITE_GUARD = `- editing.strategy = host：宿主 \`edit\` / \`write\` / \`apply_patch\` 已在你的工具目录中，任意文件变更（新建、定点修改、批量、删除）直接使用宿主工具即可。\`hashline_edit\`（行锚定批量编辑：先 \`read\` 取 \`N#hash|\` 锚点，一次提交 edits 数组并返回结构化 diff）与 \`ast_grep_replace\`（AST 结构替换，默认 dry-run 需显式 \`dryRun: false\` 才写入）仍可用，适合需要锚点校验或语法级替换的场景，按需选择。无论用哪套工具，禁止用 shell 重定向（\`>\` / \`>>\` / \`tee\`）写源码文件。`;
+
+function buildFixerPrompt(strategy: EditStrategy = 'hashline'): string {
+  const writeGuard = strategy === 'host' ? HOST_WRITE_GUARD : HASHLINE_WRITE_GUARD;
+  return `You are Fixer - a fast, focused implementation specialist.
 
 **Role**: Execute code changes efficiently. You receive complete context from research agents and clear task specifications from the Orchestrator. Your job is to implement, not plan or research.
 
@@ -14,7 +26,7 @@ ${WRITABLE_FILE_OPERATIONS_RULES}
 
 **Write-tool guards**:
 - ast_grep_replace is dry-run by default: it returns a preview and writes nothing. It only writes files when you explicitly pass \`dryRun: false\`. Review the preview before committing to a write.
-- hashline_edit anchors edits to per-line hashes and is a DIRECT tool in your catalog — call it by name, never through a Code Mode \`execute\` proxy. WORKFLOW: (1) \`read\` the target file — its output already carries line-hash anchors (\`N#hash|\` prefixes); (2) build \`edits\` referencing those \`pos\`/\`end\` anchors; (3) call \`hashline_edit\` once — it validates anchors and returns a structured diff. On a hash mismatch it returns an actionable re-read prompt — re-read and retry once. MANDATORY: for ANY targeted change to an existing file you MUST use \`hashline_edit\` (single edit or batched edits array). The host \`edit\` / \`write\` / \`apply_patch\` tools are intentionally NOT in your toolset — \`hashline_edit\` covers every case: new files (edits on a nonexistent path create it), batched edits, delete and rename. Do not attempt to call host file-writing tools; if \`hashline_edit\` genuinely cannot express a change, report STATUS BLOCKED instead of improvising with shell writes.
+${writeGuard}
 - apply_patch is executed by the host, and a Hook validates your \`patchText\` (structure, workspace-bounded paths, conservative normalization) before it runs. Never try to bypass the host permission gate or craft input that evades the Hook.
 
 **Constraints**:
@@ -52,18 +64,27 @@ Brief summary of what was implemented
 </verification>
 
 `;
+}
+
+export interface FixerAgentOptions {
+  /** 写入策略；缺省 hashline（锁定锚定通道）。 */
+  editStrategy?: EditStrategy;
+}
 
 export function createFixerAgent(
   model?: ModelRef,
   customPrompt?: string,
   customAppendPrompt?: string,
+  options?: FixerAgentOptions,
 ): AgentDefinition {
-  let system = FIXER_PROMPT;
+  const editStrategy = options?.editStrategy ?? 'hashline';
+  const basePrompt = buildFixerPrompt(editStrategy);
+  let system = basePrompt;
 
   if (customPrompt) {
     system = customPrompt;
   } else if (customAppendPrompt) {
-    system = `${FIXER_PROMPT}\n\n${customAppendPrompt}`;
+    system = `${basePrompt}\n\n${customAppendPrompt}`;
   }
 
   const definition: AgentDefinition = {
@@ -73,10 +94,12 @@ export function createFixerAgent(
     mode: 'subagent',
     system,
     temperature: 0.2,
-    // 写入工具族约束：宿主 edit/write/apply_patch 共用 action "edit"，
-    // deny 后从工具目录移除，写入只剩 hashline_edit / ast_grep_replace
-    // （均为锚点/预览保护通道）。见 config/constants.ts WRITER_TOOL_PERMISSION。
-    permission: WRITER_TOOL_PERMISSION,
+    // 写入工具族约束按 editing.strategy 切换：
+    // hashline（默认）——宿主 edit/write/apply_patch 共用 action "edit"，deny 后从
+    // 工具目录移除，写入只剩 hashline_edit / ast_grep_replace（锚点/预览保护通道）；
+    // host——不 deny edit，宿主原生写入工具保留，锚定/AST 通道可用但不强制。
+    // 见 config/constants.ts WRITER_TOOL_PERMISSION / HOST_WRITER_TOOL_PERMISSION。
+    permission: writerPermissionFor(editStrategy),
   };
 
   if (model) {

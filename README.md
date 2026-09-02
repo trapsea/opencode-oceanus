@@ -320,6 +320,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 - `disabled_hooks`：禁用的 Hook 名称数组，对 Hook 拥有最终禁用权。
 - `tools`：按工具名深合并的结构化配置（见下方「新增工具与运行时保护」）。
 - `hooks`：按 Hook 名深合并的结构化配置（见下方「新增工具与运行时保护」）。
+- `editing`：写入策略配置。字段：`strategy`（`"hashline"` 默认 | `"host"`）——控制 writer subagent（fixer/designer）的编辑工具：`hashline` 锁定 `hashline_edit` 锚定通道（宿主 `edit`/`write`/`apply_patch` 从工具目录移除）；`host` 放开宿主原生工具（锚定/AST 通道仍可用但不强制）。详见 `docs/tooling-and-runtime.md`。
 - `taskReuse`：subagent 会话复用配置，见「subagent 会话复用」小节。字段：`enabled`（默认 `true`，显式 `false` 可关闭）、`ttlMs`（默认 2h）、`maxRetained`（默认 16）。
 
 `presets.<name>.<agent>` 或 `agents.<agent>` 支持的完整字段：
