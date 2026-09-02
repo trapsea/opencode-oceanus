@@ -1,6 +1,6 @@
 {
   "name": "opencode-oceanus",
-  "version": "0.36.1",
+  "version": "0.36.2",
   "description": "OpenCode v2 plugin that registers the Oceanus agent orchestrator and its specialist agents",
   "type": "module",
   "main": "dist/index.js",
