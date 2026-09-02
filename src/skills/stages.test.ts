@@ -150,17 +150,24 @@ describe('Phase 2 — brainstorm 契约', () => {
     expect(content).toMatch(/任何跳过委派都记录理由/);
   });
 
-  test('单次总批准为默认值制单问（frontmatter exit 同步默认值制口径）', () => {
-    expect(content).toMatch(/单次总批准（consolidated approval/);
-    expect(content).toMatch(/默认值制单问/);
+  test('执行配置批问为一问六项 + 方案总批准单问（frontmatter exit 同步口径）', () => {
+    expect(content).toMatch(/执行配置批问（Configuration Questions，一问六项）/);
+    expect(content).toMatch(/方案总批准（consolidated approval，单问）/);
     expect(content).toMatch(/主问方案方向/);
-    // 四项执行配置默认值随选项说明带出；SDD/TDD/Worktree 共用同一客观信号（预估拆分任务数 >12），不按时间预估
-    expect(content).toMatch(/SDD.{0,10}（预估拆分 >12 个任务默认开启/);
-    expect(content).toMatch(/TDD.{0,10}（预估拆分 >12 个任务默认开启/);
-    // TDD 关闭语义明示：后补测试而非免测试
-    expect(content).toMatch(/关闭 = 先功能后补测试.{0,40}非免测试/);
-    expect(content).toMatch(/Worktree.{0,10}（需求级/);
-    expect(content).toMatch(/连续执行授权.{0,10}（默认授予/);
+    // 六项配置各带推荐值及依据；Metis/Momus 依据=任务数+复杂度，其余=任务数
+    expect(content).toMatch(/\*\*Metis 审核\*\*：预估拆分 >12 个任务或 \`architecture\` 复杂度 → 推荐「开」/);
+    expect(content).toMatch(/\*\*Momus 审核\*\*：预估拆分 >12 个任务或 \`architecture\` 复杂度 → 推荐「开」/);
+    expect(content).toMatch(/\*\*SDD\*\*：预估拆分 >12 个任务 → 推荐「开」/);
+    expect(content).toMatch(/\*\*TDD\*\*：预估拆分 >12 个任务 → 推荐「开」/);
+    expect(content).toMatch(/先功能后补测试（test-after，按 execute 证据档执行），非免测试/);
+    expect(content).toMatch(/\*\*Worktree\*\*：预估拆分 >12 个任务 → 推荐「开」（需求级/);
+    expect(content).toMatch(/\*\*连续执行授权\*\*：推荐「授予」/);
+    expect(content).toMatch(/Trivial 同样完整批问/);
+    // 漏答回落推荐值并记录、不补问；方案批准不携带配置默认值
+    expect(content).toMatch(/回落推荐值并记录/);
+    expect(content).toMatch(/不补问/);
+    expect(content).not.toMatch(/一次补问/);
+    expect(content).toMatch(/不再携带配置默认值/);
     // 废除时间预估与任务级 worktree 语义
     expect(content).not.toMatch(/SDD.{0,40}预估 >5 天/);
     expect(content).not.toMatch(/TDD.{0,40}>5 天/);
@@ -169,10 +176,7 @@ describe('Phase 2 — brainstorm 契约', () => {
     expect(content).toMatch(/①\*\*按推荐执行\*\*/);
     expect(content).toMatch(/②\*\*换用备选方案/);
     expect(content).toMatch(/③\*\*自定义\*\*/);
-    expect(content).toMatch(/回落默认值/);
-    expect(content).toMatch(/不补问/);
-    expect(content).not.toMatch(/一次补问/);
-    expect(frontmatter(byName('sisyphus-brainstorm').content).exit).toMatch(/单次总批准（默认值制单问）/);
+    expect(frontmatter(byName('sisyphus-brainstorm').content).exit).toMatch(/执行配置批问 \+ 方案总批准完成/);
   });
 
   test('上下文优先，方案分析仅按条件委派', () => {
@@ -326,21 +330,22 @@ describe('Phase 4 — execute 契约', () => {
 });
 
 /** 总批准失效边界：plan 与 execute 必须使用一致的变更类型 → 处理动作映射 */
-const REQ_CHANGE_RE = /需求或验收标准变化[^\n]{0,200}(重新总批准|总批准失效|invalidate)/;
+const REQ_CHANGE_RE = /需求或验收标准变化[^\n]{0,200}(重新执行两问|一并失效|总批准失效|invalidate)/;
 const NONREQ_CHANGE_RE = /(Files\/依赖\/任务结构变化或失败重规划|失败重规划)[^\n]{0,200}(不重新提问|仅重走 @momus)/;
 
-describe('单次总批准契约（consolidated approval）', () => {
-  test('brainstorm 总批准为默认值制单问：主问方案方向 + 默认值随选项带出 + 三固定选项', () => {
+describe('方案总批准契约（consolidated approval）', () => {
+  test('brainstorm 两问制：执行配置批问（一问六项）在前、方案总批准单问在后', () => {
     const content = byName('sisyphus-brainstorm').content;
-    expect(content).toContain('单次总批准');
-    expect(content).toMatch(/单次总批准（consolidated approval，默认值制单问）/);
+    expect(content).toContain('方案总批准');
+    expect(content).toMatch(/方案总批准（consolidated approval，单问）/);
     expect(content).toMatch(/主问方案方向/);
-    // 四项执行配置默认值随选项说明带出，不逐项确认；SDD 按预估拆分任务数 >12 判定
-    expect(content).toMatch(/SDD.{0,10}（预估拆分 >12 个任务默认开启/);
+    // 配置批问先于任何 @metis 委派；六项各带推荐
+    expect(content).toMatch(/在任何 @metis 委派之前/);
+    expect(content).toMatch(/\*\*Metis 审核\*\*/);
+    expect(content).toMatch(/\*\*Momus 审核\*\*/);
+    // 方案批准不携带配置默认值
+    expect(content).toMatch(/不再携带配置默认值/);
     expect(content).not.toMatch(/SDD.{0,40}预估 >5 天/);
-    expect(content).toMatch(/TDD.{0,10}（[^）]{0,80}默认/);
-    expect(content).toMatch(/Worktree.{0,10}（[^）]{0,80}默认/);
-    expect(content).toMatch(/连续执行授权.{0,10}（默认授予/);
     // 三固定选项：按推荐执行 / 换用备选 / 自定义
     expect(content).toMatch(/①\*\*按推荐执行\*\*/);
     expect(content).toMatch(/②\*\*换用备选方案/);
@@ -348,10 +353,10 @@ describe('单次总批准契约（consolidated approval）', () => {
     expect(content).not.toMatch(/固定用 `question` 询问用户是否开启 SDD/);
   });
 
-  test('brainstorm 补问例外已删除：自定义遗漏回落默认值、不补问', () => {
+  test('brainstorm 补问例外已删除：批问漏答回落推荐值、不补问', () => {
     const content = byName('sisyphus-brainstorm').content;
     expect(content).not.toMatch(/一次补问/);
-    expect(content).toMatch(/回落默认值/);
+    expect(content).toMatch(/回落推荐值并记录/);
     expect(content).toMatch(/不补问/);
     expect(content).toMatch(/不得追加批准类提问/);
   });
@@ -367,8 +372,8 @@ describe('单次总批准契约（consolidated approval）', () => {
     const execute = byName('sisyphus-execute').content;
     const review = byName('sisyphus-review').content;
     const finish = byName('sisyphus-finish').content;
-    // plan：策略随总批准呈现，>12 任务默认开启需求级 worktree
-    expect(plan).toMatch(/Worktree 策略.{0,4}（总批准呈现时依据；需求级，非任务级）/);
+    // plan：策略随配置批问呈现，>12 任务默认开启需求级 worktree
+    expect(plan).toMatch(/Worktree 策略.{0,4}（配置批问呈现时依据；需求级，非任务级）/);
     expect(plan).toMatch(/>12 个任务 → 默认开启需求级 worktree/);
     expect(plan).not.toMatch(/per-task/);
     // execute：全程唯一 worktree、无任务级合并
@@ -551,10 +556,14 @@ describe('CBM 阶段边界契约', () => {
 describe('Wave 1 跨文件契约一致性与全仓禁词', () => {
   const sisyphusSystem = createSisyphusAgent().system ?? '';
 
-  test('sisyphus 主契约含 Workflow 标题、总批准默认值制口径且无禁词', () => {
+  test('sisyphus 主契约含 Workflow 标题、两问制口径且无禁词', () => {
     expect(sisyphusSystem).toContain('## Sisyphus Workflow');
-    expect(sisyphusSystem).toContain('单次总批准（consolidated approval');
-    expect(sisyphusSystem).toMatch(/回落默认值/);
+    expect(sisyphusSystem).toContain('方案总批准（consolidated approval）');
+    expect(sisyphusSystem).toMatch(/回落推荐值/);
+    // 执行配置批问：一问六项，Metis/Momus 推荐依据=任务数+复杂度
+    expect(sisyphusSystem).toMatch(/执行配置批问（Configuration Questions）/);
+    expect(sisyphusSystem).toMatch(/Metis 审核.*预估拆分 >12 个任务或 .architecture. 复杂度/);
+    expect(sisyphusSystem).toMatch(/Momus 审核.*预估拆分 >12 个任务或 .architecture. 复杂度/);
     // SDD 默认值与 brainstorm skill 使用同一判据（预估拆分任务数 >12），不再按时间预估
     expect(sisyphusSystem).toMatch(/>12 个任务/);
     expect(sisyphusSystem).not.toMatch(/预估开发时间 >5 天/);

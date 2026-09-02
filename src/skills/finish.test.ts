@@ -10,6 +10,11 @@ describe('Finish 自包含判定矩阵', () => {
     expect(decideFinish(complete)).toEqual({ complete: true, gaps: [] });
   });
 
+  test('Momus 用户豁免（waived）放行完成', () => {
+    const waived = { ...complete, momus: 'waived' as const };
+    expect(decideFinish(waived)).toEqual({ complete: true, gaps: [] });
+  });
+
   test('所有负向状态均默认拒绝', () => {
     const cases: Array<[keyof FinishInput, FinishInput[keyof FinishInput]]> = [
       ['review', 'pending'], ['review', 'rejected'], ['review', 'missing'],
@@ -36,6 +41,12 @@ describe('Finish 自包含判定矩阵', () => {
 
   test('缺口必须明确输出', () => {
     expect(content).toMatch(/明确输出.*缺口.*不确定性/);
+  });
+
+  test('waived 豁免语义与防伪口径', () => {
+    expect(content).toContain('waived');
+    expect(content).toMatch(/用户在执行配置批问中关闭 Momus 审核/);
+    expect(content).toMatch(/不得伪造/);
   });
 
   test('frontmatter 与 TypeScript description 唯一且一致', () => {

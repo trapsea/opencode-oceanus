@@ -128,9 +128,9 @@ describe('agent prompt 工具对齐（tooling-10）', () => {
     expect(executeSkill).toContain('host facts take priority');
   });
 
-  test('sisyphus 单次总批准与 3 轮中断上报模板', () => {
+  test('sisyphus 方案总批准与 3 轮中断上报模板', () => {
     const sys = byName('sisyphus');
-    expect(sys).toContain('单次总批准（consolidated approval）');
+    expect(sys).toContain('方案总批准（consolidated approval）');
     expect(sys).toContain('3 轮中断上报模板（统一）');
     expect(sys).toContain('恰好 2-3 个');
     expect(sys).toContain('从该循环第一次 REJECT / 失败 / 分歧 / 缺口起算');

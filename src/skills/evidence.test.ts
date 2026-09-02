@@ -30,9 +30,9 @@ describe('Execute evidence tier 契约', () => {
     expect(content).toMatch(/code proof \(TDD on: RED output \+ GREEN output of the same test; TDD off: characterization baseline \+ final-state GREEN\)/);
   });
 
-  test('Plan-Change 使双门禁失效并要求重审', () => {
+  test('Plan-Change 使门禁失效并要求重审', () => {
     const content = execute?.content ?? '';
-    expect(content).toMatch(/Plan-Change[\s\S]*Momus[\s\S]*APPROVED/);
+    expect(content).toMatch(/Plan-Change[\s\S]*配置批问\/方案总批准均失效/);
     expect(content).toMatch(/旧的.*失效/);
   });
 

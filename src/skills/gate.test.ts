@@ -24,7 +24,8 @@ describe('Plan 双门禁与 impact_estimate 契约', () => {
   });
 
   test('Plan 变化触发重审', () => {
-    expect(content).toMatch(/Plan changes after approval.*invalidate/);
+    expect(content).toMatch(/Plan changes after approval/);
+    expect(content).toMatch(/需求或验收标准变化[^\n]{0,80}配置批问与方案总批准一并失效/);
     expect(content).toMatch(/re-run.*@momus.*question/);
   });
 });

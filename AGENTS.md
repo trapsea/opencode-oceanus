@@ -31,7 +31,7 @@ OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode
 - 只读 subagent：`explorer`、`librarian`、`oracle`、`observer`、`metis`、`momus`。
 - 写入/设计 subagent：`designer`、`fixer`。
 - `observer` 默认禁用，需要视觉模型；`metis` 与 `momus` 默认启用且不写文件、不委派、不执行 task。
-- 复杂任务遵循 `intake → brainstorm → plan → execute → review → finish`；标准/架构任务进入 execute 前需要 `@momus` 返回 `OKAY`，人工批准由 Brainstorm 单次总批准（consolidated approval）覆盖——一次 question 主问方案方向，执行配置（SDD/TDD/Worktree/连续执行授权）按默认值随选项带出，自定义遗漏项回落默认值并记录、不补问，随后连续执行到完成，仅在 3 轮循环到顶时按统一上报模板中断。
+- 复杂任务遵循 `intake → brainstorm → plan → execute → review → finish`；执行配置由 Brainstorm 前置的执行配置批问确认——一次 question 批量问六项（Metis 审核/Momus 审核/SDD/TDD/Worktree/连续执行授权），每项带推荐值及依据（Metis/Momus 依据=预估拆分任务数与需求复杂度，其余依据=预估任务数；漏答回落推荐值并记录、不补问，Trivial 亦完整批问）；方案方向由方案总批准单问覆盖。Momus 审核=开时标准/架构任务进入 execute 前需要 `@momus` 返回 `OKAY` + 有效方案总批准双门禁；用户关闭 Momus 审核时降级为仅人工批准并如实记录 SKIPPED_BY_USER，不伪造 verdict。连续执行授权授予时连续执行到完成，仅在 3 轮循环到顶时按统一上报模板中断；拒绝则每阶段结束停顿汇报。
 
 ## 修改与协作边界
 

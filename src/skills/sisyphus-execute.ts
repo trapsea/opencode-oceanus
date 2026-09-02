@@ -48,7 +48,7 @@ Worktree 是需求级而非任务级：开启后整个需求的开发在单一 w
 
 Ordinary execution does **not** re-invoke @metis or @momus on every task — 普通执行不重复调用 @metis 或 @momus；仅当 plan 需要变更时才会触发。 They are only touched when the plan itself must change.
 
-1. **Route re-planning according to the kind of change** — 需求或验收标准变化 → 总批准失效，重新总批准：pause and first re-run @metis to analyze the new requirements, risks, boundaries, counterexamples, and criteria; then return to plan, revise it, and 重新 call @momus 与 human \`question\`。仅 Files/依赖/任务结构变化或失败重规划 → 不重新提问用户，仅重走 @momus：return directly to plan, revise it, and re-run @momus without unnecessarily repeating @metis.
+1. **Route re-planning according to the kind of change** — 需求或验收标准变化 → 配置批问与方案总批准一并失效、重新执行两问：pause and first re-run @metis to analyze the new requirements, risks, boundaries, counterexamples, and criteria（Metis 审核=开时；关闭时跳过并记录）; then return to plan, revise it, and 重新 call @momus（开启时）与 human \`question\`。仅 Files/依赖/任务结构变化或失败重规划 → 不重新提问用户，仅重走 @momus（仅 Momus 审核=开时）：return directly to plan, revise it, and re-run @momus without unnecessarily repeating @metis.
 2. **Only @momus OKAY lets execution continue** — after any re-planning, the revised plan must pass @momus review (计入 momus 3 轮上限). Only when @momus returns OKAY may execution resume; a REJECT means further revision, not execution。第 3 轮仍 REJECT 时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）。
 3. **Never fake the gate** — do not invent or fabricate a gate result. If @momus was not actually run on the revised plan, record that honestly and do not claim it passed.
 
@@ -58,7 +58,7 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 
 **TDD × Evidence Tier 组合矩阵**：
 - **strict + TDD on**：同一变更状态上的 RED + GREEN + real-surface（现状不变）。
-- **strict + TDD off**（用户在总批准中显式选择先功能后测试）：行为变更必须先写 characterization test 固定现有行为作为基线证据，再实现；完成以绑定最终 diff 状态的 GREEN + real-surface 两份证明判定，**不得伪称存在 RED 证据**。
+- **strict + TDD off**（用户在执行配置批问中关闭 TDD）：行为变更必须先写 characterization test 固定现有行为作为基线证据，再实现；完成以绑定最终 diff 状态的 GREEN + real-surface 两份证明判定，**不得伪称存在 RED 证据**。
 - **light / exempt**：按各档既有规则执行。
 
 1. **RED → GREEN → SURFACE** — for each implementation change（TDD off 时按矩阵改为：基线 → 实现 → GREEN → SURFACE）:
@@ -72,7 +72,7 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 
 ## Execute Evidence Tier
 
-每个任务在进入终态前必须声明且执行一个 evidence tier；Execute 仍必须同时具备实际的 Momus \`OKAY\` 与有效总批准（human APPROVED via consolidated），不能以证据档位替代任一门禁。
+每个任务在进入终态前必须声明且执行一个 evidence tier；Execute 仍必须具备有效方案总批准，Momus 审核=开时另需实际的 Momus \`OKAY\`（关闭时以 plan status 的 SKIPPED_BY_USER 记录为准），不能以证据档位替代任一门禁。
 
 1. **strict**（默认用于公共符号、接口、路由、配置契约或其它高风险变更）：必须同时记录同一变更状态上的 \`RED\`、\`GREEN\` 与 \`real-surface\` 证据；TDD off 时按 Failing-First 组合矩阵以 characterization 基线替代 RED，禁止伪称 RED。real-surface 必须来自 CLI 输出、live endpoint、手工 QA 或构建制品，而不是测试通过的复述。
 2. **light**（低风险且不触及公共符号）：允许 \`test-after\`，但仍必须运行并记录测试结果；不得伪称存在 RED 或 real-surface 证据。
@@ -109,7 +109,7 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 - Follow the Failing-First Discipline above; do not skip RED→GREEN unless the change matches the exemption whitelist and the reason is recorded.
 - Never claim a task complete on passing tests alone; a real-surface artifact is required.
 - Requirement or acceptance changes re-run @metis before plan revision; Files/dependency/task-structure changes and failure re-planning may return directly to plan. Every revised plan must pass an actual @momus OKAY before continuing.
-- Plan-Change 后：需求或验收标准变化 → 旧的 Momus \`OKAY\` 与总批准均失效，重新总批准并重走 Momus 后才可恢复 Execute；仅 Files/依赖/任务结构变化或失败重规划 → 总批准不失效、不重新提问，仅重走 @momus。
+- Plan-Change 后：需求或验收标准变化 → 旧的 Momus \`OKAY\` 与配置批问/方案总批准均失效，重新执行两问并重走 Momus（开启时）后才可恢复 Execute；仅 Files/依赖/任务结构变化或失败重规划 → 两问不失效、不重新提问，仅重走 @momus（Momus 审核=开时）。
 `,
 };
 

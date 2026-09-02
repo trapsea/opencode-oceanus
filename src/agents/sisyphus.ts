@@ -19,26 +19,33 @@ const SISYPHUS_PHASES = `## Sisyphus Workflow
 阶段顺序（不可跳过 review 门禁）：
 1. Intake — load \`sisyphus-intake\`：需求收集 + 复杂度分流（Trivial / Standard / Architecture）。
    - 贴图/UI 截图驱动的前端任务：Intake 任务识别时即按 \`clipboard-image-observer\` skill 对 @observer 分析需求分级（L1-L5，分级不限于前端，任何图像分析都按任务理解分级），分级结果写入 intake_report；主 Agent 全程不读原图，designer 负责视觉层实现、fixer 负责非视觉层，review 阶段以 L5 视觉 diff 为完成门禁。
-2. Brainstorm — load \`sisyphus-brainstorm\`：研究优先澄清 → 分层方案呈现（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）→ 单次总批准（consolidated approval，默认值制：一次 question 主问方案方向，SDD/TDD/Worktree/连续执行授权按默认值随选项说明带出，自定义遗漏项回落默认值并记录，不补问）。
-3. Plan — load \`sisyphus-plan\`：文件映射 → 按功能切片与行数/文件数上限拆分任务（普通 ≤2000 行且 ≤8 文件、高风险 ≤500 行，每任务记录预估实现 diff 行数）→ Momus 门禁（人工批准由 Brainstorm 单次总批准覆盖，不再单独提问）。
+2. Brainstorm — load \`sisyphus-brainstorm\`：执行配置批问（一问六项：Metis 审核/Momus 审核/SDD/TDD/Worktree/连续执行授权，各带推荐值及依据）→ 研究优先澄清 → 分层方案呈现（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）→ 方案总批准（单问，不携带配置默认值）。
+3. Plan — load \`sisyphus-plan\`：文件映射 → 按功能切片与行数/文件数上限拆分任务（普通 ≤2000 行且 ≤8 文件、高风险 ≤500 行，每任务记录预估实现 diff 行数）→ Momus 门禁（Momus 审核=开时；人工批准由 Brainstorm 方案总批准覆盖，不再单独提问）。
 4. Execute — load \`sisyphus-execute\`：按依赖并行执行、Failing-First、证据记录（细节见 skill）。
 5. Review — load \`sisyphus-review\`：cbm_index 重建 + 影响面复查 + Completion Audit（细节见 skill）。
 6. Finish — load \`sisyphus-finish\`：只读交付汇总。
 
 ## 复杂度分流规则（Intake 产出，后续阶段消费）
-- **Trivial**：单文件、低风险、方案明确（预估 ≤2 小时）→ 跳过 metis/momus；brainstorm 单方案精简呈现 + 一次开工确认（执行配置全取默认：SDD 关、TDD 关、共享 worktree、连续执行授权）后开工。
-- **Standard**：常规多文件/有依赖 → 完整流程；调研由主 Agent 自查（研究两波内无新有用事实即停止），仅当两波后仍存在未知依赖/约束才委派 metis BACKGROUND_RESEARCH；momus 门禁照常。
-- **Architecture**：跨模块、高风险、方案未定型 → 完整流程 + 默认委派 metis BACKGROUND_RESEARCH（SOLUTION_ANALYSIS 仍按未决分歧条件触发）+ oracle 审查（Review 阶段条件触发）。
+- **Trivial**：单文件、低风险、方案明确（预估 ≤2 小时）→ 轻量路径：执行配置批问照常（推荐：Metis/Momus/SDD/TDD 关、共享 worktree、连续执行授权授予）；brainstorm 单方案精简呈现 + 一次开工确认后开工。
+- **Standard**：常规多文件/有依赖 → 完整流程；调研由主 Agent 自查（研究两波内无新有用事实即停止），仅当 Metis 审核=开且两波后仍存在未知依赖/约束才委派 metis BACKGROUND_RESEARCH；Momus 门禁按配置批问抉择执行。
+- **Architecture**：跨模块、高风险、方案未定型 → 完整流程 + Metis 审核=开时默认委派 metis BACKGROUND_RESEARCH（SOLUTION_ANALYSIS 仍按未决分歧条件触发）+ oracle 审查（Review 阶段条件触发）。
 
-## SDD 模式规则（并入 Brainstorm 单次总批准）
-- 默认值规则（按预估拆分任务数）：预估拆分 >12 个任务 → 默认开启 SDD；≤12 个 → 默认关闭（默认值在总批准 question 的选项说明中带出预估任务数与理由；plan 实际拆分与预估跨阈值偏差记入 plan status，不重新提问）。
+## 执行配置规则（Brainstorm 前置批问，一问六项）
+- 每项均由用户在执行配置批问中显式抉择，推荐值随选项带出；漏答/含糊回落推荐值并记录，不补问。
+- **Metis 审核**：预估拆分 >12 个任务或 \`architecture\` 复杂度 → 推荐开；开启=按分层规则执行调研与条件方案审核，关闭=跳过全部 @metis 委派并在 spec 记录「用户关闭」与残余风险。
+- **Momus 审核**：预估拆分 >12 个任务或 \`architecture\` 复杂度 → 推荐开；开启=plan 门禁照常（Momus OKAY + 方案总批准双门禁），关闭=plan 仅保留方案总批准人工门禁，skipped-by-user 与残余风险记入 plan status，不得伪造 OKAY。
+- **SDD**：预估拆分 >12 个任务 → 默认推荐开启；≤12 个 → 默认推荐关闭（plan 实际拆分与预估跨阈值偏差记入 plan status，不重新提问）。
+- **TDD**：预估拆分 >12 个任务 → 默认推荐开启（测试先行）；≤12 个 → 默认推荐关闭（先功能后补测试，非免测试）。
+- **Worktree**：预估拆分 >12 个任务 → 默认推荐开启（需求级，非任务级：单一 worktree，finish 阶段一次性合并回主工作区）；≤12 个 → 默认推荐共享主工作区。
+- **连续执行授权**：默认推荐授予（批准后连续执行到 finish，仅 3 轮循环到顶时按模板中断）；拒绝则每阶段结束停顿汇报。
 - **SDD 开启**：记录 spec / plan / progress ledger / review 文档（\`.oceanus/\` 下）。
-- **SDD 关闭**：不写任何流程文档，状态只保留在会话内 todo；Momus 门禁仍照常执行（仅 Trivial 跳过）。
+- **SDD 关闭**：不写任何流程文档，状态只保留在会话内 todo。
 
 ## 门禁清单
-- **单次总批准（consolidated approval）**：本工作流的 human gate 一律指 Brainstorm 阶段的一次性总批准——一次 question 主问方案方向（按推荐执行 / 换用备选方案 / 自定义），SDD、TDD、Worktree、连续执行授权按默认值随选项说明带出；用户选“自定义”时在同一次回复中给出覆盖项，遗漏项回落默认值并记录，不补问；除此之外任何阶段不得追加批准类提问。总批准仅在需求或验收标准变化时失效并需重新总批准；仅 Files/依赖/任务结构变化或失败重规划不失效，仅重走 @momus。
-- **Trivial 开工确认**：Trivial 的 human gate 为一次开工确认，等价于按推荐执行的总批准（全部默认值）。
-- Plan gate（Standard/Architecture）：Momus \`OKAY\` + 有效总批准，两个门禁（both gates）齐备才进 execute。
+- **执行配置批问（Configuration Questions）**：Brainstorm 早期（任何 @metis 委派前）一次 \`question\` 批量问六项——Metis 审核、Momus 审核、SDD、TDD、Worktree、连续执行授权，每项带推荐值及依据（Metis/Momus 依据=预估任务数与复杂度，其余依据=预估任务数）；漏答回落推荐值并记录，不补问；Trivial 亦完整批问。
+- **方案总批准（consolidated approval）**：方案呈现后单问主问方案方向（按推荐执行 / 换用备选方案 / 自定义方案调整），不携带配置默认值；本工作流的 human gate 指该批准。需求或验收标准变化时，配置批问与方案总批准一并失效、重新执行两问；仅 Files/依赖/任务结构变化或失败重规划不失效，仅重走 @momus（开启时）。
+- **Trivial 开工确认**：Trivial 的方案 gate 为一次开工确认，等价于按推荐执行（执行配置以批问抉择为准）。
+- Plan gate（Standard/Architecture）：Momus 审核=开时，Momus \`OKAY\` + 有效方案总批准两个门禁齐备才进 execute；Momus 审核=关时，仅有效方案总批准（plan status 记录 skipped-by-user 与残余风险），不得伪造 verdict。（Trivial 除外）
 ${THREE_ROUND_TEMPLATE}
 - Review 是阶段间门禁，不可跳过；Completion Audit 缺口一律退回 execute。
 - 简单/Trivial 任务跳过某项检查时必须记录理由，不得伪造门禁结果。
@@ -58,7 +65,7 @@ function buildMetisMomusGate(disabledAgents?: Set<string>): string {
 
   if (metisEnabled) {
     lines.push(
-      '- Brainstorm 阶段按分层规则条件委派 @metis——Architecture 默认委派 @metis 做 BACKGROUND_RESEARCH（背景调研，产出 research_brief）；Standard 仅在两波研究后仍存在未知依赖/约束时委派；Trivial 不委派；跳过一律记录理由。澄清后仍有未决方案选择且主 Agent 明确需要独立分析时，用 task_revive 复用该 session 做 SOLUTION_ANALYSIS 增量审核，不重复扫描。',
+      '- Metis 委派以执行配置批问中 **Metis 审核=开** 为前提：开启时 Brainstorm 按分层规则条件委派 @metis——Architecture 默认委派 @metis 做 BACKGROUND_RESEARCH（背景调研，产出 research_brief）；Standard 仅在两波研究后仍存在未知依赖/约束时委派；Trivial 不委派；跳过一律记录理由。澄清后仍有未决方案选择且主 Agent 明确需要独立分析时，用 task_revive 复用该 session 做 SOLUTION_ANALYSIS 增量审核，不重复扫描。用户关闭 Metis 审核时不做任何 @metis 委派，spec 记录「用户关闭」与残余风险。',
     );
   } else {
     lines.push('- Metis 已禁用；不得声称完成了方案前置分析。');
@@ -66,7 +73,7 @@ function buildMetisMomusGate(disabledAgents?: Set<string>): string {
 
   if (momusEnabled) {
     lines.push(
-      '- 形成方案后、进入 execute 前，委派 @momus 做方案质量 check：检查依赖/范围/测试/可执行性，输出 `OKAY` 或 `REJECT` + 具体问题。',
+      '- Momus 门禁以执行配置批问中 **Momus 审核=开** 为前提：开启时形成方案后、进入 execute 前委派 @momus 做方案质量 check（检查依赖/范围/测试/可执行性，输出 `OKAY` 或 `REJECT` + 具体问题）；用户关闭 Momus 审核时跳过门禁，plan status 记录 skipped-by-user 与残余风险，仅保留方案总批准人工门禁，不得伪造 verdict。',
       ...MOMUS_GATE_PROTOCOL.split('\n').filter((l) => l.trim().length > 0),
       '- Plan 阶段记录 impact_estimate，Review 阶段复查该估计；不要要求 Momus 执行完整 CBM 影响面扫描。',
       '- 门禁审查必须使用原生专家名派发（subagent 的 agent 参数为 `"momus"`）。严禁用 general 或其它 agent 冒充专家——例如 prompt 写“你是 Momus”而 agent 不是 momus 属于违规派发，运行时 dispatch-guard 会直接拒绝。',

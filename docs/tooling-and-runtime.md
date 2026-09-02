@@ -8,11 +8,13 @@
 
 六阶段工作流（Intake → Brainstorm → Plan → Execute → Review → Finish）由 Agent/Skill 的
 prompt 契约驱动：Agent 负责编排与委派，Skill 规定阶段边界；工具和 Hook 只提供运行时
-能力，不是阶段 supervisor。Plan 必须经过 `@momus` 的 `OKAY`，人工批准由 Brainstorm 单次总批准
-（consolidated approval，默认值制单问：一次 question 主问方案方向，SDD/TDD/Worktree/连续执行
-授权按默认值随选项带出，自定义遗漏项回落默认值并记录、不补问）覆盖；Review
-由 review subagent、`@momus` 复核并运行测试。Finish 只读 Review 报告，不再测试、构建、
-调用 CBM、委派或写文件。
+能力，不是阶段 supervisor。执行配置（Metis 审核/Momus 审核/SDD/TDD/Worktree/连续执行
+授权）由 Brainstorm 前置的执行配置批问确认——一次 question 批量问六项，各带推荐值及
+依据（Metis/Momus 依据=预估拆分任务数与需求复杂度，其余依据=预估任务数），漏答回落
+推荐值并记录、不补问；方案方向由方案总批准单问覆盖。Momus 审核=开时 Plan 必须经过
+`@momus` 的 `OKAY` + 有效方案总批准；关闭时降级为仅人工批准并记录 SKIPPED_BY_USER。
+Review 由 review subagent、`@momus` 复核并运行测试。Finish 只读 Review 报告，不再测试、
+构建、调用 CBM、委派或写文件（worktree 收尾除外）。
 
 Ledger 与 Review 报告是不同契约：Ledger 记录任务 id、状态、父子关系和时间等进度视图；
 Review schema 记录 success criteria、证据、发现、验证结果和结论。二者都不能把 registry
