@@ -47,9 +47,17 @@ export function presentHashlineSuccess(result: HashlineFileResult): HashlinePres
     metadata.from = result.from
     metadata.to = result.to
   }
-  // 与宿主 edit 渲染器的 metadata.filediff 约定对齐（file + patch/before/after）。
+  // 与宿主 edit 渲染器的 metadata.filediff 约定对齐。注意：不提供 patch 字段——
+  // 宿主 resolveFileDiff 优先解析 patch 且格式要求严（tab/Index 头），我们的 unified
+  // diff 格式会被解析为空；只给 before/after 全文走 fileDiffFromContent 确定性渲染。
   if (result.diff) {
-    metadata.filediff = { file: result.path, patch: result.diff }
+    metadata.filediff = {
+      file: result.path,
+      before: result.before,
+      after: result.after,
+      additions: result.additions,
+      deletions: result.deletions,
+    };
   }
 
   return { text, metadata }

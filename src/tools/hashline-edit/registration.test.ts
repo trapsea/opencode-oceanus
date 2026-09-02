@@ -73,10 +73,11 @@ describe('hashline 锚定编辑工具注册名契约', () => {
     expect(text).toContain('Edited data.txt (+1 -1)');
     expect(text).toContain('-beta');
     expect(text).toContain('+BETA');
-    // 宿主 edit 渲染器消费的字段约定（file + patch）。
-    const filediff = res.metadata?.filediff as { file: string; patch: string };
+    // 宿主 edit 渲染器消费的字段约定（before/after 全文，不供 patch）。
+    const filediff = res.metadata?.filediff as { file: string; before: string; after: string };
     expect(filediff.file).toBe('data.txt');
-    expect(filediff.patch).toContain('+BETA');
+    expect(filediff.before).toContain('beta');
+    expect(filediff.after).toContain('BETA');
     expect(await readFile(file, 'utf-8')).toContain('BETA');
   });
 

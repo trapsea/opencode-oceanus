@@ -34,12 +34,13 @@ describe("presentHashlineSuccess", () => {
     expect(text).toContain("hashlineDiff:");
     // 锚点段携带行 hash 前缀。
     expect(text).toContain("#");
-    // metadata 与宿主 edit 渲染器的 filediff 约定对齐。
-    const filediff = metadata.filediff as { file: string; patch: string };
+    // metadata 与宿主 edit 渲染器的 filediff 约定对齐（before/after 全文，不供 patch——宿主 patch 解析器格式要求严）。
+    const filediff = metadata.filediff as { file: string; before: string; after: string; additions: number; deletions: number };
     expect(filediff.file).toBe("notes.txt");
-    expect(filediff.patch).toContain("@@ ");
-    expect(metadata.additions).toBe(1);
-    expect(metadata.deletions).toBe(1);
+    expect(filediff.before).toContain("beta");
+    expect(filediff.after).toContain("BETA");
+    expect(filediff.additions).toBe(1);
+    expect(filediff.deletions).toBe(1);
   });
 
   test("新建文件：头部为 Created", () => {
