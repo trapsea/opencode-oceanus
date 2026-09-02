@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { basename, dirname, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { recoverUpdateState, writeUpdateState } from './state';
+import { registryCandidates } from './checker';
 
 export const STALE_LOCK_MIN_AGE_MS = 60_000;
 export interface InstallOptions {
@@ -14,6 +15,8 @@ export interface InstallOptions {
   installRoot?: string;
   /** 安装依赖使用的包管理器候选，按序回退（spawn 失败或非零退出尝试下一个）。默认 bun → npm。 */
   packageManagers?: string[];
+  /** tarball 下载源；默认跟随 registry 候选链首个（NPM_CONFIG_REGISTRY 优先，否则 npmjs）。 */
+  registry?: string;
 }
 export interface LockOwner { token:string; pid:number; createdAt:number; stage:string; }
 export class UpdateError extends Error { constructor(public code:string,message:string){super(message);} }
@@ -22,7 +25,17 @@ function acquire(root:string, o:InstallOptions): LockOwner { mkdirSync(root,{rec
 function release(root:string, owner:LockOwner){try { const current=JSON.parse(readFileSync(lockPath(root),'utf8')); if(current.token===owner.token) rmSync(lockPath(root),{force:true}); } catch {} }
 function verifyPackage(dir:string, entry?:string){ let p; try { p=JSON.parse(readFileSync(join(dir,'package.json'),'utf8')); } catch { throw new UpdateError('verify','invalid package.json'); } if(p.name!=='opencode-oceanus' || typeof p.version!=='string') throw new UpdateError('verify','invalid package metadata'); const ep=entry??p.main??p.module??'dist/index.js'; if(!existsSync(join(dir,ep))) throw new UpdateError('verify','package entry is missing'); return {packageJson:p,entry:ep}; }
 function safeTarPath(name:string) { if(!name || name.includes('\0') || name.includes('\\') || name.startsWith('/') || /^[A-Za-z]:[\\/]/.test(name) || name.startsWith('//')) throw new UpdateError('download','unsafe archive path'); const p=posix.normalize(name); if(p==='..'||p.startsWith('../')) throw new UpdateError('download','unsafe archive path'); return p; }
-function extractTar(data:Buffer, staging:string) { for(let off=0; off+512<=data.length;) { const h=data.subarray(off,off+512); if(h.every(x=>x===0)) break; const name=h.subarray(0,100).toString().replace(/\0.*$/,''); const size=parseInt(h.subarray(124,136).toString().replace(/\0.*$/,'').trim()||'0',8); const type=h[156]; const path=safeTarPath(name); if(!path.startsWith('package/')) throw new UpdateError('download','archive must contain package prefix'); const rel=path.slice(8); if(!rel) { off+=512+Math.ceil(size/512)*512; continue; } const out=join(staging,rel); if(type===1||type===2||type===3||type===4||type===5||type===6||type===7) { if(type!==5) throw new UpdateError('download','links are not allowed'); mkdirSync(out,{recursive:true}); } else if(type===0) { mkdirSync(join(out,'..'),{recursive:true}); writeFileSync(out,data.subarray(off+512,off+512+size)); } else throw new UpdateError('download','unsupported archive entry'); off+=512+Math.ceil(size/512)*512; } }
+function extractTar(data:Buffer, staging:string) { for(let off=0; off+512<=data.length;) { const h=data.subarray(off,off+512); if(h.every(x=>x===0)) break; const name=h.subarray(0,100).toString().replace(/\0.*$/,''); const size=parseInt(h.subarray(124,136).toString().replace(/\0.*$/,'').trim()||'0',8); const type=h[156]; const path=safeTarPath(name); if(!path.startsWith('package/')) throw new UpdateError('download','archive must contain package prefix'); const rel=path.slice(8); if(!rel) { off+=512+Math.ceil(size/512)*512; continue; } const out=join(staging,rel);
+    // tar typeflag 是 ASCII 字符（'0'=0x30 文件、'5'=0x35 目录、'x'/'g' pax 头），
+    // 不是数值；早期实现按数值比较导致真实 npm tarball 全部条目被判 unsupported
+    // （单测 fixture 恰好写了数值 0 而掩盖）。GNU 老式条目 typeflag 为 NUL，视作普通文件。
+    const flag = type === undefined ? '\0' : String.fromCharCode(type)
+    if (flag === 'x' || flag === 'g') { /* pax 扩展头：跳过不落盘 */ }
+    else if (flag === '5') { mkdirSync(out,{recursive:true}); }
+    else if (flag === '1' || flag === '2' || flag === '3' || flag === '4' || flag === '6' || flag === '7') { throw new UpdateError('download','links are not allowed'); }
+    else if (flag === '0' || flag === '\0') { mkdirSync(join(out,'..'),{recursive:true}); writeFileSync(out,data.subarray(off+512,off+512+size)); }
+    else throw new UpdateError('download',`unsupported archive entry (${JSON.stringify(flag)} ${name})`);
+    off+=512+Math.ceil(size/512)*512; } }
 
 /** OpenCode 安装上下文：插件当前被加载的安装根目录（含 package.json 与 node_modules/opencode-oceanus）。 */
 export interface OpenCodeInstallContext { installRoot: string; identity?: string }
@@ -67,7 +80,8 @@ export async function installStaged(o:InstallOptions){
   try {
     recoverUpdateState(o.cacheRoot); mkdirSync(join(o.cacheRoot,'downloads'),{recursive:true});
     writeUpdateState(o.cacheRoot,{phase:'download',version:o.version});
-    const url=`https://registry.npmjs.org/opencode-oceanus/-/opencode-oceanus-${encodeURIComponent(o.version)}.tgz`;
+    const registry = (o.registry ?? registryCandidates()[0] ?? 'https://registry.npmjs.org').replace(/\/+$/, '')
+    const url=`${registry}/opencode-oceanus/-/opencode-oceanus-${encodeURIComponent(o.version)}.tgz`;
     const ac=new AbortController(); const timer=setTimeout(()=>ac.abort(),30_000);
     let response:Response;
     try { response=await (o.download??fetch)(url,{signal:ac.signal}); } finally { clearTimeout(timer); }

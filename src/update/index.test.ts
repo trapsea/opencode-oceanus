@@ -56,6 +56,19 @@ describe("registerAutoUpdate", () => {
     expect(checks).toBe(1)
   })
 
+  test("宿主不发 session.created 时由 execution.started / inbox.enqueued 兜底触发；子会话不触发", async () => {
+    for (const type of ["session.execution.started", "session.inbox.enqueued"]) {
+      const stream = context([
+        { type, data: { sessionID: "child", parentID: "root" } },
+        { type, data: { sessionID: "root" } },
+      ])
+      let checks = 0
+      const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({ checker: async () => { checks++; return "1.1.0" } }))
+      await tick(); await tick(); await cleanup()
+      expect(checks).toBe(1)
+    }
+  })
+
   test("重复根会话事件只运行一次", async () => {
     const stream = context([
       { type: "session.created", data: { sessionID: "a" } },
@@ -119,12 +132,27 @@ describe("registerAutoUpdate", () => {
     }
   })
 
-  test("节流状态命中时不调用 checker", async () => {
-    const stream = context([{ type: "session.created", data: { sessionID: "root" } }])
+  test("节流状态命中时不调用 checker，但记录 throttled 决策（黑洞可观测）", async () => {
     let checks = 0
-    const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({ storage: { read: async () => JSON.stringify({ lastCheckedAt: 900 }), write: async () => {} }, checker: async () => { checks++; return "1.1.0" } }))
+    const logs: Record<string, unknown>[] = []
+    const stream = context([{ type: "session.created", data: { sessionID: "root" } }])
+    const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({ storage: { read: async () => JSON.stringify({ lastCheckedAt: 900 }), write: async () => {} }, checker: async () => { checks++; return "1.1.0" }, logger: (event) => logs.push(event) }))
     await tick(); await tick(); await cleanup()
     expect(checks).toBe(0)
+    expect(logs).toContainEqual(expect.objectContaining({ decision: "throttled" }))
+  })
+
+  test("订阅建立后由延迟定时器触发初始检查（兜底事件注册间隙，不依赖任何事件到达）", async () => {
+    let checks = 0
+    const stream = context([]) // 无任何事件到达
+    const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({
+      initialDelayMs: 0,
+      checker: async () => { checks++; return "1.1.0" },
+      installer: async () => {},
+    }))
+    await tick(); await tick(); await tick(); await tick()
+    await cleanup()
+    expect(checks).toBe(1)
   })
 
   test("checker 失败 fail-open 并记录错误日志", async () => {

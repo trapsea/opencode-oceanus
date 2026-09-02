@@ -20,6 +20,8 @@ export interface AutoUpdateDeps {
   currentVersion?: () => string
   discover?: () => ConfigEntry[]
   loadedPackagePath?: string
+  /** 订阅建立后延迟触发一次初始检查，兜底事件注册间隙；默认 2000ms，测试可注入 0。 */
+  initialDelayMs?: number
 }
 export interface AutoUpdateContext {
   event: { subscribe(options?: { signal?: AbortSignal }): AsyncIterable<AutoUpdateEvent> }
@@ -31,6 +33,16 @@ export interface AutoUpdateEvent {
   data?: { sessionID?: string; parentID?: string }
 }
 export type AutoUpdateResult = { lastCheckedAt?: number; lastResult?: string }
+
+/**
+ * 触发自动更新检查的事件类型。
+ *
+ * 实测宿主 beta-18743 的事件流不发布 session.created（探针验证：会话从创建到
+ * 执行全程无该事件，schema 有定义但流中不发），原触发器永不命中。改用会话
+ * 生命周期中必然出现的事件兜底；保留 session.created 以兼容未来宿主恢复发送。
+ * 幂等由 checked 标志（插件生命周期一次）+ checkIntervalMs 节流共同保证。
+ */
+const TRIGGER_EVENT_TYPES = new Set(["session.created", "session.execution.started", "session.inbox.enqueued"])
 
 function packageVersion(loadedPackagePath?: string): string {
   // `import.meta.url` remains anchored to this module when the plugin is loaded
@@ -81,8 +93,13 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
       const raw = await storage.read?.(path)
       let state: AutoUpdateResult = {}
       try { state = raw ? JSON.parse(raw as string) : {} } catch {}
-      if (state.lastCheckedAt !== undefined && now() - state.lastCheckedAt < resolved.checkIntervalMs) return
-       const at = now(); const save = async (result: string) => {
+      // 节流命中必须留痕：这是"重启后没反应"的黑洞路径（状态文件刚写过 current 时，
+      // 一小时内所有触发都被静默吞掉，无任何日志），修复为记录 throttled 决策。
+      if (state.lastCheckedAt !== undefined && now() - state.lastCheckedAt < resolved.checkIntervalMs) {
+        log({ decision: "throttled", reason: "interval", currentVersion: String(state.lastResult ?? "") })
+        return
+      }
+        const at = now(); const save = async (result: string) => {
          try { await storage.write?.(path, JSON.stringify({ ...state, lastCheckedAt: at, lastResult: result })) } catch {}
        }
        // 根事件到达后立即持久化检查时间，避免并发事件重复触发网络检查。
@@ -108,6 +125,11 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
      } catch (error) { log({ decision: "error", error }) }
   }
   if (!resolved.enabled) return async () => { controller.abort() }
+  // 注册间隙兜底：事件订阅的底层注册是异步完成的，插件惰性加载（按目录、首次使用时）
+  // 与会话创建/首轮执行是同一突发流，开场事件（session.created / execution.started）
+  // 结构性落进间隙被丢弃。订阅后延迟触发一次初始检查，不依赖任何事件到达。
+  const initialTimer: ReturnType<typeof setTimeout> = setTimeout(() => { void run() }, deps.initialDelayMs ?? 2_000)
+  try { (initialTimer as unknown as { unref?: () => void })?.unref?.() } catch {}
   void (async () => {
     try {
       iterator = ctx.event.subscribe({ signal: controller.signal })[Symbol.asyncIterator]()
@@ -118,11 +140,12 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
         const data = event.data
         const sessionID = info?.id ?? info?.sessionID ?? data?.sessionID
         const parentID = info?.parentID ?? data?.parentID
-        if (event.type === "session.created" && sessionID && !parentID) void run()
+        if (TRIGGER_EVENT_TYPES.has(String(event.type)) && sessionID && !parentID) void run()
       }
     } catch (error) { if (!controller.signal.aborted) log({ decision: "error", error }) }
   })()
   return async () => {
+    clearTimeout(initialTimer)
     controller.abort()
     try { await iterator?.return?.() } catch {}
   }
