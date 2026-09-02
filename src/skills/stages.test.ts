@@ -157,6 +157,8 @@ describe('Phase 2 — brainstorm 契约', () => {
     // 四项执行配置默认值随选项说明带出；SDD/TDD/Worktree 共用同一客观信号（预估拆分任务数 >12），不按时间预估
     expect(content).toMatch(/SDD.{0,10}（预估拆分 >12 个任务默认开启/);
     expect(content).toMatch(/TDD.{0,10}（预估拆分 >12 个任务默认开启/);
+    // TDD 关闭语义明示：后补测试而非免测试
+    expect(content).toMatch(/关闭 = 先功能后补测试.{0,40}非免测试/);
     expect(content).toMatch(/Worktree.{0,10}（需求级/);
     expect(content).toMatch(/连续执行授权.{0,10}（默认授予/);
     // 废除时间预估与任务级 worktree 语义
