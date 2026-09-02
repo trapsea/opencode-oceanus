@@ -2,15 +2,15 @@
 
 ## 适用范围
 
-本文记录 `opencode-oceanus` 当前依赖和实际代码针对的 OpenCode v2 beta API。它不是对所有 OpenCode v2 beta 版本的兼容承诺，也不从 `beta-18230` 推断宿主应用版本号。
+本文记录 `opencode-oceanus` 当前依赖和实际代码针对的 OpenCode v2 beta API。它不是对所有 OpenCode v2 beta 版本的兼容承诺，也不从 `beta-18743` 推断宿主应用版本号。
 
 ## 当前版本基线
 
 | 项目 | 当前值 | 证据 |
 |---|---|---|
 | 插件包 | `opencode-oceanus@0.34.0` | `package.json:2-4` |
-| OpenCode 插件 API | `@opencode-ai/plugin@0.0.0-beta-18230`，精确锁定 | `package.json:43-45`、`bun.lock` |
-| OpenCode schema | `@opencode-ai/schema@0.0.0-beta-18230`，精确锁定 | `package.json:44-45`、`bun.lock` |
+| OpenCode 插件 API | `@opencode-ai/plugin@0.0.0-beta-18743`，精确锁定 | `package.json:43-45`、`bun.lock` |
+| OpenCode schema | `@opencode-ai/schema@0.0.0-beta-18743`，精确锁定 | `package.json:44-45`、`bun.lock` |
 | 可选 peer | `@opentui/solid >=0.5.8`、`solid-js >=1.9.0`、`zod ^4.0.0`；前两者 optional | `package.json:47-59` |
 | 构建目标 | Bun build，Node/ESM；OpenCode plugin、schema、OpenTUI 和 Solid 外部化 | `package.json:25` |
 | 入口 | CLI `dist/index.js`，TUI `dist/tui.js` | `package.json:6-16` |
@@ -21,14 +21,16 @@
 
 | API/行为 | 当前代码依赖或防御 | 证据与状态 |
 |---|---|---|
-| `Plugin.define({ id, setup })` | CLI 和 TUI 使用 v2 插件定义；CLI 还声明 `tui: true` | `src/index.ts:511-517`、`src/tui.tsx:681-686`；类型/mock 已验证 |
+| `Plugin.define({ id, setup })` | CLI 和 TUI 使用 v2 插件定义；`Plugin.tui` 字段已于 beta-18721 移除，CLI 不再声明，TUI 入口经 `exports["./tui"]` 结构性声明 | `src/index.ts`、`src/tui.tsx:681-686`；类型/mock 已验证 |
 | `ctx.tool.transform` + `Tool.Options.codemode` | 9 个核心工具在注册包装层注入 `codemode: false` 进入会话直接工具目录；CBM 工具保持缺省 Code Mode。宿主 registry 实证（beta-18230 二进制）：`codemode !== false`（含缺省）只进 Code Mode catalog，仅 `execute` JS 运行时内 `tools.<name>` 可调；subagent 不走该路径（实测回退宿主原生 `edit`）。宿主原生 write/webfetch/websearch 均显式 `codemode: false` | `src/tools/index.ts`（DIRECT_TOOL_NAMES 注入）、`docs/tooling-and-runtime.md`；运行中宿主二进制反编译 + fixer 工具目录实测已验证 |
 | `ctx.agent.transform` + `ctx.agent.reload` | 通过 transform 注册/更新 agent，并在 preset 切换后 reload | `src/index.ts:62-122`；类型/mock 已验证 |
-| `Context` 类型未声明项目级目录字段 | 通过集中适配按 `ctx.location.directory` → 旧 `ctx.directory` → `process.cwd()` 解析；运行时字段属于兼容性探测 | `src/runtime/host-adapter.ts`、`src/index.ts:162-166`、`src/runtime/types.ts:145-157`；真实 Host 行为未完整验证 |
+| `Context.location` 已正式声明（beta-18721+） | 目录解析仍统一经 `resolvePluginDirectory`：`ctx.location.directory` → 旧 `ctx.directory` → `process.cwd()`；探测链降级为运行时防御，不因类型声明移除 | `src/runtime/host-adapter.ts`、`src/runtime/types.ts`、`src/index.ts:162-166`；宿主 beta-18743 复测 |
 | `SkillDraft` 使用 `list/add/update/remove` | 注册 skill 只调用官方 `draft.add()`，不依赖未公开的 `source()`；skill location 使用绝对路径 | `src/index.ts:219-238`；类型/mock 已验证 |
+| TUI `SlotClaim.render` 是 Solid 组件一次性挂载（beta-18721+ 宿主反编译） | 宿主 SlotHost 以 `createComponent(claim.render, props)` 挂载，仅随 claim 集合/slot input（sidebar 仅 `{sessionID}`）变化重执行；`renderer.requestRender()` 只调度重绘帧、不重跑组件函数。面板刷新改为 tick 信号 + keyed Show 整树重建：宿主插件运行时把 `solid-js`/`@opentui/solid` 别名到宿主共享实例，插件信号参与宿主 reactive graph；solid-js 不可用时 fail-open 回退 requestRender 模式。另注意裸 `solid-js` 在 node 条件下解析为无响应式的 server 构建，真实响应式在 `solid-js/dist/solid.js`（`@opentui/solid` 同款路径），运行时按"子路径优先、裸名兜底"探测 | `src/tui.tsx`（`loadPanelReactivity`/`PanelState` 注释）、`src/tui.test.ts`；宿主 beta-18743 二进制反编译（SlotHost `Zl(a.render, Use(s))`、模块别名表 `"solid-js":QJ`）+ solid 1.9.15 源码（keyed Show 要求 `child.length > 0`）；真实 TUI 端到端未复测 |
 | `SessionDomain` 未暴露 `active` | 任务运行时探测宿主能力，并在缺失时降级到可用 session/registry 信息 | `src/runtime/types.ts:29-53`、`docs/tooling-and-runtime.md:167-168`；真实 Host 未完整验证 |
 | agent model 是单个 `ModelRef` | 配置数组只取首项，不能假设 Agent.Info 接受模型数组 | `src/agents/index.ts:63-87`；源码已验证 |
 | `plugins` 与 TUI 配置 | CLI 和 TUI 是两个入口；配置字段/加载差异应以当前宿主文档和真实 Host 复测 | `README.md:124-147`；这是 README 声明，仓库代码未独立验证 |
+| `plugins` 本地路径必须是含 index 入口的目录（宿主 `0.0.0-beta-18721` 实测） | 配置条目指向目录时宿主在目录内解析 `index` 入口文件（`dist/` 目录含 `index.js` 可正常加载）；指向单文件报 WARN `configured plugin path must be a directory`，指向无 index 文件的目录报 WARN `configured plugin directory has no index entrypoint`，两种情况插件均被整体跳过、所有 agent 不注册 | 2026-08-31 实测：`~/.local/share/opencode/log/opencode.log` 服务日志 + `opencode2 api get "/api/agent?location[directory]=…"` 验证三种写法仅目录形式注册出 oceanus/sisyphus 全量 agent；README 安装示例已同步为 `dist` 目录写法 |
 
 ## 插件侧版本与运行时边界
 
@@ -36,7 +38,7 @@
 - `taskReuse` 的代码默认值为启用；可用配置显式关闭。不要沿用旧文档中“默认关闭”的表述：`src/config/utils.ts:243-247`、`src/config/schema.ts:188`。
 - `task_revive` 对已完成子会话再次 `prompt` 是否保留上下文，取决于真实 v2 Host；插件在宿主能力不足或续用失败时返回不确定/降级状态，不伪造成功。参见 `README.md:219-221` 和 `src/runtime/`。
 - `session.active`、`interrupt` 等真实 Host 能力在普通 `bun test` 中没有真实宿主；相关 smoke 会 skip 或使用 mock，不等价于真实 Host 通过。参见 `README.md:245`、`src/smoke/host-smoke.test.ts`。
-- 图片 `prompt` / `retry` hook 属于运行时能力：当前实际 Host 的图片物化可用，但锁定版本类型的 hook 名联合未覆盖这些名称，因此两者分别进行能力探测并 fail-open；`retry` 不可用不得影响 `prompt`。参见 `src/hooks/index.ts:253-293` 与 `src/hooks/image-*.ts`。
+- 图片 `prompt` / `retry` hook 属于运行时能力：beta-18721+ 类型联合已正式覆盖 `prompt`/`retry`，注册仍保留运行时能力探测并 fail-open（类型声明不等于运行时保证）；`retry` 不可用不得影响 `prompt`。参见 `src/hooks/index.ts:253-293` 与 `src/hooks/image-*.ts`。
 - CBM 二进制版本与 npm 插件版本解耦；当前默认 CBM 版本为 `0.10.8`，下载必须经过内置 manifest 的 SHA-256 校验。参见 [`codebase-memory-mcp.md`](codebase-memory-mcp.md)。
 - AST 工具依赖真实 ast-grep CLI；OpenCode Host 不会替插件安装该 CLI。参见 [`tooling-and-runtime.md`](tooling-and-runtime.md)。
 
@@ -50,7 +52,7 @@
 
 ### 未验证或需真实宿主复测
 
-- beta-18230 对当前 OpenCode 应用发行版的精确对应关系。
+- beta-18743 对当前 OpenCode 应用发行版的精确对应关系。
 - 已完成 subagent 子会话的上下文保留和 `task_revive` 全链路。
 - 真实 Host 中 `session.active`、`interrupt`、skill draft 形态、CLI/TUI 加载字段的最终行为。
 - 真实 Host 是否接受图片 `prompt` / `retry` hook 名称，以及 `/builtin/...` skill location 是否要求可直接访问的物理文件。

@@ -309,12 +309,18 @@ export function getRows(context: Context, sessionID: string, localStatuses: Map<
 }
 
 /**
- * 面板可变状态：宿主 slot 契约是"每次重绘重新调用 render()"（参考
- * oh-my-opencode-slim 的 sidebar 实现），因此**不用 Solid 信号**——插件
- * 的 solid/@opentui 与宿主是不同模块实例，信号更新写入的 DOM 不会被宿主
- * 绘制管线识别（表现为"永不刷新、切会话才变"）。改为：状态在事件回调中
- * 直接变更，render() 每次被宿主调用时读最新状态重建整棵树，变更后主动
- * renderer.requestRender() 触发宿主重绘。
+ * 面板可变状态与刷新机制（beta-18721+ 宿主契约）：
+ *
+ * 宿主 SlotHost 把 claim 的 render 作为 Solid 组件一次性挂载（反编译证据：
+ * `Zl(a.render, Use(s))`），只在 claim 集合变化、slot 重挂载或 slot input
+ * （仅 `{sessionID}`）变化时重新执行；`renderer.requestRender()` 只调度一帧
+ * 重绘，不会重跑组件函数。因此"普通可变状态 + requestRender"不再触发面板
+ * 重算（表现为 ● 活跃标记长期滞留，切会话/侧栏重挂载才刷新）。
+ *
+ * 现行机制：宿主插件运行时把 `solid-js`/`@opentui/solid` 别名到宿主自身
+ * 实例，插件的信号与宿主共享同一 reactive graph。事件合并刷新时递增 tick
+ * 信号，keyed Show 的 when getter 读取 tick 建立依赖，tick 变化即整树重建。
+ * 旧宿主/测试环境无 solid-js 时 fail-open 回退为纯 requestRender 模式。
  */
 interface PanelState {
   /** 最近一次 render 的 sessionID（事件过滤用，render 入口更新）。 */
@@ -324,13 +330,78 @@ interface PanelState {
   recalls: Record<string, ModelRef>;
   presetName: string | undefined;
   configModels: Record<string, ModelRef>;
+  /** tick 信号驱动器；undefined 表示宿主无共享 solid 实例（回退模式）。 */
+  reactivity?: PanelReactivity;
+}
+
+/**
+ * 宿主共享 solid 实例的最小结构化表面（避免硬依赖 solid-js 类型）。
+ * solid-js 为 optional peer，缺失时不得影响插件加载，故经动态 import 探测。
+ */
+type SolidModuleSurface = {
+  createSignal: <T>(initial: T) => [() => T, (update: (prev: T) => T) => T];
+  createComponent: (component: unknown, props: unknown) => JSX.Element;
+  Show: unknown;
+};
+
+interface PanelReactivity {
+  /** 递增 tick：触发 keyed Show 重建整棵面板树。 */
+  bump: () => void;
+  /** 包裹静态 JSX 构建器：when getter 读取 tick 建立依赖，变化时重建 children。 */
+  dynamic: (build: () => JSX.Element) => JSX.Element;
+}
+
+/** 探测宿主共享 solid 实例；不可用时返回 undefined（fail-open 回退）。 */
+export async function loadPanelReactivity(injected?: SolidModuleSurface): Promise<PanelReactivity | undefined> {
+  // solid-js 的 node/worker 导出条件指向 server 构建（SSR，信号无响应式），
+  // 客户端真实响应式在 dist/solid.js（@opentui/solid 同款导入路径）。加载顺序：
+  // 1. 显式 client 子路径：裸宿主/测试环境可用；
+  // 2. 裸 'solid-js'：opencode2 宿主别名表（"solid-js" → 宿主共享实例）拦截
+  //    该 specifier，子路径反而不被重写；
+  // 3. 两者皆失败（旧宿主无 solid-js）→ undefined 回退 requestRender 模式。
+  const tryImport = async (specifier: string): Promise<SolidModuleSurface | undefined> => {
+    try {
+      const mod = (await import(specifier)) as unknown as SolidModuleSurface;
+      return typeof mod.createSignal === 'function' && typeof mod.createComponent === 'function'
+        ? mod
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const solid = injected ?? (await tryImport('solid-js/dist/solid.js')) ?? (await tryImport('solid-js'));
+  if (
+    !solid ||
+    typeof solid.createSignal !== 'function' ||
+    typeof solid.createComponent !== 'function'
+  ) {
+    return undefined;
+  }
+  // tick 从 1 起：keyed Show 的 when 为 falsy 时不渲染 children。
+  const [readTick, writeTick] = solid.createSignal(1);
+  return {
+    bump: () => {
+      writeTick((tick) => tick + 1);
+    },
+    dynamic: (build) =>
+      solid.createComponent(solid.Show, {
+        keyed: true,
+        get when() {
+          return readTick();
+        },
+        // 必须声明形参：solid 只把 child.length > 0 的函数视为 render prop，
+        // keyed 模式下 when 变化时以新 tick 值重复调用（零参函数会被原样
+        // 返回、不求值）。
+        children: (_tickValue: number) => build(),
+      }),
+  };
 }
 
 interface PanelWire {
   dispose: () => void;
 }
 
-function wirePanel(context: Context): PanelWire {
+function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
   // 热重载代际护栏：宿主按 mtime 重载插件时可能不清理旧代际的订阅，
   // 监听器会随代际堆积（事件被重复处理）。globalThis 上保留当前代际的
   // dispose，新代际启动前先释放旧代际，保证同进程只有一代存活。
@@ -344,6 +415,7 @@ function wirePanel(context: Context): PanelWire {
     recalls: {},
     presetName: readActivePresetName(),
     configModels: {},
+    reactivity,
   };
   const directory = () => context.location?.directory ?? process.cwd();
 
@@ -363,7 +435,10 @@ function wirePanel(context: Context): PanelWire {
     state.configModels = readConfigAgentModels(directory());
     const pending = [...dirtySessions];
     dirtySessions.clear();
-    const request = () => {
+    const commit = () => {
+      // tick 信号优先：宿主共享 reactive graph 里重建面板树（beta-18721+
+      // 契约）；requestRender 兜底旧宿主/无 solid 实例时的重绘请求。
+      state.reactivity?.bump();
       try {
         context.renderer?.requestRender?.();
       } catch {
@@ -371,7 +446,7 @@ function wirePanel(context: Context): PanelWire {
       }
     };
     // 先立即渲染一次：事件回调已同步更新 localStatuses，无需等网络。
-    request();
+    commit();
     // 等待 session.sync 把新/变更会话的 info（agent 字段、parentID 家族关系）
     // 写入 host store 后再补一次渲染；否则本次渲染读到的 session.list()
     // 可能缺少刚创建的子会话，● 标记要等下一个事件才出现。
@@ -382,7 +457,7 @@ function wirePanel(context: Context): PanelWire {
         Promise.resolve(sync(sessionID)).catch(() => undefined),
       ),
     );
-    request();
+    commit();
   };
   const flushNow = () => {
     if (flushTimer) {
@@ -602,8 +677,11 @@ function listSessionFamily(context: Context, sessionID: string): string[] {
   }
 }
 
-/** 纯函数渲染：每次宿主重绘调用，读取最新状态重建整棵树（无 Solid 信号）。 */
-function renderPanel(context: Context, state: PanelState): JSX.Element {
+/**
+ * 静态 JSX 构建：读取最新状态重建整棵树（无表达式级响应式——Bun 的 TSX
+ * 转换急切求值 props/children，响应式由 PanelReactivity 的 keyed Show 承担）。
+ */
+function buildPanelTree(context: Context, state: PanelState): JSX.Element {
   const theme = context.theme;
   const rows = getRows(
     context,
@@ -663,8 +741,18 @@ function renderPanel(context: Context, state: PanelState): JSX.Element {
   );
 }
 
+/**
+ * render 入口：有共享 solid 实例时用 keyed Show 包裹（tick 变化整树重建），
+ * 否则直接静态构建（旧宿主回退，依赖 requestRender 触发的重挂载路径）。
+ */
+function renderPanel(context: Context, state: PanelState): JSX.Element {
+  const build = () => buildPanelTree(context, state);
+  return state.reactivity ? state.reactivity.dynamic(build) : build();
+}
+
 export async function setup(context: Context) {
-  const wire = wirePanel(context);
+  const reactivity = await loadPanelReactivity();
+  const wire = wirePanel(context, reactivity);
   const disposeSlot = context.ui.slot({
     append: 'sidebar.content',
     render: ({ sessionID }) => {

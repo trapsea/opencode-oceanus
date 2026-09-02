@@ -27,6 +27,7 @@ ${cbmSection('librarian')}
 - Quote relevant code snippets
 - Link to official docs when available
 - Distinguish between official and community patterns
+- Version anchoring: before researching a library, read the local package.json / lockfile / node_modules type declarations to determine the version actually in use; label every conclusion with its source version; discard (or explicitly mark as not applicable) material that does not match the major version in use. When docs mix multiple major versions (e.g. v1 stable vs v2 beta), state which version each fact belongs to.
 `;
 
 export function createLibrarianAgent(

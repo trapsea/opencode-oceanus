@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "updated_at": 1788140903581,
+  "updated_at": 1788315565455,
   "tasks": [
     {
       "taskID": "ses_fafd2cd93ffeEgFr1mcbr2DjwW",
@@ -63,6 +63,28 @@
       "createdAt": 1788140903578,
       "updatedAt": 1788140903581,
       "terminal": true
+    },
+    {
+      "taskID": "ses_fa486c069ffeZxFgtnJ8KlsSM1",
+      "parentSessionID": "ses_fa7ba50b6ffemgXL9N2kXt1x9m",
+      "agent": "oracle",
+      "laneKey": "host-fallback",
+      "objective": "host-verified fallback registration",
+      "generation": 1,
+      "state": "running",
+      "createdAt": 1788241087289,
+      "updatedAt": 1788241087289
+    },
+    {
+      "taskID": "ses_fa0170ba4ffeA61t1iZg5p74k7",
+      "parentSessionID": "ses_fa01a9edcffeSjsc766VZBUSHt",
+      "agent": "oracle",
+      "laneKey": "host-fallback",
+      "objective": "host-verified fallback registration",
+      "generation": 1,
+      "state": "running",
+      "createdAt": 1788315565455,
+      "updatedAt": 1788315565455
     }
   ]
 }

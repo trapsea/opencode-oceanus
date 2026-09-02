@@ -5,8 +5,8 @@
     "": {
       "name": "opencode-oceanus",
       "dependencies": {
-        "@opencode-ai/plugin": "0.0.0-beta-18230",
-        "@opencode-ai/schema": "0.0.0-beta-18230",
+        "@opencode-ai/plugin": "0.0.0-beta-18743",
+        "@opencode-ai/schema": "0.0.0-beta-18743",
       },
       "devDependencies": {
         "@opentui/solid": "^0.5.8",
@@ -116,15 +116,15 @@
 
     "@msgpackr-extract/msgpackr-extract-win32-x64": ["@msgpackr-extract/msgpackr-extract-win32-x64@3.0.4", "", { "os": "win32", "cpu": "x64" }, "sha512-CmCXPQrkbwExx3j946/PtHWHbYJiCRBRDl4BlkRQcJB/YOwQxJRTpoo7aTsortjgoJ1x7opzTSxn7C+ASSLVjQ=="],
 
-    "@opencode-ai/ai": ["@opencode-ai/ai@0.0.0-beta-18230", "", { "dependencies": { "@opencode-ai/schema": "0.0.0-beta-18230", "@smithy/eventstream-codec": "4.2.14", "@smithy/util-utf8": "4.2.2", "aws4fetch": "1.0.20", "effect": "4.0.0-rc.111", "google-auth-library": "10.5.0" } }, "sha512-CGJFjuLLYgg62M4WYK9N5+qUontc2Ug5YAcPUyOoCCAxPSgo9mvn8OtYtAYqbcmvbK2QIWh45Z5mD+SY+PiN9w=="],
+    "@opencode-ai/ai": ["@opencode-ai/ai@0.0.0-beta-18743", "", { "dependencies": { "@opencode-ai/schema": "0.0.0-beta-18743", "@smithy/eventstream-codec": "4.2.14", "@smithy/util-utf8": "4.2.2", "aws4fetch": "1.0.20", "effect": "4.0.0-rc.112", "google-auth-library": "10.5.0" } }, "sha512-CB/E7RGAGJze8HJt/2F0qNDcHBSmMYA6UboJepY7QpBhJ6uFmhak8ufcECFUoQ/ofbjDSH99E5uH1RLHpvVIjQ=="],
 
-    "@opencode-ai/client": ["@opencode-ai/client@0.0.0-beta-18230", "", { "dependencies": { "@opencode-ai/protocol": "0.0.0-beta-18230", "@opencode-ai/schema": "0.0.0-beta-18230" }, "peerDependencies": { "effect": "4.0.0-rc.111", "solid-js": ">=1.9.0" }, "optionalPeers": ["effect", "solid-js"] }, "sha512-eb/neyOoBDB259uNute1Yv+7XZAvh5E1ZTwjhsaMrXlNPC0KTSG1Lr5SARp9+fJR/O58xxMRIG0wo5FL8hyXVQ=="],
+    "@opencode-ai/client": ["@opencode-ai/client@0.0.0-beta-18743", "", { "dependencies": { "@opencode-ai/protocol": "0.0.0-beta-18743", "@opencode-ai/schema": "0.0.0-beta-18743" }, "peerDependencies": { "effect": "4.0.0-rc.112", "solid-js": ">=1.9.0" }, "optionalPeers": ["effect", "solid-js"] }, "sha512-iNWpgNw/YsboXkrVn6VtUvclhh9UVF6zIoLEdvgtLeaZ/dUovALECH1+xwG9u5e4GgK3x37mjKweSozjjMKwFA=="],
 
-    "@opencode-ai/plugin": ["@opencode-ai/plugin@0.0.0-beta-18230", "", { "dependencies": { "@ai-sdk/provider": "3.0.8", "@opencode-ai/ai": "0.0.0-beta-18230", "@opencode-ai/client": "0.0.0-beta-18230", "@opencode-ai/protocol": "0.0.0-beta-18230", "@opencode-ai/schema": "0.0.0-beta-18230", "@standard-schema/spec": "1.1.0", "effect": "4.0.0-rc.111", "zod": "4.1.8" }, "peerDependencies": { "@opencode-ai/theme": "0.0.0-beta-18230", "@opentui/core": ">=0.5.8", "@opentui/solid": ">=0.5.8", "solid-js": ">=1.9.0" }, "optionalPeers": ["@opencode-ai/theme", "@opentui/core", "@opentui/solid", "solid-js"] }, "sha512-WBjcF/P0Fcn3sHYJUWpcp9ZjvTUoU/9Icnk3/ssDUp1UVn9DejpUAWaDOLjFygKZYAxrcyuBoEyygMzrc9cgdg=="],
+    "@opencode-ai/plugin": ["@opencode-ai/plugin@0.0.0-beta-18743", "", { "dependencies": { "@ai-sdk/provider": "3.0.8", "@opencode-ai/ai": "0.0.0-beta-18743", "@opencode-ai/client": "0.0.0-beta-18743", "@opencode-ai/protocol": "0.0.0-beta-18743", "@opencode-ai/schema": "0.0.0-beta-18743", "@standard-schema/spec": "1.1.0", "effect": "4.0.0-rc.112", "zod": "4.1.8" }, "peerDependencies": { "@opencode-ai/theme": "0.0.0-beta-18743", "@opentui/core": ">=0.5.9", "@opentui/solid": ">=0.5.9", "solid-js": ">=1.9.0" }, "optionalPeers": ["@opencode-ai/theme", "@opentui/core", "@opentui/solid", "solid-js"] }, "sha512-nNLWolkOo+5DYAQ850Ztf0W3++bf6NR5ivKaXXD4lN/h+53mAdxX8pvPQLGC+Kxq1vLml9tSgJfrFYOp0gvvhA=="],
 
-    "@opencode-ai/protocol": ["@opencode-ai/protocol@0.0.0-beta-18230", "", { "dependencies": { "@opencode-ai/schema": "0.0.0-beta-18230", "effect": "4.0.0-rc.111" } }, "sha512-mmiFtz3f/9w1AMnt1jrfk57JOO70leqy4gmDrhd3Q6gMviZrUy4rnXhC3rWVNwOITwvrV0bXkVKkjqTsAMFedg=="],
+    "@opencode-ai/protocol": ["@opencode-ai/protocol@0.0.0-beta-18743", "", { "dependencies": { "@opencode-ai/schema": "0.0.0-beta-18743", "effect": "4.0.0-rc.112" } }, "sha512-hE/tg0ag+l+UYoWrnw3i9gaatVVIhP8/b+Hdz/vII5PvqV+pjzGNyUZUGqOqDVYS96fOPaNjeh+XRgQ+iQP7eA=="],
 
-    "@opencode-ai/schema": ["@opencode-ai/schema@0.0.0-beta-18230", "", { "dependencies": { "@standard-schema/spec": "1.1.0", "effect": "4.0.0-rc.111" } }, "sha512-VwgJsbi189WcMxkkb0AeZxrAsmDGpTTPylO7BA87zyHn7TkKpKG6pY8txSr/KrBKLQs4okue0tFIunDvcXLu1A=="],
+    "@opencode-ai/schema": ["@opencode-ai/schema@0.0.0-beta-18743", "", { "dependencies": { "@standard-schema/spec": "1.1.0", "effect": "4.0.0-rc.112" } }, "sha512-w+Df3oNf0HvLxyfY6vpw8dB8EMhjdF96bjUePOMDLEzich6lFb5IBuzyd4T0jG9wMSfbDi01CTz7ZZYKM2+IwQ=="],
 
     "@opentui/core": ["@opentui/core@0.5.8", "", { "dependencies": { "bun-ffi-structs": "0.3.1", "diff": "9.0.0", "marked": "17.0.1", "string-width": "7.2.0", "strip-ansi": "7.1.2" }, "optionalDependencies": { "@opentui/core-darwin-arm64": "0.5.8", "@opentui/core-darwin-x64": "0.5.8", "@opentui/core-linux-arm64": "0.5.8", "@opentui/core-linux-arm64-musl": "0.5.8", "@opentui/core-linux-x64": "0.5.8", "@opentui/core-linux-x64-musl": "0.5.8", "@opentui/core-win32-arm64": "0.5.8", "@opentui/core-win32-x64": "0.5.8" }, "peerDependencies": { "web-tree-sitter": "0.25.10" } }, "sha512-GbZ+nSLYZqxj2Z5TU19Mx6IsAvVsn2+7WEXz+6OlMGoootvt3TxP3vWwfGI0jWk9qp1ftRlML1JPNEkzy+9I8g=="],
 
@@ -262,7 +262,7 @@
 
     "ecdsa-sig-formatter": ["ecdsa-sig-formatter@1.0.11", "", { "dependencies": { "safe-buffer": "^5.0.1" } }, "sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ=="],
 
-    "effect": ["effect@4.0.0-rc.111", "", { "dependencies": { "@standard-schema/spec": "^1.1.0", "fast-check": "^4.9.0", "msgpackr": "^2.0.5" } }, "sha512-ASd5L58EIR0CUNueZNKKjSsyOCd+2alxOAIaTcHaqkJkPsaYSsw5Cg/cfANk5K4Jr2YsX756xvX11shzqsreWA=="],
+    "effect": ["effect@4.0.0-rc.112", "", { "dependencies": { "fast-check": "^4.9.0", "msgpackr": "^2.0.5" } }, "sha512-wXxwuh1Ywnv4cPRM3Wfa0vDwuOHnZ1TsTgHJkG9XgzND6inhBH9n1vBxhg3iIXOia/OrpmvVmd3lrD4vq6bF3A=="],
 
     "electron-to-chromium": ["electron-to-chromium@1.5.415", "", {}, "sha512-958V+Kbhtgz+SxXeEVKBjrlKRBIDAYvUJfwhjxMZ5S6ut9jAl7l9ZKBkBrvjyjZE36PabLUo2L8kEeV5O4vgJg=="],
 

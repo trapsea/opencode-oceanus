@@ -88,7 +88,7 @@ export interface ToolDefinition {
   input: unknown;
   execute(input: any, context: ToolContextLike): Promise<ToolResult>;
   /**
-   * 对应宿主 `Tool.Options`（@opencode-ai/schema beta-18230）。
+   * 对应宿主 `Tool.Options`（@opencode-ai/schema beta-18743）。
    *
    * 关键语义（宿主 Tool registry 实证，见 docs/opencode-v2-compatibility.md）：
    * - `codemode === false` → 进入会话直接工具目录（definitions），所有
@@ -182,17 +182,18 @@ export interface PluginSetupContext {
    * `ctx.location.directory` 为该实例绑定项目目录的绝对路径（与
    * `Session.Info.location.directory` 同源）。
    *
-   * 说明：`@opencode-ai/plugin`（beta-18230）的 `Context` 类型尚未声明该
-   * 字段，属于运行时表面契约，读取时必须做运行时探测；统一经
-   * `runtime/host-adapter` 的 `resolvePluginDirectory` 解析，禁止散落取值。
+   * 说明：`@opencode-ai/plugin`（beta-18721+）的 `Context` 类型已正式声明
+   * `location: Location.Info`；运行时字段仍可能为空或缺失（类型声明不等于
+   * 运行时保证），统一经 `runtime/host-adapter` 的 `resolvePluginDirectory`
+   * 解析，禁止散落取值。
    */
   location?: { directory?: string };
   /**
    * 旧宿主/参考实现注入的项目目录（omo-slim 以 `ctx.directory` 作为按项目
    * 配置的键）。仅作兼容兜底：新宿主应优先读取 `ctx.location.directory`。
    *
-   * 说明：`@opencode-ai/plugin` 类型（beta-18230）的 `Context` 同样尚未声明
-   * 该字段，但旧宿主运行时会为每个项目 scope 独立实例化插件并注入对应目录。
+   * 说明：`@opencode-ai/plugin` 类型（beta-18721+）的 `Context` 未声明该
+   * 旧字段，但旧宿主运行时会为每个项目 scope 独立实例化插件并注入对应目录。
    * 新旧字段均未提供（或为空）时，调用方回退到 process.cwd()
    * （统一走 `resolvePluginDirectory`）。
    */

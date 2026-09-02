@@ -59,15 +59,45 @@ export function entryVersion(entry: ConfigEntry): string | undefined {
   const candidate = typeof entry.value === "string" ? raw.slice(raw.lastIndexOf("@") + 1) : raw
   return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(candidate) ? candidate : undefined
 }
-export function updateManagedEntry(file: string, nextVersion: string): void {
+
+/**
+ * 把配置文件中固定版本的 oceanus 入口同步到新版本（安装成功后调用）。
+ *
+ * 与旧 updateManagedEntry 的差异（修复 pinned 入口永不更新 + 非作用域替换两个缺陷）：
+ * - 不再要求 INSTALLER_MARKER：生产链路没有任何代码写入该标记，导致所有固定版本
+ *   入口被自动更新永久跳过。新策略：固定版本入口同样更新，安装成功后同步回写，
+ *   使配置与磁盘保持一致；用户不希望自动更新时用插件配置 autoUpdate.enabled=false 关闭。
+ * - 替换按入口作用域进行：字符串形态做精确全文串替换（同值多条全部同步）；
+ *   对象形态只在 package 键匹配的窗口内改 version 字段，不再盲改全文件第一处。
+ */
+export function syncEntryVersion(file: string, nextVersion: string, only?: ConfigEntry): void {
   const original = readFileSync(file, "utf8")
-  const value = parse(original)
-  const found = entriesIn(value, file).find(e => e.managed)
-  if (!found) throw new Error("配置入口缺少有效 installer marker")
-  const replacement = typeof found.value === "string" ? JSON.stringify(`${PACKAGE_NAME}@${nextVersion}`) : `$1${JSON.stringify(nextVersion)}`
-  const pattern = typeof found.value === "string" ? JSON.stringify(found.value) : `("version"\\s*:\\s*)"${String((found.value as any).version).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`
-  const updated = original.replace(new RegExp(pattern), replacement)
-  if (updated === original) throw new Error("未找到可回写的配置入口")
+  let updated = original
+  const targets = discoverConfigEntries([file]).filter(e => entryVersion(e) !== undefined && (!only || (e.file === only.file && e.path === only.path)))
+  for (const entry of targets) {
+    if (entry.kind === "string") {
+      const from = JSON.stringify(String(entry.value)), to = JSON.stringify(`${PACKAGE_NAME}@${nextVersion}`)
+      updated = updated.split(from).join(to)
+    } else {
+      // 定位该入口对象的 package 键，窗口 = 从该键到下一个 package 键（或有限长度），
+      // 只在窗口内替换 version 字段，避免误改其它插件的同值 version。
+      const pkgKey = /"package"\s*:\s*"opencode-oceanus(?:@[^"]*)?"/g
+      const windows: Array<[number, number]> = []
+      const positions: number[] = []
+      for (const m of updated.matchAll(pkgKey)) positions.push(m.index ?? 0)
+      for (let i = 0; i < positions.length; i++) {
+        const start = positions[i]!
+        const end = i + 1 < positions.length ? positions[i + 1]! : start + 800
+        windows.push([start, end])
+      }
+      const versionPattern = /("version"\s*:\s*")(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(")/g
+      updated = updated.replace(versionPattern, (match, head, ver, tail, offset: number) => {
+        if (!windows.some(([s, e]) => offset >= s && offset < e)) return match
+        return ver === nextVersion ? match : `${head}${nextVersion}${tail}`
+      })
+    }
+  }
+  if (updated === original) return
   const tmp = `${file}.tmp-${process.pid}`; const bak = `${file}.bak`
   copyFileSync(file, bak); writeFileSync(tmp, updated); renameSync(tmp, file)
 }

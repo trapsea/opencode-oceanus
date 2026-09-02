@@ -26,6 +26,7 @@ ${cbmSection('momus')}
 - Be direct and specific; point to the exact gap instead of general comments.
 - 修订者将按最小修订集逐条落实；修改建议必须具体到可直接执行。
 - Judge only the supplied plan; do not invent requirements or redesign it. If user clarification or approval is unresolved, reject the plan as not ready.
+- Note: 本 checklist 的 Test/acceptance coverage 维度与 \`src/agents/protocol.ts\` 的 PLAN_ACCEPTANCE_RUBRIC（plan 阶段机械自查，中文三条）语义对应；演进任一侧时须对照另一侧，防止两处漂移。
 
 **Constraints**:
 - READ-ONLY: inspect and judge, do not write files.

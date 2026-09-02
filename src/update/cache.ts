@@ -12,6 +12,8 @@ export interface InstallOptions {
   download?: (url:string,init?:RequestInit)=>Promise<Response>;
   /** OpenCode 实际的安装根（如 ~/.cache/opencode/packages/opencode-oceanus@latest）。提供时更新直接发布到该目录，而不是 Oceanus 独立 cache。 */
   installRoot?: string;
+  /** 安装依赖使用的包管理器候选，按序回退（spawn 失败或非零退出尝试下一个）。默认 bun → npm。 */
+  packageManagers?: string[];
 }
 export interface LockOwner { token:string; pid:number; createdAt:number; stage:string; }
 export class UpdateError extends Error { constructor(public code:string,message:string){super(message);} }
@@ -78,10 +80,32 @@ export async function installStaged(o:InstallOptions){
       writeFileSync(join(staging,'package.json'),JSON.stringify({private:true,dependencies:{'opencode-oceanus':o.version}},null,2)+'\n');
     }
     rmSync(partial,{force:true});
-    const run=o.run??(async(cmd,args,opts)=>{const p=Bun.spawn([cmd,...args],opts); return {status:await p.exited};});
-    const env={PATH:process.env.PATH??'',HOME:process.env.HOME??'',TMPDIR:process.env.TMPDIR??''};
-    const result=await run('bun',['install','--ignore-scripts'],{cwd:pkgDir(staging),env});
-    if(result.status!==0) throw new UpdateError('install','bun install failed');
+    /** 传给依赖安装的最小环境：PATH/HOME/TMPDIR 之外透传代理与 registry 配置，
+ * 修复剥离 env 导致代理/镜像环境下 bun install 必然失败的问题。 */
+function installEnv(): Record<string,string> {
+  const env: Record<string,string> = { PATH:process.env.PATH??'', HOME:process.env.HOME??'', TMPDIR:process.env.TMPDIR??'' }
+  for (const key of ['HTTP_PROXY','HTTPS_PROXY','NO_PROXY','http_proxy','https_proxy','no_proxy','ALL_PROXY','all_proxy','NPM_CONFIG_REGISTRY','npm_config_registry']) {
+    const value = process.env[key]; if (value !== undefined) env[key] = value
+  }
+  return env
+}
+/** 依赖安装：按候选包管理器顺序执行，spawn 失败或非零退出回退下一个；全部失败才抛错。 */
+async function runPackageManager(o:InstallOptions, cwd:string, env:Record<string,string>): Promise<void> {
+  const managers = o.packageManagers ?? ['bun','npm']
+  const failures: string[] = []
+  for (const pm of managers) {
+    const args = pm === 'npm' ? ['install','--ignore-scripts','--no-audit','--no-fund'] : ['install','--ignore-scripts']
+    try {
+      const result = o.run
+        ? await o.run(pm, args, { cwd, env })
+        : await (async()=>{ const p=Bun.spawn([pm,...args],{cwd,env}); return {status:await p.exited}; })()
+      if (result.status === 0) return
+      failures.push(`${pm} exit ${result.status}`)
+    } catch (error) { failures.push(`${pm} ${error instanceof Error ? error.message : String(error)}`) }
+  }
+  throw new UpdateError('install', `dependency install failed (${managers.join(' → ')}): ${failures.join('; ')}`)
+}
+    await runPackageManager(o, pkgDir(staging), installEnv());
     verifyPackage(pkgDir(staging),o.entry);
     writeUpdateState(o.cacheRoot,{phase:'staging',staging,live,version:o.version});
     mkdirSync(dirname(targetRoot),{recursive:true});

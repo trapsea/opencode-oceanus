@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  buildOceanusPrompt,
   buildOceanusPromptSections,
   renderPrompt,
 } from './oceanus';
@@ -32,5 +33,22 @@ describe('提示词 sections 组装', () => {
     for (const rule of ['task_status', 'task_result', 'final diff', 'acceptance criterion', 'stale', 'failed', 'blocked', 'uncertain', 'Completion Audit']) {
       expect(workflow).toContain(rule);
     }
+  });
+
+  test('Sisyphus 变体不含 Oceanus 自指路由与视角残留', () => {
+    const sys = createSisyphusAgent().system!;
+    expect(sys).not.toContain('suggest switching to');
+    expect(sys).not.toContain('route the work to `@sisyphus`');
+    expect(sys).not.toContain('For Sisyphus work');
+    expect(sys).not.toContain('Oceanus owns clarification');
+    expect(sys).toContain('Sisyphus owns clarification');
+    expect(sys).toContain('You are @sisyphus');
+  });
+
+  test('Oceanus 的 sisyphus 路由句收敛为一处且保留 Intake 语义', () => {
+    const prompt = buildOceanusPrompt();
+    expect(prompt.split('suggest switching to').length - 1).toBe(1);
+    expect(prompt).toContain('Oceanus owns clarification');
+    expect(prompt).toContain('do not claim that Oceanus itself completed Intake');
   });
 });

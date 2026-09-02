@@ -13,6 +13,39 @@ describe('OpenCode sandbox 布局', () => {
     tarFile('package/index.js','ok'),
   ]))
 
+  test('bun 不可用时回退 npm；代理与 registry 环境变量透传给依赖安装', async () => {
+    const root = mkdtempSync(join(tmpdir(),'pmfb-'))
+    const attempts: Array<{cmd:string,args:string[]}> = []
+    const seenEnvs: Record<string,string>[] = []
+    const prevProxy = process.env.HTTP_PROXY
+    process.env.HTTP_PROXY = 'http://127.0.0.1:7890'
+    try {
+      const live = await installStaged({
+        cacheRoot: root, version:'1.1.0', packageSpec:'ignored', sourceDir:'ignored',
+        download: async () => new Response(tarball(),{status:200}),
+        run: async (cmd,args,opts) => {
+          attempts.push({cmd,args})
+          seenEnvs.push(opts.env)
+          if (cmd === 'bun') throw new Error('Failed to spawn: bun')  // 模拟 bun 不在 PATH
+          return {status:0}
+        },
+      })
+      expect(live).toBe(join(root,'live'))
+      expect(attempts.map(a=>a.cmd)).toEqual(['bun','npm'])
+      expect(attempts[1]!.args).toContain('--ignore-scripts')
+      expect(seenEnvs.every(e => e.HTTP_PROXY === 'http://127.0.0.1:7890' && typeof e.PATH === 'string')).toBe(true)
+    } finally { if (prevProxy === undefined) delete process.env.HTTP_PROXY; else process.env.HTTP_PROXY = prevProxy }
+  })
+
+  test('全部包管理器失败时抛出含候选链的 install 错误', async () => {
+    const root = mkdtempSync(join(tmpdir(),'pmfail-'))
+    await expect(installStaged({
+      cacheRoot: root, version:'1.1.0', packageSpec:'ignored', sourceDir:'ignored',
+      download: async () => new Response(tarball(),{status:200}),
+      run: async () => { throw new Error('Failed to spawn') },
+    })).rejects.toThrow('dependency install failed (bun → npm)')
+  })
+
   test('从运行时 package.json 解析 install context', () => {
     const base = mkdtempSync(join(tmpdir(),'occtx-'))
     const pkgDir = join(base,'packages','opencode-oceanus@latest','node_modules','opencode-oceanus')

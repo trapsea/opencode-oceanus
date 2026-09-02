@@ -1,12 +1,13 @@
 import { WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
 import type { AgentOverrideConfig } from '../config/schema';
-import {
-  CBM_BOUNDARY_NOTE,
-  CBM_QUERY_EXAMPLES,
-  CBM_QUERY_TOOLS,
-} from '../cbm/registry';
+import { CBM_BOUNDARY_NOTE, CBM_LIFECYCLE, CBM_QUERY_EXAMPLES, CBM_QUERY_TOOLS } from '../cbm/registry';
 import { DELEGATION_BRIEF_PROMPT } from './orchestrator-context';
-import { LEDGER_PROTOCOL } from './protocol';
+import {
+  DISPATCH_PROTOCOL,
+  LEDGER_PROTOCOL,
+  TASK_BOARD_PROTOCOL,
+  TERMINAL_STATE_PROTOCOL,
+} from './protocol';
 
 export type PermissionConfig = NonNullable<AgentOverrideConfig['permission']>;
 
@@ -158,6 +159,8 @@ const PARALLEL_DELEGATION_EXAMPLES = [
 /**
  * 构建 oceanus 提示词，支持按禁用 agent 过滤。
  * 提示词内容与 omo-slim 保持一致。
+ * variant：'oceanus'（默认，编排者视角）| 'sisyphus'（继承基座的六阶段主 agent 视角，
+ * 身份句按 sisyphus 语义参数化，避免自指路由与 Oceanus 视角残留）。
  */
 export interface OceanusPromptSections {
   role: string;
@@ -166,8 +169,11 @@ export interface OceanusPromptSections {
   communication: string;
 }
 
+export type PromptVariant = 'oceanus' | 'sisyphus';
+
 export function buildOceanusPromptSections(
   disabledAgents?: Set<string>, excludeDescriptions?: string[], waitForUserEnabled = true,
+  variant: PromptVariant = 'oceanus',
 ): OceanusPromptSections {
   const enabledAgents = Object.entries(AGENT_DESCRIPTIONS)
     .filter(([name]) => !disabledAgents?.has(name))
@@ -180,6 +186,25 @@ export function buildOceanusPromptSections(
   const externalManualWaitInstruction = waitForUserEnabled
     ? '- When work must pause while the user completes an external manual operation, first give the user concrete manual steps, then call `wait_for_user` as your final tool action and end the turn. Do not rely on ordinary text alone to mark this waiting state, and do not call more tools after `wait_for_user`.'
     : '- When work must pause while the user completes an external manual operation, first give the user concrete manual steps, then use the `question` tool as the blocking boundary and ask them to respond when finished. `wait_for_user` is disabled, so do not reference or call it.';
+  // 身份句按 variant 参数化：sisyphus 变体不保留 Oceanus 视角与"suggest switching to @sisyphus"自指路由。
+  const intakeOwnership = variant === 'sisyphus'
+    ? 'Sisyphus owns clarification and must ask the user about unresolved goals, trade-offs, or approval; do not delegate that interaction. @metis is not an Intake agent; Intake is the first phase of your own six-phase workflow.'
+    : 'Oceanus owns clarification and must ask the user about unresolved goals, trade-offs, or approval; do not delegate that interaction. Oceanus may identify the need for a separate Intake workflow, but must not claim it completed Intake; @metis is not an Intake agent; for large tasks suggest switching to `@sisyphus`.';
+  const sisyphusRoutingNote = disabledAgents?.has('sisyphus')
+    ? '- Sisyphus is disabled; keep the work in the current orchestrator and preserve the brainstorm → plan → execute → review → finish discipline when needed.'
+    : variant === 'sisyphus'
+      ? '- You are @sisyphus: run the full intake → brainstorm → plan → execute → review → finish workflow in order; never claim a phase is complete without its skill\'s exit criteria.'
+      : '- Large or multi-phase development work follows the Intake routing to `@sisyphus`; do not claim that Oceanus itself completed Intake.';
+  const sessionReuseSisyphusNote = variant === 'sisyphus'
+    ? ''
+    : '- For a follow-up that must continue a prior specialist\'s retained context, route the work to `@sisyphus`, which owns the plugin\'s session-continuation tooling for retained completed or blocked tasks.';
+  const sisyphusVerifyNote = variant === 'sisyphus'
+    ? '- Require Review and Completion Audit to finish before accepting the integrated result; Completion Audit gaps return to execute.'
+    : '- For Sisyphus work, require Review and Completion Audit to finish before accepting the integrated result; Completion Audit gaps return to execute.';
+  // CBM 主线句单一来源：oceanus 用注册表 brief；sisyphus 由 workflow 尾部的 CBM 阶段边界（full）承载，不重复注入。
+  const cbmMainlineNote = variant === 'sisyphus'
+    ? ''
+    : `- CBM 主线：${CBM_LIFECYCLE.brief}`;
   return {
     role: `You are the primary workflow manager for coding work. Preserve and exploit the context already available to you before creating another context. Your job is to plan, schedule, delegate, monitor, reconcile, and verify specialist-agent work; you remain the default owner of synthesis, user interaction, and decisions.
 
@@ -192,7 +217,7 @@ You have perfect understanding of agent's context management, understand well th
     agents: `${enabledAgents}`,
     workflow: `
 ## 1. Intake
-Parse request: explicit requirements + implicit needs, scope, success criteria, constraints, risks, and non-goals. Oceanus owns clarification and must ask the user about unresolved goals, trade-offs, or approval; do not delegate that interaction. Oceanus may identify the need for a separate Intake workflow, but must not claim it completed Intake; @metis is not an Intake agent; for large tasks suggest switching to \`@sisyphus\`.
+Parse request: explicit requirements + implicit needs, scope, success criteria, constraints, risks, and non-goals. ${intakeOwnership}
 
 ## 2. Path Selection
 Evaluate approach by: quality, speed and cost.
@@ -207,6 +232,13 @@ Choose the path that optimizes all four.
 
 ## 3. Delegation Check
 ${DELEGATION_BRIEF_PROMPT}
+
+${DISPATCH_PROTOCOL}
+
+${TASK_BOARD_PROTOCOL}
+
+${TERMINAL_STATE_PROTOCOL}
+
 Review available agents and lane rules. Before beginning non-trivial work, identify which parts can proceed independently.
 
 **Routing threshold:**
@@ -223,7 +255,7 @@ Review available agents and lane rules. Before beginning non-trivial work, ident
 - Record task IDs, state, and advisory ownership/dependency labels
 - Do not immediately wait after spawning independent background tasks unless the next step truly depends on their result
 - Reconcile results, resolve conflicts, and gate dependent lanes
-${disabledAgents?.has('sisyphus') ? '- Sisyphus is disabled; keep the work in the current orchestrator and preserve the brainstorm → plan → execute → review → finish discipline when needed.' : '- For large or multi-phase development work, suggest switching to \`@sisyphus\`, which runs the full intake → brainstorm → plan → execute → review → finish workflow. Do not claim that Oceanus itself completed Intake.'}
+${sisyphusRoutingNote}
 
 ${WRITABLE_FILE_OPERATIONS_RULES}
 
@@ -245,7 +277,7 @@ ${CBM_BOUNDARY_NOTE}
 - “在哪里定义/谁调用/调用了谁/依赖关系/修改影响/架构结构” -> 优先 CBM（${CBM_QUERY_TOOLS.join(' / ')}）。${CBM_QUERY_EXAMPLES}
 - 需要代码库上下文时优先委派 explorer；需要影响面、架构或审查时委派 oracle。
 - 委派检索任务时，明确要求返回 CBM 证据、qualified name、文件路径和行号。
-- CBM 主线：Intake 是唯一初始化点（cbm_index 一次、fail-open）；brainstorm/plan 只做查询型检索、不重建索引；momus 门禁做查询型影响面预估并把结论记入 plan status；review 开始先 cbm_index 重建索引，再复查实际 diff 的影响面并与预估对比。
+${cbmMainlineNote}
 - 字符串、注释、正则文本 -> grep，不使用 CBM 替代。
 - AST 结构匹配 -> ast_grep_search，不使用 CBM 替代。
 - 文件名/目录发现 -> glob/read，不使用 CBM 替代。
@@ -308,11 +340,13 @@ These are the plugin-provided tools for observing and reconciling the background
 - Smartly reuse context already in your own session - avoid re-discovering what you already know.
 - The native \`subagent\`/\`task\` tool accepts an explicit \`sessionID\` to continue an existing child session — pass the prior \`task_id\`/session to resume that specialist's retained context instead of spawning a fresh session. \`task_revive\` does the same for plugin-managed tasks (generation+1, continuing the original session with a new brief).
 - Interrupted-lane recovery: when your own session resumes after an interruption (server restart / model or provider failure / user interrupt), first call \`task_status\` to inspect each lane. A task in \`uncertain\`/interrupted state has no reliable terminal result — recover it with \`task_revive(task_id=…)\` to continue the original session, or re-dispatch a fresh task with the same objective. Never treat an interrupted lane as silently done or cancelled.
-- For a follow-up that must continue a prior specialist's retained context, route the work to \`@sisyphus\`, which owns the plugin's session-continuation tooling for retained completed or blocked tasks.
+${sessionReuseSisyphusNote}
 - Prefer finishing a small follow-up in your own context over spawning a new specialist when the prior work is too unrelated to justify a fresh session.
 
 ### Wave Scheduling Protocol
 - Read plan entries using the fields \`Wave\`, \`Depends on\`, and \`Files\`. Compute the ready set: tasks whose dependencies are terminal and whose Wave is eligible.
+- Read-only lanes (research/analysis/review agents such as @explorer/@librarian/@metis/@oracle with no \`Files\` write surface) are exempt from Wave/ownership computation: batch-dispatch them in the same turn whenever their inputs are ready.
+- When the work is pure research with no parallelism benefit, serial self-investigation by the main agent is legitimate; do not force the Wave machinery onto it.
 - Within one Wave, batch-dispatch all ready tasks with no dependency relationship and non-overlapping \`Files\` scopes using independent \`subagent({ agent, description, prompt, background })\` calls in the same assistant turn.
 - Record all task IDs and states for the batch. Review results and advance to the next Wave only after the entire current batch reaches a terminal state; never serialize a ready batch on progress-ledger updates.
 - If worktree isolation, file ownership, dependency signals, or other scheduling signals are unavailable or unreliable, choose serial dispatch and record the concrete reason rather than guessing that tasks are safe to overlap.
@@ -324,7 +358,7 @@ These are the plugin-provided tools for observing and reconciling the background
 - Inspect the final diff against each declared \`Files\` scope and reject out-of-scope changes before reporting completion.
 - Map every acceptance criterion to auditable evidence. Any code change makes earlier evidence stale; rerun affected checks rather than reusing stale evidence.
 - Run the checks appropriate to the scope: tests, typecheck, build, and real-surface validation where applicable. Record failures and unresolved uncertainty explicitly.
-- For Sisyphus work, require Review and Completion Audit to finish before accepting the integrated result; Completion Audit gaps return to execute.
+${sisyphusVerifyNote}
 - Reuse still-valid evidence only when the final state has not changed or an explicit requirement demands it.
 `,
     communication: `
@@ -370,8 +404,8 @@ export function renderPrompt(sections: OceanusPromptSections): string {
   return `<Role>\n${sections.role}\n</Role>\n\n<Agents>\n${sections.agents}\n</Agents>\n\n<Workflow>\n${sections.workflow}\n</Workflow>\n\n<Communication>\n${sections.communication}\n</Communication>\n`;
 }
 
-export function buildOceanusPrompt(disabledAgents?: Set<string>, excludeDescriptions?: string[], waitForUserEnabled = true): string {
-  return renderPrompt(buildOceanusPromptSections(disabledAgents, excludeDescriptions, waitForUserEnabled));
+export function buildOceanusPrompt(disabledAgents?: Set<string>, excludeDescriptions?: string[], waitForUserEnabled = true, variant: PromptVariant = 'oceanus'): string {
+  return renderPrompt(buildOceanusPromptSections(disabledAgents, excludeDescriptions, waitForUserEnabled, variant));
 }
 /**
  * 创建 oceanus 主 agent，颜色 #0FFFFF，提示词与 omo-slim 保持一致。

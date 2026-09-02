@@ -5,7 +5,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 ## 兼容性
 
 - 需要 **opencode v2（beta）**
-- 依赖 `@opencode-ai/plugin@beta`（当前锁定 `0.0.0-beta-18230`）
+- 依赖 `@opencode-ai/plugin@beta`（当前锁定 `0.0.0-beta-18743`）
 - 入口为 v2 的 `Plugin.define({ id, setup })`，通过 `ctx.agent.transform` 注册 agent
 
 ## Agent 列表
@@ -71,7 +71,7 @@ bun run build
 
 ```json
 {
-  "plugins": ["./opencode-oceanus/dist/index.js"]
+  "plugins": ["./opencode-oceanus/dist"]
 }
 ```
 
@@ -79,9 +79,11 @@ bun run build
 
 ```json
 {
-  "plugins": ["/path/to/opencode-oceanus/dist/index.js"]
+  "plugins": ["/path/to/opencode-oceanus/dist"]
 }
 ```
+
+> **注意**：OpenCode 宿主 `0.0.0-beta-18721` 起，`plugins` 数组中的本地路径必须是**目录**（目录内需有 `index.js` 入口文件），不再接受 `dist/index.js` 这类单文件路径——指向文件会被跳过并记录 WARN `configured plugin path must be a directory`，导致插件完全不加载。
 
 **发布到 npm 后使用包名：**
 

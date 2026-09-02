@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { getCacheRoot as defaultCacheRoot } from "../cbm/paths"
 import { getAutoUpdateConfig } from "../config/utils"
-import { discoverConfigEntries, entryVersion, type ConfigEntry } from "./config-entry"
+import { discoverConfigEntries, type ConfigEntry } from "./config-entry"
 import { decide, queryRegistry, type UpdateDecision } from "./checker"
 
 export interface UpdateStorage {
@@ -66,13 +66,15 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
     checked = true // 抢占必须发生在任何异步启动之前
     try {
       const all = (deps.discover ?? discoverConfigEntries)()
-      // 入口筛选：未锁版本（如裸 "opencode-oceanus"）允许自动更新；
-      // 已锁（固定 semver）入口仅限 installer managed，避免覆盖用户显式 pin；
-      // file: / @latest / 本地开发按既有安全策略跳过。
+      // 入口筛选：file: / @latest / 本地开发路径按既有安全策略跳过（@latest 由
+      // OpenCode 自行解析最新版，自动更新与其竞争反而会互相覆盖）。
+      // 固定版本（pinned semver）入口**允许**自动更新：此前要求 installer marker，
+      // 但生产链路无任何代码写入该标记，导致 pinned 入口永远静默跳过（真实缺陷）。
+      // 安装成功后由 installer 同步回写配置版本，用户退出通道是 autoUpdate.enabled=false。
       const entries = all.filter(entry => {
         const raw = entry.kind === "string" ? entry.value : String((entry.value as Record<string, unknown>).package ?? "")
         if (typeof raw === "string" && (raw.startsWith("file:") || raw === "@latest" || raw.endsWith("@latest"))) return false
-        return entryVersion(entry) !== undefined ? entry.managed : true
+        return true
       })
       // 没有可管理入口时不能触碰状态存储或启动网络检查。
       if (!entries.length) { log({ decision: "skipped", reason: "no_entry" }); return }

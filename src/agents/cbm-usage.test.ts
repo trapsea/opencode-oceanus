@@ -115,6 +115,13 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(sys.split(CBM_LIFECYCLE.full).length - 1).toBe(1);
   });
 
+  test('CBM 主线句单一来源：oceanus 用注册表 brief，"唯一初始化点"两个 prompt 各至多一次', () => {
+    expect(buildOceanusPrompt()).toContain(CBM_LIFECYCLE.brief);
+    expect(buildOceanusPrompt().split('唯一初始化点').length - 1).toBe(0);
+    const sys = createSisyphusAgent().system!;
+    expect(sys.split('唯一初始化点').length - 1).toBe(1);
+  });
+
   test('momus prompt 含查询型影响面预估与 REJECT 门禁', () => {
     const sys = createAgents().find((a) => a.name === 'momus')!.system!;
     expect(sys).toMatch(/影响面/);

@@ -6,6 +6,7 @@ import {
   createPresetWatcher,
   getRelatedRunningSessions,
   getRows,
+  loadPanelReactivity,
   readActivePresetName,
   readConfigAgentModels,
   recordRecall,
@@ -389,6 +390,45 @@ describe('sidebar setup 非阻塞', () => {
 
     expect(mounted).toBe(true);
     expect(result).toBeDefined();
+  });
+});
+
+describe('panel reactivity（宿主共享 solid tick 驱动）', () => {
+  test('loadPanelReactivity 返回 bump/dynamic；bump 触发 keyed Show 重复执行 build', async () => {
+    // 裸 'solid-js' 在 node 条件下解析为无响应式的 server 构建；显式注入
+    // client 构建（与 @opentui/solid 相同的 dist/solid.js 路径）验证机制。
+    const clientSolid = (await import('solid-js/dist/solid.js')) as unknown as {
+      createRoot: (fn: () => void) => (() => void) | undefined;
+      createRenderEffect: (fn: () => void) => void;
+    };
+    const reactivity = await loadPanelReactivity(
+      clientSolid as never,
+    );
+    expect(reactivity).toBeDefined();
+    expect(typeof reactivity!.bump).toBe('function');
+    expect(typeof reactivity!.dynamic).toBe('function');
+
+    let builds = 0;
+    clientSolid.createRoot(() => {
+      // 模拟宿主插入路径：tracked 作用域内读取 keyed Show 返回的 memo。
+      clientSolid.createRenderEffect(() => {
+        const tree = reactivity!.dynamic(() => {
+          builds += 1;
+          return undefined as never;
+        });
+        if (typeof tree === 'function') (tree as () => unknown)();
+      });
+    });
+    expect(builds).toBe(1);
+
+    reactivity!.bump();
+    reactivity!.bump();
+    expect(builds).toBe(3);
+  });
+
+  test('solid-js 不可用时 fail-open 返回 undefined（回退 requestRender 模式）', async () => {
+    const reactivity = await loadPanelReactivity({} as never);
+    expect(reactivity).toBeUndefined();
   });
 });
 

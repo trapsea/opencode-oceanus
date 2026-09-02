@@ -58,7 +58,7 @@ description: Unified image workflow — materialize to a file, grade analysis de
 
 ### 5. 整合
 - 回收 observer 的结构化结论；不重复读取原始图片
-- 主 Agent 校验模板完整性；缺节 → task_revive 补齐（≤3 轮）；第 3 轮仍缺节 → 停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（当前状态摘要 / 原因 / 恰好 2-3 个方案 / 推荐项）
+- 主 Agent 校验模板完整性；缺节 → task_revive 补齐（≤3 轮）；第 3 轮仍缺节 → 停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）
 - 「不确定项清单」是向用户 question 澄清的**唯一来源**；禁止 observer 以猜测替代用户决策
 - spec 落盘与 SDD 模式绑定：SDD 开启 → 主 Agent 将 L3/L4/L5 输出写入 \`.oceanus/spec/ui-spec.md\`（observer 保持只读，主 Agent 代写），各 worker 引用路径；SDD 关闭 → 不落盘，内联进消费方 prompt，验收基准取 observer 会话 task_result 原文
 
@@ -70,7 +70,7 @@ description: Unified image workflow — materialize to a file, grade analysis de
 - designer（\`lane:fe-ui\`）：**亲自读原图 + spec** 实现视觉层（组件/样式/交互态/响应式），交付时必须声明接口契约（props/事件回调/数据形状）
 - fixer（\`lane:fe-logic\`）：按契约实现非视觉部分（API/状态/校验/类型），**禁改样式、布局、类名**
 - 组件与数据严格分文件 → 可同 Wave 并行；同一文件 → 串行（designer 先交带 mock 数据的组件）
-- 验收：实现后取得渲染截图 → observer（复用会话）执行 L5 diff → FAIL 退回 designer（≤3 轮，第 3 轮仍 FAIL → 停止自动重试，按 3 轮中断上报模板用 \`question\` 上报：当前状态摘要 / 原因 / 恰好 2-3 个方案 / 推荐项）；全 PASS 才进 Completion Audit。L3 验收核对"组件齐全+文案逐字"（token 允许合理近似）；L4 全项核对（token 偏差也计 FAIL）；L1/L2 无需视觉验收
+- 验收：实现后取得渲染截图 → observer（复用会话）执行 L5 diff → FAIL 退回 designer（≤3 轮，第 3 轮仍 FAIL → 停止自动重试，按 3 轮中断上报模板用 \`question\` 上报：模板须含推荐项及理由）；全 PASS 才进 Completion Audit。L3 验收核对"组件齐全+文案逐字"（token 允许合理近似）；L4 全项核对（token 偏差也计 FAIL）；L1/L2 无需视觉验收
 - Sisyphus 在 Intake 任务识别时即完成分级，分级结果写入 intake_report
 
 ## 禁止事项

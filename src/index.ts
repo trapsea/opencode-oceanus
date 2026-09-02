@@ -14,7 +14,7 @@ import { buildCbmSharedDeps, type CbmWiringInjections } from './cbm/wiring';
 import type { PluginSetupContext } from './runtime/types';
 import { registerAutoUpdate } from './update';
 import { installStaged, resolveOpenCodeInstallContext } from './update/cache';
-import { updateManagedEntry, type ConfigEntry } from './update/config-entry';
+import { syncEntryVersion, type ConfigEntry } from './update/config-entry';
 import { createTaskCoordinator, type TaskCoordinator } from './runtime/task-coordinator';
 import { resolvePluginDirectory } from './runtime/host-adapter';
 import { createCleanupRunner, createHostCleanup, runOptionalStages } from './runtime/setup-stages';
@@ -254,7 +254,7 @@ export async function runSetup(
         location: `/builtin/opencode-oceanus/${skill.name}/SKILL.md`,
         content: skill.content,
       };
-      // beta-18230 的官方 SkillDraft 契约使用 add/update/remove；不调用未公开
+      // beta-18743 的官方 SkillDraft 契约使用 add/update/remove；不调用未公开
       // 的 source()，避免特性探测把 skill 注册导向非标准分支。
       draft.add(info);
     }
@@ -398,15 +398,23 @@ export async function runSetup(
         const updateCleanup = registerAutoUpdate(ctx as unknown as any, config, {
     logger: (event) => {
       const { event: kind, error, ...meta } = event;
+      const hint = kind === 'restart_required' ? '（新版本已安装到磁盘，重启 OpenCode 后生效）' : '';
       const message = error === undefined ? '' : ` error=${String(error)}`;
-      console.warn(`[oceanus:update] ${String(kind)}${message}`, meta);
+      console.warn(`[oceanus:update] ${String(kind)}${message}${hint}`, meta);
     },
     installer: async (version: string, entry?: ConfigEntry) => {
-      if (!entry || (entry.kind === 'string' && String(entry.value).endsWith('@latest'))) return;
+      // 入口已由 registerAutoUpdate 过滤（file:/@latest 不会到达这里）；
+      // 防御性缺失入口必须显式失败，不得静默返回（否则会被记为 update_installed 假成功）。
+      if (!entry) throw new Error('自动更新缺少配置入口，拒绝静默跳过');
       // 从运行时 package.json 推导 OpenCode 实际使用的 install root，把更新发布到
       // OpenCode cache（而非 Oceanus 独立 cache），否则新版本不会被加载。
       const oc = resolveOpenCodeInstallContext();
-      if (!oc) throw new Error('无法解析 OpenCode 安装上下文（非 node_modules 安装或本地开发）');
+      if (!oc) {
+        throw new Error(
+          '无法解析 OpenCode 安装上下文：当前插件不是以 <installRoot>/node_modules/opencode-oceanus 布局加载' +
+            '（本地路径/开发安装不支持自动更新；请将 plugins 条目改为包名形态安装）',
+        );
+      }
       await installStaged({
         cacheRoot: shared.cacheRoot,
         version,
@@ -414,7 +422,14 @@ export async function runSetup(
         sourceDir: process.cwd(),
         installRoot: oc.installRoot,
       });
-      if (entry.managed) updateManagedEntry(entry.file, version);
+      // 固定版本入口（无论是否带 installer marker）安装成功后同步回写配置，
+      // 保证配置文件与磁盘版本一致；裸入口无版本可写，自然跳过。
+      try {
+        syncEntryVersion(entry.file, version, entry);
+      } catch (error) {
+        // 配置回写失败不回滚已完成的磁盘更新，只如实记录。
+        console.warn('[oceanus:update] config_sync_failed', { file: entry.file, version, error: String(error) });
+      }
     },
         });
         cleanupRunner.add('auto-update.cleanup', updateCleanup);
@@ -530,7 +545,9 @@ export async function runSetup(
  */
 export default Plugin.define({
   id: 'opencode-oceanus',
-  tui: true,
+  // 说明：`Plugin.tui?: boolean` 字段已于 beta-18721 移除；TUI 入口由
+  // package.json `exports["./tui"]`（dist/tui.js）结构性声明，宿主侧能力
+  // 位为 `Plugin.Info.features.tui`。
   async setup(ctx) {
     return runSetup(ctx as unknown as PluginSetupContext);
   },

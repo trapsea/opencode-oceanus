@@ -82,13 +82,13 @@ describe("registerAutoUpdate", () => {
     expect(reads).toBe(0); expect(checks).toBe(0); expect(installs).toBe(0)
   })
 
-  test("已锁普通（非 managed）入口不自动覆盖", async () => {
+  test("已锁（非 managed）入口同样自动更新：安装成功后由 installer 同步回写配置", async () => {
     let checks = 0; let installs = 0
     const stream = context([{ type: "session.created", data: { sessionID: "root" } }])
     const pinned = { file: "/tmp/opencode.json", path: "plugins.0", value: "opencode-oceanus@1.0.0", kind: "string" as const, managed: false }
     const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({ discover: () => [pinned], checker: async () => { checks++; return "1.1.0" }, installer: async () => { installs++ } }))
-    await tick(); await cleanup()
-    expect(checks).toBe(0); expect(installs).toBe(0)
+    await tick(); await tick(); await cleanup()
+    expect(checks).toBe(1); expect(installs).toBe(1)
   })
 
   test("未锁入口（v2 默认 plugins: [\"opencode-oceanus\"]）会调用 checker 与 installer", async () => {

@@ -33,8 +33,9 @@ export const IMAGE_ERROR_HINT =
 /**
  * 注册 retry 兜底提示 hook。
  *
- * retry hook 与 prompt hook 能力相互独立：不能从 prompt hook 可用推断 retry
- * 可用；宿主不支持时由接线层运行时探测（hook + synthetic 均存在才注册）后
+ * beta-18743 的 `SessionDomain` hook 名联合已正式覆盖 `retry`；retry hook 与
+ * prompt hook 能力相互独立：不能从 prompt hook 可用推断 retry 可用。注册仍
+ * 保留接线层运行时能力探测（hook + synthetic 均存在才注册），宿主不支持时
  * 静默跳过。回调内部全程 fail-open：识别或 synthetic 注入失败仅记日志，
  * 绝不影响 retry 流程。
  */
@@ -42,7 +43,7 @@ export async function registerImageErrorHint(
   session: {
     hook(
       name: string,
-      cb: (event: never) => Promise<void> | void,
+      cb: (event: unknown) => Promise<void> | void,
     ): Promise<unknown>;
   },
   synthetic: {
@@ -50,9 +51,9 @@ export async function registerImageErrorHint(
   },
   logger?: (message: string, meta?: Record<string, unknown>) => void,
 ): Promise<unknown> {
-  return session.hook('retry', async (event: never) => {
+  return session.hook('retry', async (event: unknown) => {
     try {
-      const e = event as unknown as RetryHookEvent;
+      const e = event as RetryHookEvent;
       if (!e?.error || !isImageInputError(e.error)) return;
       await synthetic({ sessionID: e.sessionID, text: IMAGE_ERROR_HINT });
     } catch (err) {

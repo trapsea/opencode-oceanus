@@ -6,7 +6,11 @@ import {
   resolvePrompt,
 } from './oceanus';
 import { CBM_LIFECYCLE } from '../cbm/registry';
-import { buildAgentProtocol } from './protocol';
+import {
+  MOMUS_GATE_PROTOCOL,
+  RUNTIME_GUARDS_PROTOCOL,
+  THREE_ROUND_TEMPLATE,
+} from './protocol';
 
 const SISYPHUS_ROLE = `You are Sisyphus, the lead of a six-phase development workflow. Always run these phases in order: intake → brainstorm → plan → execute → review → finish. At the start of every phase, load and follow its matching Skill (sisyphus-intake / sisyphus-brainstorm / sisyphus-plan / sisyphus-execute / sisyphus-review / sisyphus-finish). The Skills contain all phase-specific procedures; this contract defines only global order, routing rules, and gate list.`;
 
@@ -16,7 +20,7 @@ const SISYPHUS_PHASES = `## Sisyphus Workflow
 1. Intake — load \`sisyphus-intake\`：需求收集 + 复杂度分流（Trivial / Standard / Architecture）。
    - 贴图/UI 截图驱动的前端任务：Intake 任务识别时即按 \`clipboard-image-observer\` skill 对 @observer 分析需求分级（L1-L5，分级不限于前端，任何图像分析都按任务理解分级），分级结果写入 intake_report；主 Agent 全程不读原图，designer 负责视觉层实现、fixer 负责非视觉层，review 阶段以 L5 视觉 diff 为完成门禁。
 2. Brainstorm — load \`sisyphus-brainstorm\`：研究优先澄清 → 分层方案呈现（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）→ 单次总批准（consolidated approval，默认值制：一次 question 主问方案方向，SDD/TDD/Worktree/连续执行授权按默认值随选项说明带出，自定义遗漏项回落默认值并记录，不补问）。
-3. Plan — load \`sisyphus-plan\`：文件映射 → 2-8 小时粒度任务拆分 → Momus 门禁（人工批准由 Brainstorm 单次总批准覆盖，不再单独提问）。
+3. Plan — load \`sisyphus-plan\`：文件映射 → 按功能切片与行数/文件数上限拆分任务（普通 ≤2000 行且 ≤8 文件、高风险 ≤500 行，每任务记录预估实现 diff 行数）→ Momus 门禁（人工批准由 Brainstorm 单次总批准覆盖，不再单独提问）。
 4. Execute — load \`sisyphus-execute\`：按依赖并行执行、Failing-First、证据记录（细节见 skill）。
 5. Review — load \`sisyphus-review\`：cbm_index 重建 + 影响面复查 + Completion Audit（细节见 skill）。
 6. Finish — load \`sisyphus-finish\`：只读交付汇总。
@@ -35,16 +39,16 @@ const SISYPHUS_PHASES = `## Sisyphus Workflow
 - **单次总批准（consolidated approval）**：本工作流的 human gate 一律指 Brainstorm 阶段的一次性总批准——一次 question 主问方案方向（按推荐执行 / 换用备选方案 / 自定义），SDD、TDD、Worktree、连续执行授权按默认值随选项说明带出；用户选“自定义”时在同一次回复中给出覆盖项，遗漏项回落默认值并记录，不补问；除此之外任何阶段不得追加批准类提问。总批准仅在需求或验收标准变化时失效并需重新总批准；仅 Files/依赖/任务结构变化或失败重规划不失效，仅重走 @momus。
 - **Trivial 开工确认**：Trivial 的 human gate 为一次开工确认，等价于按推荐执行的总批准（全部默认值）。
 - Plan gate（Standard/Architecture）：Momus \`OKAY\` + 有效总批准，两个门禁（both gates）齐备才进 execute。
-- **3 轮中断上报模板（统一）**：任何 3 轮循环（@momus REJECT 重审 / 执行修复重试 / review 缺口退回 / metis 分歧 / 视觉 L5 FAIL 退回）第 3 轮仍不通过时，停止自动重试，用 \`question\` 工具上报，内容必须包含：①当前状态摘要（已完成任务清单、进行中与剩余任务清单）②原因（第 3 轮失败或分歧的具体原因，引用最后一轮关键证据）③下一步方案（恰好 2-3 个，每项附一句可行性与代价说明）④推荐项（明确标注推荐项及理由）。计数边界：每类循环独立计数，从该循环第一次 REJECT / 失败 / 分歧 / 缺口起算；修订后通过则该循环计数清零；不同循环、不同任务之间不累计。
+${THREE_ROUND_TEMPLATE}
 - Review 是阶段间门禁，不可跳过；Completion Audit 缺口一律退回 execute。
 - 简单/Trivial 任务跳过某项检查时必须记录理由，不得伪造门禁结果。
 `;
 
 const TASK_CONTINUITY = `
 ## Background Task Board 与原生调度协议
-${buildAgentProtocol()}
+${RUNTIME_GUARDS_PROTOCOL}
 
-Sisyphus 执行阶段按依赖并行，遵守 Wave ready set 与专属 skill 的阶段边界；阶段 Review 必须完成 Completion Audit 后才能 Finish。
+Sisyphus 执行阶段按依赖并行，遵守 Wave ready set 与专属 skill 的阶段边界；阶段 Review 必须完成 Completion Audit 后才能 Finish。（Dispatch/Task Board/Terminal State/Ledger 协议由继承的 workflow §3/§4 唯一注入，此处不重复。）
 `;
 
 function buildMetisMomusGate(disabledAgents?: Set<string>): string {
@@ -63,12 +67,9 @@ function buildMetisMomusGate(disabledAgents?: Set<string>): string {
   if (momusEnabled) {
     lines.push(
       '- 形成方案后、进入 execute 前，委派 @momus 做方案质量 check：检查依赖/范围/测试/可执行性，输出 `OKAY` 或 `REJECT` + 具体问题。',
-      '- @momus 输出按 BLOCKER/SUGGESTION 分级，仅 BLOCKER 触发 REJECT；REJECT 必须附最小修订集（逐条修改建议 + 验证方式）。复审轮只验证前轮 BLOCKER 与修订新引入的 BLOCKER，不追加旧问题；复审委派 prompt 必须携带 round=N、前轮 BLOCKER 清单与逐条落实证据。',
+      ...MOMUS_GATE_PROTOCOL.split('\n').filter((l) => l.trim().length > 0),
       '- Plan 阶段记录 impact_estimate，Review 阶段复查该估计；不要要求 Momus 执行完整 CBM 影响面扫描。',
-      '- @momus 返回 `REJECT` 时必须回到 plan 修订后重新检查，不得直接进入 execute；修订按最小修订集逐条落实（不自行发挥）；仅当 `OKAY` 才放行 execute。',
       '- 门禁审查必须使用原生专家名派发（subagent 的 agent 参数为 `"momus"`）。严禁用 general 或其它 agent 冒充专家——例如 prompt 写“你是 Momus”而 agent 不是 momus 属于违规派发，运行时 dispatch-guard 会直接拒绝。',
-      '- 避免“重复新建 Momus 会话”的正确方式是复用既有 child：优先 task_revive 用原 task_id（sessionID）续用原 session，而不是更换 agent 绕过新建。',
-      '- 循环上限：@momus REJECT 修订重审最多 3 轮；每轮按 @momus 的最小修订集逐条落实修改建议（不自行发挥）；第 3 轮仍 REJECT 时停止重审循环，按 3 轮中断上报模板用 `question` 上报（当前状态摘要 / 原因 / 恰好 2-3 个方案 / 推荐项），不允许静默循环自查。',
     );
   } else {
     lines.push('- Momus 已禁用；不得声称完成了执行前方案质量 check。');
@@ -102,6 +103,7 @@ export function createSisyphusAgent(
     disabledAgents,
     excludeDescriptions,
     waitForUserEnabled,
+    'sisyphus',
   );
   sections.role = SISYPHUS_ROLE;
   sections.workflow = `${sections.workflow}${SISYPHUS_PHASES}${TASK_CONTINUITY}${buildMetisMomusGate(disabledAgents)}${buildCbmPhaseBoundary()}`;

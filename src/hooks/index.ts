@@ -253,14 +253,14 @@ export async function registerOceanusHooks(
   // ── image-materializer / image-error-hint：粘贴图片物化与兜底提示 ──
   // prompt 阶段把 data:image/* 附件物化到 .oceanus/media/ 并追加路径提示；
   // retry 阶段识别 "does not support image input" 注入引导。
-  // beta-18230 的 SessionDomain hook 名联合未覆盖 prompt/retry，但 prompt hook 在
-  // 实际 Host 中可用：以下全部走运行时能力探测（typeof 检查 + 独立 try/catch），
-  // 不得因类型未声明而删除注册。两个 hook 能力相互独立、各自 fail-open：
+  // beta-18743 的 SessionDomain hook 名联合已正式覆盖 prompt/retry；注册仍走
+  // 运行时能力探测（typeof 检查 + 独立 try/catch）——类型声明不等于运行时
+  // 保证，不得移除注册。两个 hook 能力相互独立、各自 fail-open：
   // 不能从 prompt 可用推断 retry 可用；retry 被宿主拒绝也不影响 prompt 注册。
   if (isHookEnabled(config, 'image_materializer')) {
     try {
       const sessionAny = ctx.session as unknown as {
-        hook?: (name: string, cb: (event: never) => Promise<void> | void) => Promise<unknown>;
+        hook?: (name: string, cb: (event: unknown) => Promise<void> | void) => Promise<unknown>;
       };
       if (typeof sessionAny.hook === 'function') {
         await registerImageMaterializer(
@@ -280,7 +280,7 @@ export async function registerOceanusHooks(
   if (isHookEnabled(config, 'image_error_hint')) {
     try {
       const sessionAny = ctx.session as unknown as {
-        hook?: (name: string, cb: (event: never) => Promise<void> | void) => Promise<unknown>;
+        hook?: (name: string, cb: (event: unknown) => Promise<void> | void) => Promise<unknown>;
         synthetic?: (input: { sessionID: string; text: string }) => Promise<unknown>;
       };
       if (typeof sessionAny.hook === 'function' && typeof sessionAny.synthetic === 'function') {

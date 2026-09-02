@@ -41,8 +41,8 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@opencode-ai/plugin": "0.0.0-beta-18230",
-    "@opencode-ai/schema": "0.0.0-beta-18230"
+    "@opencode-ai/plugin": "0.0.0-beta-18743",
+    "@opencode-ai/schema": "0.0.0-beta-18743"
   },
   "peerDependencies": {
     "@opentui/solid": ">=0.5.8",

@@ -125,24 +125,25 @@ export async function materializePromptImages(
 /**
  * 注册 prompt 物化 hook（仅 prompt；retry 兜底提示见 image-error-hint.ts）。
  *
- * beta-18230 的 `SessionDomain` hook 名联合未覆盖 `prompt`，但 prompt hook 在
- * 实际 Host 中可用：参数因此采用最小结构形状（非官方类型），能力判断交给
- * 接线层的运行时探测，不得因类型未声明而移除本注册。
+ * beta-18743 的 `SessionDomain` hook 名联合已正式覆盖 `prompt`；注册仍保留
+ * 接线层的运行时能力探测（类型声明不等于运行时保证）并 fail-open。参数采用
+ * 最小结构形状（官方 `SessionPrompt` 的可用子集，经 `unknown` 显式窄化），
+ * 不得因类型已声明而移除本注册。
  * retry hook 与 prompt hook 能力相互独立，不能从 prompt 可用推断 retry 可用。
  */
 export async function registerImageMaterializer(
   session: {
     hook(
       name: string,
-      cb: (event: never) => Promise<void> | void,
+      cb: (event: unknown) => Promise<void> | void,
     ): Promise<unknown>;
   },
   getVisionSupported: () => boolean,
   deps: ImageMaterializerDeps,
 ): Promise<unknown> {
-  return session.hook('prompt', async (event: never) => {
+  return session.hook('prompt', async (event: unknown) => {
     await materializePromptImages(
-      event as unknown as PromptHookEvent,
+      event as PromptHookEvent,
       getVisionSupported(),
       deps,
     );

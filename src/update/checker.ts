@@ -17,12 +17,30 @@ export function decide(current: string, next: string, entry?: ConfigEntry): Upda
   if (current.split(".")[0] !== next.split(".")[0]) return "major"
   return canUpdate(current, next) ? "update" : "current"
 }
-export async function queryRegistry(packageName = "opencode-oceanus", timeoutMs = 5000, fetcher: typeof fetch = fetch): Promise<string> {
-  const signal = AbortSignal.timeout(timeoutMs)
-  const response = await fetcher(`https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`, { signal, headers: { accept: "application/json" } })
-  if (!response.ok) throw new Error(`registry HTTP ${response.status}`)
-  const data = await response.json() as any
-  if (typeof data?.version !== "string") throw new Error("registry 返回无效版本")
-  return data.version
+/**
+ * registry 候选链：优先用户显式配置（NPM_CONFIG_REGISTRY），再官方源，最后国内镜像。
+ * 修复：固定 npmjs.org + 5s 超时在受限网络下慢性 check_failed（fail-open 静默，
+ * 用户只看到"没更新"）。Bun fetch 会读取 HTTP(S)_PROXY 环境变量，代理场景无需额外处理。
+ */
+export function registryCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
+  const out: string[] = []
+  const custom = env.NPM_CONFIG_REGISTRY ?? env.npm_config_registry
+  if (custom) out.push(custom.replace(/\/+$/, ""))
+  out.push("https://registry.npmjs.org", "https://registry.npmmirror.com")
+  return [...new Set(out)]
+}
+export async function queryRegistry(packageName = "opencode-oceanus", timeoutMs = 5000, fetcher: typeof fetch = fetch, registries: string[] = registryCandidates()): Promise<string> {
+  let lastError: unknown
+  for (const registry of registries) {
+    try {
+      const signal = AbortSignal.timeout(timeoutMs)
+      const response = await fetcher(`${registry}/${encodeURIComponent(packageName)}/latest`, { signal, headers: { accept: "application/json" } })
+      if (!response.ok) throw new Error(`registry HTTP ${response.status}`)
+      const data = await response.json() as any
+      if (typeof data?.version !== "string") throw new Error("registry 返回无效版本")
+      return data.version
+    } catch (error) { lastError = error }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 export function currentPackageVersion(packageFile = join(process.cwd(), "package.json")): string { return JSON.parse(readFileSync(packageFile, "utf8")).version }

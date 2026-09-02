@@ -1,5 +1,4 @@
 /** 委派给子 agent 的显式上下文；不得依赖父会话中未传递的隐含信息。 */
-import { DISPATCH_PROTOCOL, TASK_BOARD_PROTOCOL, TERMINAL_STATE_PROTOCOL } from './protocol';
 export interface DelegationBrief {
   goal: string | string[]; background: string | string[]; decisions: string | string[]; files: string | string[];
   forbidden: string | string[]; dependencies: string | string[]; acceptance: string | string[]; tests: string | string[]; risks: string | string[];
@@ -16,6 +15,7 @@ export function formatDelegationBrief(brief: DelegationBrief): string {
   ].join('\n');
 }
 
+/** 子 agent 缺少父级委派上下文时的统一终止协议；调度三协议（Dispatch/Task Board/Terminal State）
+ *  由 oceanus workflow §3 在 brief 之后原位注入，本常量不再内嵌，避免 sisyphus 双注入。 */
 export const DELEGATION_BRIEF_PROMPT = `## Delegation Brief
- 每次委派必须显式包含目标、背景、已确认决策、Files ownership、禁止事项/禁区、依赖/结果、验收、测试命令和风险。子 agent 不得依赖隐含上下文。
-\n${DISPATCH_PROTOCOL}\n${TASK_BOARD_PROTOCOL}\n${TERMINAL_STATE_PROTOCOL}`;
+ 每次委派必须显式包含目标、背景、已确认决策、Files ownership、禁止事项/禁区、依赖/结果、验收、测试命令和风险。子 agent 不得依赖隐含上下文。`;

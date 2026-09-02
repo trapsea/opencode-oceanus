@@ -1,8 +1,10 @@
 /**
  * 宿主运行时表面适配（Wave 1：插件实例目录解析集中化）。
  *
- * 背景：`@opencode-ai/plugin`（beta-18230）的 `Context` 类型尚未声明
- * `location` / `directory` 字段，但宿主运行时存在两种注入形态：
+ * 背景：`@opencode-ai/plugin`（beta-18721+）的 `Context` 类型已正式声明
+ * `location: Location.Info`；旧宿主/参考实现（omo-slim）另有 `ctx.directory`
+ * 注入形态。类型声明不等于运行时保证（字段可能为空或缺失），因此保留
+ * 降级探测链作为运行时防御：
  * - 新宿主（service 多项目模式，按项目 scope 实例化插件）：`ctx.location.directory`，
  *   与 `Session.Info.location.directory` 同源的绝对路径；
  * - 旧宿主/参考实现（omo-slim）：`ctx.directory`。

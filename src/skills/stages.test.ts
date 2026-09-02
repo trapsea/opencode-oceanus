@@ -268,7 +268,25 @@ describe('Phase 3 — plan 契约', () => {
   test('REJECT 按最小修订集修订并再次调用 momus 复审', () => {
     expect(content).toContain('最小修订集');
     expect(content).toMatch(/再次调用 \`@momus\` 复审|call \`@momus\` again/);
-    expect(content).toMatch(/BLOCKER\/SUGGESTION/);
+    expect(content).toMatch(/BLOCKER\/SUGGESTION|门禁输出分级/);
+  });
+
+  test('任务粒度按实现 diff 行数与文件数双约束（非时间制）', () => {
+    expect(content).not.toMatch(/2-8 小时/);
+    expect(content).toMatch(/预估实现代码 diff 行数/);
+    expect(content).toMatch(/普通任务 ≤2000 行且触及 ≤8 个文件/);
+    expect(content).toMatch(/高风险任务 ≤500 行/);
+    expect(content).toMatch(/测试代码不计入上限/);
+  });
+
+  test('行数校验闭环：execute 记录实际行数、review 对比偏差', () => {
+    const execute = byName('sisyphus-execute').content;
+    const review = byName('sisyphus-review').content;
+    expect(execute).toMatch(/实际实现代码 diff 行数/);
+    expect(execute).toMatch(/与 plan 预估行数一并写入备注/);
+    expect(review).toMatch(/实际实现 diff 行数与 plan 预估行数对比/);
+    expect(review).toMatch(/plan 质量信号/);
+    expect(review).toMatch(/不阻断门禁/);
   });
 });
 
@@ -287,6 +305,16 @@ describe('Phase 4 — execute 契约', () => {
 
   test('普通执行不要求重复调用 @metis', () => {
     expect(content).toMatch(/普通执行[\s\S]{0,120}不重复调用 @metis/);
+  });
+
+  test('串行 Wave 条件会话复用：默认全新派发，条件满足才 task_revive', () => {
+    expect(content).toMatch(/默认全新派发/);
+    expect(content).toMatch(/task_revive/);
+    expect(content).toMatch(/同专家且相邻串行 wave/);
+    expect(content).toMatch(/连续复用 ≤3 轮/);
+    expect(content).toMatch(/部分完成的写改动|副作用重跑风险/);
+    expect(content).toMatch(/蒸馏/);
+    expect(content).toMatch(/保证随时可回退到全新派发/);
   });
 });
 
@@ -352,7 +380,7 @@ describe('单次总批准契约（consolidated approval）', () => {
     for (const [name, content] of files) {
       expect(content, `${name} 须引用 3 轮中断上报模板`).toMatch(/3 轮中断上报模板/);
       expect(content, `${name} 上报须用 question`).toMatch(/3 轮中断上报模板用 `question`/);
-      expect(content, `${name} 上报须含 2-3 个方案`).toMatch(/2-3 个/);
+      expect(content, `${name} 上报引用模板要素`).toMatch(/模板须含推荐项及理由|2-3 个/);
       expect(content, `${name} 上报须含推荐项`).toMatch(/推荐项/);
     }
   });

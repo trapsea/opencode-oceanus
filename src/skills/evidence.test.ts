@@ -18,6 +18,18 @@ describe('Execute evidence tier 契约', () => {
     expect(content).toMatch(/公共符号[\s\S]*strict/);
   });
 
+  test('TDD × strict 组合矩阵消除 RED 歧义', () => {
+    const content = execute?.content ?? '';
+    // 组合矩阵存在且覆盖三种组合
+    expect(content).toMatch(/TDD × Evidence Tier 组合矩阵/);
+    expect(content).toMatch(/strict \+ TDD on[\s\S]*RED \+ GREEN \+ real-surface/);
+    expect(content).toMatch(/strict \+ TDD off[\s\S]*characterization[\s\S]*不得伪称存在 RED/);
+    // No-production-first 回退义务限定为 TDD on
+    expect(content).toMatch(/No production-first.*仅 TDD on 时适用/);
+    // 两份证明的 code proof 定义按 TDD 开关分流
+    expect(content).toMatch(/code proof \(TDD on: RED output \+ GREEN output of the same test; TDD off: characterization baseline \+ final-state GREEN\)/);
+  });
+
   test('Plan-Change 使双门禁失效并要求重审', () => {
     const content = execute?.content ?? '';
     expect(content).toMatch(/Plan-Change[\s\S]*Momus[\s\S]*APPROVED/);
