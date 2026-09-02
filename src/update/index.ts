@@ -65,7 +65,7 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
     read: (p: string) => { try { return existsSync(p) ? readFileSync(p, "utf8") : null } catch { return null } },
     write: (p: string, s: string) => { try { mkdirSync(root, { recursive: true }); writeFileSync(p, s) } catch {} },
   }
-  let running = false
+  let checked = false
   let iterator: AsyncIterator<any> | undefined
   const log = (value: { decision: string; reason?: string; currentVersion?: string; latestVersion?: string; error?: unknown }) => {
     try {
@@ -74,11 +74,10 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
     } catch {}
   }
   const run = async () => {
-    // 并发防重入（同步抢占）；不再做"进程内只查一次"——事件驱动时代的 checked
-    // 一次性标志与跨进程节流在定时器兜底落地后结构性冗余，且反复吞掉
-    // "发布→重启→应更新"的用户预期。频率由跨进程 checkIntervalMs 节流（默认 5 分钟）。
-    if (running || !resolved.enabled) return
-    running = true
+    // 每进程只查一次（定时器在订阅后 2s 触发首查，事件触发仅在定时器前生效）；
+    // 跨进程频率由 checkIntervalMs 节流（默认 3 小时）。抢占必须发生在任何异步启动之前。
+    if (checked || !resolved.enabled) return
+    checked = true
     try {
       const all = (deps.discover ?? discoverConfigEntries)()
       // 入口筛选：file: / @latest / 本地开发路径按既有安全策略跳过（@latest 由
@@ -98,7 +97,6 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
       try { state = raw ? JSON.parse(raw as string) : {} } catch {}
       // 节流命中必须留痕：这是"重启后没反应"的黑洞路径（状态文件刚写过 current 时，
       // 节流窗口内所有触发都被静默吞掉，无任何日志），修复为记录 throttled 决策。
-      // 窗口默认 5 分钟（原 1 小时在"发布→重启→应更新"的真实使用节奏下反复吞掉更新）。
       if (state.lastCheckedAt !== undefined && now() - state.lastCheckedAt < resolved.checkIntervalMs) {
         log({ decision: "throttled", reason: "interval", currentVersion: String(state.lastResult ?? "") })
         return
@@ -133,7 +131,6 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
          await save(decision)
        }
      } catch (error) { log({ decision: "error", error }) }
-    finally { running = false }
   }
   if (!resolved.enabled) return async () => { controller.abort() }
   // 注册间隙兜底：事件订阅的底层注册是异步完成的，插件惰性加载（按目录、首次使用时）

@@ -72,10 +72,10 @@ describe('agent preset 配置 schema', () => {
 });
 
 describe('autoUpdate 配置', () => {
-  test('默认启用，检查间隔为 5 分钟', () => {
+  test('默认启用，检查间隔为 3 小时', () => {
     expect(getAutoUpdateConfig()).toEqual({
       enabled: true,
-      checkIntervalMs: 300_000,
+      checkIntervalMs: 10_800_000,
     });
   });
 

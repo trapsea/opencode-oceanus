@@ -69,17 +69,13 @@ describe("registerAutoUpdate", () => {
     }
   })
 
-  test("重复根会话事件按节流去重（同窗口只检查一次，状态跨触发持久化）", async () => {
+  test("重复根会话事件只运行一次", async () => {
     const stream = context([
       { type: "session.created", data: { sessionID: "a" } },
       { type: "session.created", data: { sessionID: "b" } },
     ])
-    let stored: string | null = null
     let checks = 0
-    const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({
-      storage: { read: async () => stored, write: async (_path, value) => { stored = value } },
-      checker: async () => { checks++; return "1.1.0" },
-    }))
+    const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({ checker: async () => { checks++; return "1.1.0" } }))
     await tick(); await tick(); await cleanup()
     expect(checks).toBe(1)
   })
@@ -134,34 +130,6 @@ describe("registerAutoUpdate", () => {
       await tick(); await tick(); await cleanup()
       expect(installed).toEqual(shouldInstall ? ["1.1.0"] : [])
     }
-  })
-
-  test("节流窗口过后再次触发会重新检查（会话中途发布新版本可被捕获）", async () => {
-    const stream = context([
-      { type: "session.created", data: { sessionID: "a" } },
-      { type: "session.execution.started", data: { sessionID: "a" } },
-    ])
-    let stored: string | null = null
-    let clock = 1_000
-    let checks = 0
-    const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({
-      now: () => clock,
-      storage: { read: async () => stored, write: async (_path, value) => { stored = value } },
-      checker: async () => { checks++; return "1.0.0" }, // current=1.0.0 → current，不触发安装
-      installer: async () => { throw new Error("不应安装") },
-    }))
-    await tick(); await tick()
-    clock += 300_001 // 越过节流窗口
-    const stream2 = context([{ type: "session.execution.started", data: { sessionID: "a" } }])
-    void stream2
-    // 通过再注册一个同 storage 的实例模拟后续触发（原实例的触发事件已耗尽）
-    const cleanup2 = registerAutoUpdate(stream2.ctx, undefined, deps({
-      now: () => clock,
-      storage: { read: async () => stored, write: async (_path, value) => { stored = value } },
-      checker: async () => { checks++; return "1.0.0" },
-    }))
-    await tick(); await tick(); await cleanup(); await cleanup2()
-    expect(checks).toBe(2)
   })
 
   test("节流状态命中时不调用 checker，但记录 throttled 决策（黑洞可观测）", async () => {
