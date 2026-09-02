@@ -44,8 +44,8 @@ Turn the approved spec into a bite-sized, dependency-aware implementation plan, 
  Record Momus's verdict (\`OKAY\` or \`REJECT\`), the issue list, the revision round number, the verification timestamp, and the impact-surface estimate conclusion（影响面预估结论：受影响符号与差异）。SDD 开启时记入 \`.oceanus/plan/<name>.md\`（或对应 plan status）；SDD 关闭时在会话内向用户呈现 verdict 与问题清单即可。Momus \`OKAY\` is necessary but insufficient: 人工批准沿用 Brainstorm 单次总批准（consolidated approval，plan 阶段不重复提问），gate status 记录 human: { status: 'APPROVED', via: 'consolidated' }；Momus OKAY + 有效总批准两个门禁（both gates）齐备才进 execute（Trivial 任务除外）。
  8. **Re-analyze changed inputs** — if the Plan changes after approval: 需求或验收标准变化 → invalidate 总批准，重新总批准（先经 @metis 重析新需求、recompute \`impact_estimate\`、修订 plan，再 re-run @momus 与 human \`question\`）；仅 Files/依赖/任务结构变化或失败重规划 → 不重新提问用户，仅重走 @momus（metis 与 momus 均计入各自 3 轮上限）。
  9. **Consume the consolidated approval decisions** — TDD 与 Worktree 策略沿用 Brainstorm 总批准中的决策（默认值或用户自定义覆盖），不再单独提问；总批准中自定义遗漏的项已由 Brainstorm 回落默认值并记录，plan 阶段不补问：
-   - **TDD 推荐规则**（总批准呈现时依据）：预估开发 >5 天**或功能较复杂**（高风险、多模块耦合、难以回归验证）→ 推荐 TDD（测试先行，配合 execute 阶段 Failing-First 纪律）；否则 → 不推荐（先开发功能，完成后再补测试验证）。
-   - **Worktree 策略**（总批准呈现时依据）：per-task 隔离 vs 共享 worktree，尊重用户总批准中的显式选择；选择 per-task 隔离时，execute 阶段按 Worktree Lifecycle 执行（创建 → 基线验证 → 隔离执行 → 合并回收 → 清理）。
+   - **TDD 推荐规则**（总批准呈现时依据）：预估拆分 >12 个任务 → 推荐 TDD（测试先行，配合 execute 阶段 Failing-First 纪律）；≤12 个 → 不推荐（先开发功能，完成后再补测试验证）。plan 实际拆分任务数与 brainstorm 预估跨阈值（>12）偏差时记入 plan status，不重新提问。
+   - **Worktree 策略**（总批准呈现时依据；需求级，非任务级）：预估拆分 >12 个任务 → 默认开启需求级 worktree（execute 阶段创建唯一 worktree，finish 阶段一次性合并回主工作区）；≤12 个 → 默认共享主工作区。尊重用户总批准中的显式选择；严禁为单个任务拉 worktree 分支。
    Respect the user's explicit choices recorded in the consolidated approval.
 
 ## Momus Review Gate

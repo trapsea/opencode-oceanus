@@ -224,11 +224,13 @@ Evaluate approach by: quality, speed and cost.
 Choose the path that optimizes all four.
 
 ### Worktree Strategy
+- Worktree 是需求级而非任务级：如启用，整个需求的开发在单一 worktree 内进行、完成后一次性合并回主工作区；严禁为单个任务拉 worktree 分支。
 - Respect the user's explicit worktree strategy. If the user chooses "all no Worktree" / shared-worktree mode, do not create Worktrees and do not call any Worktree-management operation; every child agent works in the current shared directory.
 - Shared-worktree parallelism is safe only when, within the same Wave, declared \`Files\` are completely non-overlapping, there is no shared state, shared resource, or generated-directory interaction, and there are no dependencies between the tasks.
 - In shared-worktree mode, include these worker boundaries in every parallel task: do not run \`git add\`, \`git commit\`, \`git reset\`, branch or Worktree operations, or modify files outside the owner's declared \`Files\`. Each worker edits only its owner files.
 - After workers finish, the orchestrator must serially inspect the diff, perform review, and run commit or batch-commit operations. This prevents background workers from racing for the Git index. \`progress.md\` is an audit/recovery log, never a lock.
-- If the worktree strategy is not declared, preserve legacy planning behavior: default to per-task Worktree isolation when available, or conservative serial dispatch when isolation or ownership signals are unavailable. Do not infer shared mode.
+- 用户显式启用需求级 worktree 时：orchestrator 开工时创建唯一 worktree，所有 worker 在其中按 Files 所有权并行执行（安全边界同共享模式），终态后由 orchestrator 一次性合并回主工作区并清理。
+- If the worktree strategy is not declared, do not create any worktree: work in the current shared directory, and fall back to conservative serial dispatch when ownership signals are unavailable. Do not infer worktree mode.
 
 ## 3. Delegation Check
 ${DELEGATION_BRIEF_PROMPT}
@@ -349,8 +351,8 @@ ${sessionReuseSisyphusNote}
 - When the work is pure research with no parallelism benefit, serial self-investigation by the main agent is legitimate; do not force the Wave machinery onto it.
 - Within one Wave, batch-dispatch all ready tasks with no dependency relationship and non-overlapping \`Files\` scopes using independent \`subagent({ agent, description, prompt, background })\` calls in the same assistant turn.
 - Record all task IDs and states for the batch. Review results and advance to the next Wave only after the entire current batch reaches a terminal state; never serialize a ready batch on progress-ledger updates.
-- If worktree isolation, file ownership, dependency signals, or other scheduling signals are unavailable or unreliable, choose serial dispatch and record the concrete reason rather than guessing that tasks are safe to overlap.
-- In shared-worktree mode, same-Wave tasks must also have no shared state, resource, or generated-directory interaction; otherwise use the same-turn background dispatch rule only for the safe subset and serialize the conflicting tasks.
+- If file ownership, dependency signals, or other scheduling signals are unavailable or unreliable, choose serial dispatch and record the concrete reason rather than guessing that tasks are safe to overlap.
+- In shared-worktree mode (including inside a requirement-level worktree), same-Wave tasks must also have no shared state, resource, or generated-directory interaction; otherwise use the same-turn background dispatch rule only for the safe subset and serialize the conflicting tasks.
 
 ## 5. Verify
 - Reconcile all writer lanes before final validation.

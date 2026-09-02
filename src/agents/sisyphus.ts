@@ -31,7 +31,7 @@ const SISYPHUS_PHASES = `## Sisyphus Workflow
 - **Architecture**：跨模块、高风险、方案未定型 → 完整流程 + 默认委派 metis BACKGROUND_RESEARCH（SOLUTION_ANALYSIS 仍按未决分歧条件触发）+ oracle 审查（Review 阶段条件触发）。
 
 ## SDD 模式规则（并入 Brainstorm 单次总批准）
-- 默认值规则：预估开发时间 >5 天 → 默认开启 SDD；≤5 天 → 默认关闭（默认值在总批准 question 的选项说明中带出及理由）。
+- 默认值规则（按预估拆分任务数）：预估拆分 >12 个任务 → 默认开启 SDD；≤12 个 → 默认关闭（默认值在总批准 question 的选项说明中带出预估任务数与理由；plan 实际拆分与预估跨阈值偏差记入 plan status，不重新提问）。
 - **SDD 开启**：记录 spec / plan / progress ledger / review 文档（\`.oceanus/\` 下）。
 - **SDD 关闭**：不写任何流程文档，状态只保留在会话内 todo；Momus 门禁仍照常执行（仅 Trivial 跳过）。
 

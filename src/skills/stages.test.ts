@@ -3,6 +3,7 @@ import { SISYPHUS_SKILLS } from './index';
 import { CLIPBOARD_IMAGE_OBSERVER_SKILL } from './clipboard-image-observer';
 import type { SkillDefinition } from './types';
 import { createSisyphusAgent } from '../agents/sisyphus';
+import { buildOceanusPrompt } from '../agents/oceanus';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -153,11 +154,15 @@ describe('Phase 2 — brainstorm 契约', () => {
     expect(content).toMatch(/单次总批准（consolidated approval/);
     expect(content).toMatch(/默认值制单问/);
     expect(content).toMatch(/主问方案方向/);
-    // 四项执行配置默认值随选项说明带出
-    expect(content).toMatch(/SDD.{0,10}（预估 >5 天默认开启、≤5 天默认关闭/);
-    expect(content).toMatch(/TDD.{0,10}（[^）]{0,80}默认/);
-    expect(content).toMatch(/Worktree.{0,10}（[^）]{0,80}默认/);
+    // 四项执行配置默认值随选项说明带出；SDD/TDD/Worktree 共用同一客观信号（预估拆分任务数 >12），不按时间预估
+    expect(content).toMatch(/SDD.{0,10}（预估拆分 >12 个任务默认开启/);
+    expect(content).toMatch(/TDD.{0,10}（预估拆分 >12 个任务默认开启/);
+    expect(content).toMatch(/Worktree.{0,10}（需求级/);
     expect(content).toMatch(/连续执行授权.{0,10}（默认授予/);
+    // 废除时间预估与任务级 worktree 语义
+    expect(content).not.toMatch(/SDD.{0,40}预估 >5 天/);
+    expect(content).not.toMatch(/TDD.{0,40}>5 天/);
+    expect(content).not.toMatch(/per-task/);
     // 三固定选项：按推荐执行 / 换用备选 / 自定义
     expect(content).toMatch(/①\*\*按推荐执行\*\*/);
     expect(content).toMatch(/②\*\*换用备选方案/);
@@ -328,8 +333,9 @@ describe('单次总批准契约（consolidated approval）', () => {
     expect(content).toContain('单次总批准');
     expect(content).toMatch(/单次总批准（consolidated approval，默认值制单问）/);
     expect(content).toMatch(/主问方案方向/);
-    // 四项执行配置默认值随选项说明带出，不逐项确认
-    expect(content).toMatch(/SDD.{0,10}（预估 >5 天默认开启、≤5 天默认关闭/);
+    // 四项执行配置默认值随选项说明带出，不逐项确认；SDD 按预估拆分任务数 >12 判定
+    expect(content).toMatch(/SDD.{0,10}（预估拆分 >12 个任务默认开启/);
+    expect(content).not.toMatch(/SDD.{0,40}预估 >5 天/);
     expect(content).toMatch(/TDD.{0,10}（[^）]{0,80}默认/);
     expect(content).toMatch(/Worktree.{0,10}（[^）]{0,80}默认/);
     expect(content).toMatch(/连续执行授权.{0,10}（默认授予/);
@@ -352,6 +358,29 @@ describe('单次总批准契约（consolidated approval）', () => {
     const content = byName('sisyphus-plan').content;
     expect(content).not.toMatch(/用 `question` 与用户确认 TDD 策略与 Worktree 策略/);
     expect(content).toMatch(/沿用 Brainstorm 总批准|consolidated approval|via: 'consolidated'/);
+  });
+
+  test('Worktree 语义为需求级：单一 worktree、finish 合并，废除任务级 worktree', () => {
+    const plan = byName('sisyphus-plan').content;
+    const execute = byName('sisyphus-execute').content;
+    const review = byName('sisyphus-review').content;
+    const finish = byName('sisyphus-finish').content;
+    // plan：策略随总批准呈现，>12 任务默认开启需求级 worktree
+    expect(plan).toMatch(/Worktree 策略.{0,4}（总批准呈现时依据；需求级，非任务级）/);
+    expect(plan).toMatch(/>12 个任务 → 默认开启需求级 worktree/);
+    expect(plan).not.toMatch(/per-task/);
+    // execute：全程唯一 worktree、无任务级合并
+    expect(execute).toMatch(/Worktree Lifecycle（需求级/);
+    expect(execute).toMatch(/不做任务级合并/);
+    expect(execute).toMatch(/finish 判定 complete 后/);
+    expect(execute).not.toMatch(/per-task/);
+    expect(execute).not.toMatch(/worktrees\/<task-id>/);
+    // review：直接对 worktree 内 diff 复查，不因未合并缩小范围
+    expect(review).toMatch(/worktree 模式（需求级）/);
+    expect(review).toMatch(/合并发生在 finish 阶段/);
+    // finish：判定 complete 后一次性合并清理（唯一允许的写操作）
+    expect(finish).toMatch(/一次性合并回主工作区/);
+    expect(finish).toMatch(/唯一允许的写操作/);
   });
 
   test('plan 与 execute 的总批准失效边界一致', () => {
@@ -524,7 +553,17 @@ describe('Wave 1 跨文件契约一致性与全仓禁词', () => {
     expect(sisyphusSystem).toContain('## Sisyphus Workflow');
     expect(sisyphusSystem).toContain('单次总批准（consolidated approval');
     expect(sisyphusSystem).toMatch(/回落默认值/);
+    // SDD 默认值与 brainstorm skill 使用同一判据（预估拆分任务数 >12），不再按时间预估
+    expect(sisyphusSystem).toMatch(/>12 个任务/);
+    expect(sisyphusSystem).not.toMatch(/预估开发时间 >5 天/);
     expect(sisyphusSystem).not.toMatch(BANNED_TERM);
+  });
+
+  test('oceanus 通用 Worktree Strategy 与 sisyphus 口径一致：需求级、无任务级 worktree', () => {
+    const oceanusPrompt = buildOceanusPrompt();
+    expect(oceanusPrompt).toMatch(/需求级而非任务级/);
+    expect(oceanusPrompt).toMatch(/严禁为单个任务拉 worktree 分支/);
+    expect(oceanusPrompt).not.toMatch(/per-task Worktree/);
   });
 
   test('复杂度分层口径在 sisyphus / intake / brainstorm 三处一致', () => {
