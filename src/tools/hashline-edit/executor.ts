@@ -11,7 +11,7 @@ import { normalizeHashlineEdits } from "./normalize"
 import type { RawHashlineEdit, HashlineEdit, HashlineErrorCode } from "./types"
 import { applyHashlineEditsWithReport } from "./edits"
 import { canonicalizeFileText, restoreFileText, type FileTextEnvelope } from "./envelope"
-import { countLineDiffs, generateHashlineDiff } from "./diff"
+import { countLineDiffs, generateHashlineDiff, generateUnifiedDiff } from "./diff"
 import { DEFAULT_BOUNDARY_LIMITS, validateFilePath, validateFileSize, type FileBoundaryLimits } from "./boundaries"
 import { HashlineMismatchError } from "./refs"
 
@@ -38,7 +38,10 @@ export interface HashlineFileResult {
   changed: boolean
   before: string
   after: string
+  /** unified diff（LCS、3 行上下文），人类可读，与 git diff 同款格式。 */
   diff: string
+  /** hashline 锚点风格 diff（仅变化行 +/-，带行 hash），供锚点消费方使用。 */
+  hashlineDiff: string
   additions: number
   deletions: number
   noopEdits: number
@@ -148,6 +151,7 @@ export async function applyHashlineEditToFile(
         before: "",
         after: "",
         diff: "",
+        hashlineDiff: "",
         additions: 0,
         deletions: 0,
         noopEdits: 0,
@@ -179,6 +183,7 @@ export async function applyHashlineEditToFile(
         before: "",
         after: "",
         diff: "",
+        hashlineDiff: "",
         additions: 0,
         deletions: 0,
         noopEdits: 0,
@@ -210,6 +215,7 @@ export async function applyHashlineEditToFile(
         before: envelope.content,
         after: envelope.content,
         diff: "",
+        hashlineDiff: "",
         additions: 0,
         deletions: 0,
         noopEdits: applyResult.noopEdits,
@@ -232,7 +238,8 @@ export async function applyHashlineEditToFile(
       changed: true,
       before,
       after,
-      diff: generateHashlineDiff(before, after, filePath),
+      diff: generateUnifiedDiff(before, after, display(filePath) ?? filePath),
+      hashlineDiff: generateHashlineDiff(before, after, filePath),
       additions,
       deletions,
       noopEdits: applyResult.noopEdits,
@@ -249,6 +256,7 @@ export async function applyHashlineEditToFile(
       before: "",
       after: "",
       diff: "",
+      hashlineDiff: "",
       additions: 0,
       deletions: 0,
       noopEdits: 0,
@@ -260,7 +268,7 @@ export async function applyHashlineEditToFile(
 }
 
 function successBase(filePath: string | null): HashlineFileResult {
-  return { ok: false, path: filePath, created: false, changed: false, before: "", after: "", diff: "", additions: 0, deletions: 0, noopEdits: 0, deduplicatedEdits: 0 }
+  return { ok: false, path: filePath, created: false, changed: false, before: "", after: "", diff: "", hashlineDiff: "", additions: 0, deletions: 0, noopEdits: 0, deduplicatedEdits: 0 }
 }
 function failure(filePath: string | null, error: string, errorCode: HashlineErrorCode = "IO_ERROR"): HashlineFileResult { return { ...successBase(filePath), error, errorCode } }
 

@@ -66,6 +66,11 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
 
 - 按文件行 hash 锚点执行 `replace` / `append` / `prepend`，校验文件版本并返回
   结构化 diff。
+- 返回的 `diff` 为 unified diff（LCS、3 行上下文、git diff 同款格式，可直接看到
+  修改处前后对比）；`hashlineDiff` 保留锚点风格（仅变化行 `-`/`+`，带行 hash），
+  供锚点消费方使用；另有 `before` / `after` 全文与 `additions` / `deletions` 统计。
+  受宿主 v2 `ToolResult` 类型限制（仅 text/file content），TUI 无法渲染宿主 `edit`
+  那种原生 diff 视图，以文本呈现。
 - 使用前先 `read` 获取行 hash；hash mismatch（文件已被改动）时返回可操作的重新
   读取提示，**不会静默重试**，需要重新 `read` 后再次编辑。
 - 目标文件必须位于工作区内，受文件大小上限（`maxFileBytes`）约束。

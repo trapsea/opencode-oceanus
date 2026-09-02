@@ -70,6 +70,7 @@ function hashlineErrorResult(pathValue: string | null, message: string, errorCod
     before: '',
     after: '',
     diff: '',
+    hashlineDiff: '',
     additions: 0,
     deletions: 0,
     noopEdits: 0,

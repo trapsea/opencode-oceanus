@@ -161,8 +161,15 @@ describe("applyHashlineEditToFile 集成", () => {
     expect(res.additions).toBe(1)
     expect(res.deletions).toBe(1)
     expect(res.firstChangedLine).toBe(2)
+    // diff 为 unified diff（带 3 行上下文与 @@ hunk 头）
     expect(res.diff).toContain("--- ")
-    expect(res.diff).toContain("+ 2#")
+    expect(res.diff).toContain("@@ ")
+    expect(res.diff).toContain("-b")
+    expect(res.diff).toContain("+B")
+    expect(res.diff).toContain(" a")
+    // hashlineDiff 保留锚点风格（仅变化行 +/-，带行 hash）
+    expect(res.hashlineDiff).toContain("--- ")
+    expect(res.hashlineDiff).toContain("+ 2#")
   })
 
   test("顶层 delete 删除文件", async () => {
