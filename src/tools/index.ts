@@ -48,7 +48,9 @@ function errorResult(message: string, errorCode = 'INVALID_INPUT'): ToolResult {
   return { content: JSON.stringify({ error: message, errorCode }, null, 2) };
 }
 function hashlineErrorResult(pathValue: string | null, message: string, errorCode = 'INVALID_INPUT'): ToolResult {
-  return contentResult({
+  // 声明了 output schema 的工具要求所有返回路径都携带 output 字段（宿主 v2
+  // 工具桥校验 result.output 存在），错误文本同样双写 output/content。
+  const text = JSON.stringify({
     ok: false,
     path: pathValue,
     created: false,
@@ -63,7 +65,8 @@ function hashlineErrorResult(pathValue: string | null, message: string, errorCod
     deduplicatedEdits: 0,
     errorCode,
     error: message,
-  });
+  }, null, 2);
+  return { output: text, content: text };
 }
 
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -220,10 +223,12 @@ function buildHashlineTool(wctx: ToolingContext, config: PluginConfig): ToolDefi
     ...(isHashline ? { options: { permission: 'hashline_edit' } } : {}),
     description:
       '按文件行 hash 锚点执行 replace / append / prepend，校验文件版本并返回结构化 diff。先 read 目标文件取得行锚点（N#hash 前缀），再提交 edits 数组。hash mismatch（文件已变化）时返回可操作的重新读取提示，不会静默重试。目标文件必须位于工作区内；无锚点的 append/prepend 到不存在路径可创建新文件。',
-    // 成功结果携带 output 字段（可读 diff 报告），必须声明 output schema。
+    // 成功与失败路径都必须携带 output 字段（可读文本）并声明 output schema：
+    // 宿主 v2 工具桥对声明了 Info.output 的工具要求 result.output 存在，
+    // 错误路径只返回 content 会报 "Tool did not return its declared output"。
     output: {
       type: 'string',
-      description: '可读结果报告：摘要头（Edited/Created/Renamed/Deleted + 增删统计）+ unified diff + hashlineDiff 锚点段；失败时为结构化 JSON 错误文本',
+      description: '可读结果报告：成功为摘要头（Edited/Created/Renamed/Deleted + 增删统计）+ unified diff + hashlineDiff 锚点段；失败为结构化 JSON 错误文本',
     },
     input: {
       type: 'object',
@@ -299,7 +304,9 @@ function buildHashlineTool(wctx: ToolingContext, config: PluginConfig): ToolDefi
         // content 字符串在各版本映射下兜底，保证 TUI 与模型看到同一份 diff。
         return { output: text, content: text, metadata };
       }
-      return contentResult(result);
+      // 失败同样双写 output/content（声明的 output schema 要求所有路径攗带 output）。
+      const errorText = JSON.stringify(result, null, 2);
+      return { output: errorText, content: errorText };
     },
   });
 }
