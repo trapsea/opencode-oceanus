@@ -98,8 +98,8 @@ export function createDesignerAgent(
     temperature: 0.7,
     // 写入工具族约束按 editing.strategy 切换（与 fixer 一致）：
     // hashline（默认）——宿主 edit/write/apply_patch 目录级移除，写入走
-    // hashline_edit / ast_grep_replace；host——宿主原生写入工具保留，
-    // 锚定/AST 通道可用但不强制。见 constants.ts writerPermissionFor。
+    // edit（hashline 锚定编辑，覆盖内置名）/ ast_grep_replace；host——宿主原生
+    // 写入工具保留，锚定/AST 通道可用但不强制。见 constants.ts writerPermissionFor。
     permission: writerPermissionFor(editStrategy),
   };
 

@@ -64,15 +64,20 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
 
 - 按文件行 hash 锚点执行 `replace` / `append` / `prepend`，校验文件版本并返回
   结构化 diff。
+- **注册名按 `editing.strategy` 切换**（0.42.0+）：
+  - `hashline`（默认）：以内置名 **`edit`** 注册——官方语义"插件工具与内置工具
+    同名时插件优先"。宿主 TUI 按工具名匹配 `edit` 专属渲染器，读取
+    `metadata.filediff`（`{ file, patch }`）渲染**原生 diff 模板**（红绿行、
+    行号、hunk、DiffChanges 增删徽章）；`options.permission` 保持
+    `hashline_edit`（权限表不随注册名漂移）。若某宿主版本重名覆盖不生效，
+    回落 GenericTool 原样展示 output 文本 diff（优雅降级，不会比文本展示更差）。
+  - `host`：保留 `hashline_edit` 原名，与宿主原生 `edit`/`write`/`apply_patch`
+    并存。
 - **成功结果以可读文本呈现**：头部一行摘要（`Edited <path> (+A -D)` /
   `Created` / `Renamed` / `Deleted`）+ unified diff（LCS、3 行上下文、
   git diff 同款格式，`-`/`+` 前后对比直接可见）+ `hashlineDiff:` 锚点段
   （仅变化行，带行 hash，供锚点消费方使用）。同时 `Tool.Result.metadata`
-  携带 `filediff: { file, patch }` 与增删统计。
-  根因说明：宿主 TUI 按工具名精确匹配内置渲染注册表（`edit` 等内置工具才有
-  专属 diff 渲染器），插件工具回落 GenericTool 原样文本展示，且 v2 TUI 插件
-  API 无渲染注册入口；因此以可读文本 + `metadata.filediff`（与宿主 `edit`
-  渲染器消费的字段约定对齐，上游通用化后可直接生效）为最优呈现。
+  携带 `filediff: { file, patch }` 与增删统计——即上文的渲染器消费字段。
 - 失败结果保持结构化 JSON（`ok:false` + `error` / `errorCode`），便于模型
   读取错误语义。
 - 使用前先 `read` 获取行 hash；hash mismatch（文件已被改动）时返回可操作的重新
@@ -84,9 +89,12 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
 
 writer subagent（fixer/designer）的文件编辑工具选择，默认 `"hashline"`：
 
-- `"hashline"`（默认）：锁定锚定通道——宿主 `edit` / `write` / `apply_patch` 共用
-  action `edit`，`deny` 后从工具目录整体移除；定点修改必须走 `hashline_edit`
-  （prompt 中为 MANDATORY 约束），`ast_grep_replace` 显式 `dryRun: false` 后可写。
+- `"hashline"`（默认）：锁定锚定通道——锚定编辑工具以内置名 **`edit`** 注册
+  （官方"插件工具与内置同名时插件优先"语义），TUI 借用宿主 `edit` 渲染器
+  原生渲染 diff 模板；宿主原生 `edit` / `write` / `apply_patch` 共用
+  action `edit`，`deny` 后从工具目录整体移除；定点修改必须走锚定
+  `edit`（prompt 中为 MANDATORY 约束），`ast_grep_replace` 显式
+  `dryRun: false` 后可写。
 - `"host"`：放开宿主原生工具——不 deny `edit`，`edit`/`write`/`apply_patch` 保留在
   工具目录；`hashline_edit` / `ast_grep_replace` 仍可用但不强制，prompt 指引同步
   切换。适合偏好原生体验或锚点工作流不适应的场景。

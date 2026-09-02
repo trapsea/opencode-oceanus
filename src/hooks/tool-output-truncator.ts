@@ -106,7 +106,9 @@ export function isAlreadyTruncated(text: string): boolean {
 
 /** 解析某工具生效的限制。 */
 function resolveLimit(tool: string, limits: ToolOutputTruncatorLimits): number {
-  const per = limits.perToolMaxBytes?.[tool];
+  // 别名：hashline 策略下锚定编辑工具以内置名 `edit` 注册，配置 key 仍是
+  // hashline_edit——按别名回查，保证 perToolMaxBytes 配置继续生效。
+  const per = limits.perToolMaxBytes?.[tool] ?? (tool === 'edit' ? limits.perToolMaxBytes?.['hashline_edit'] : undefined);
   if (typeof per === 'number' && per > 0) return per;
   return limits.defaultMaxBytes;
 }

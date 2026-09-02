@@ -195,9 +195,9 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 |------|------|------|
 | `ast_grep_search` | 按 AST 语法模式搜索 | 只读；支持 `$VAR` / `$$$` 元变量、语言、路径、glob、上下文；受匹配数与输出字节上限、超时保护 |
 | `ast_grep_replace` | 按 AST 语法模式替换 | **默认 dry-run**（只预览不改写）；显式 `dryRun: false` 才真正写入；只改写工作区内的文件 |
-| `hashline_edit` | 按文件行 hash 锚点精确编辑 | 支持 replace / append / prepend，校验文件版本；成功返回可读 unified diff 前后对比（+ metadata.filediff），失败返回结构化 JSON 错误；只允许工作区内文件 |
+| `edit`（hashline 策略注册名，即锚定编辑；host 策略下名 `hashline_edit`） | 按文件行 hash 锚点精确编辑 | 支持 replace / append / prepend，校验文件版本；成功返回 `metadata.filediff` 驱动的原生 diff 模板 + 可读 unified diff 文本（降级展示），失败返回结构化 JSON 错误；只允许工作区内文件 |
 
-`hashline_edit` 使用前应先 `read` 获取行 hash 锚点；出现 hash mismatch（文件已被改动）时返回可操作的重新读取提示，**不会静默重试**，需要重新 `read` 后再编辑。
+锚定编辑（hashline 策略下工具名 `edit`，host 策略下 `hashline_edit`）使用前应先 `read` 获取行 hash 锚点；出现 hash mismatch（文件已被改动）时返回可操作的重新读取提示，**不会静默重试**，需要重新 `read` 后再编辑。
 
 
 默认**关闭**（避免无限保留子会话与副作用重跑风险），通过配置开启：
@@ -307,7 +307,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 - `disabled_hooks`：禁用的 Hook 名称数组，对 Hook 拥有最终禁用权。
 - `tools`：按工具名深合并的结构化配置（见下方「新增工具与运行时保护」）。
 - `hooks`：按 Hook 名深合并的结构化配置（见下方「新增工具与运行时保护」）。
-- `editing`：写入策略配置。字段：`strategy`（`"hashline"` 默认 | `"host"`）——控制 writer subagent（fixer/designer）的编辑工具：`hashline` 锁定 `hashline_edit` 锚定通道（宿主 `edit`/`write`/`apply_patch` 从工具目录移除）；`host` 放开宿主原生工具（锚定/AST 通道仍可用但不强制）。详见 `docs/tooling-and-runtime.md`。
+- `editing`：写入策略配置。字段：`strategy`（`"hashline"` 默认 | `"host"`）——控制 writer subagent（fixer/designer）的编辑工具：`hashline` 把锚定编辑工具以内置名 `edit` 注册（覆盖宿主 edit，借用 TUI 原生 diff 渲染模板；宿主 `edit`/`write`/`apply_patch` 从工具目录移除）；`host` 放开宿主原生工具（`hashline_edit` 原名并存、锚定/AST 通道可用但不强制）。详见 `docs/tooling-and-runtime.md`。
 - `taskReuse`：subagent 会话复用配置，见「subagent 会话复用」小节。字段：`enabled`（默认 `true`，显式 `false` 可关闭）、`ttlMs`（默认 2h）、`maxRetained`（默认 16）。
 
 `presets.<name>.<agent>` 或 `agents.<agent>` 支持的完整字段：

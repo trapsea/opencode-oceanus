@@ -79,6 +79,8 @@ function defineTool(def: {
   input: Record<string, unknown>;
   /** 可选 output schema（JSON Schema）。execute 返回值携带 `output` 字段时必须声明，否则宿主报 "Tool result declared output without an output schema"。 */
   output?: unknown;
+  /** 可选 Tool.Options（permission 等）；注册层会按 DIRECT_TOOL_NAMES 合并 codemode:false。 */
+  options?: ToolDefinition['options'];
   execute(input: any, context: ToolContextLike): Promise<ToolResult>;
 }): ToolDefinition {
   return {
@@ -86,6 +88,7 @@ function defineTool(def: {
     description: def.description,
     input: def.input,
     ...(def.output !== undefined ? { output: def.output } : {}),
+    ...(def.options !== undefined ? { options: def.options } : {}),
     execute: def.execute,
   } as ToolDefinition;
 }
@@ -203,10 +206,20 @@ function buildReplaceTool(wctx: ToolingContext, config: PluginConfig): ToolDefin
 // ─────────────────────────── hashline ───────────────────────────
 
 function buildHashlineTool(wctx: ToolingContext, config: PluginConfig): ToolDefinition {
+  // 注册名按 editing.strategy 切换：
+  // - hashline（默认）：以内置名 `edit` 注册覆盖宿主 edit（官方语义：插件工具
+  //   与内置同名时插件优先）。宿主 TUI 按工具名匹配 edit 专属渲染器，读取
+  //   metadata.filediff 渲染原生 diff 模板（红绿行/行号/hunk/DiffChanges 徽章）；
+  //   若某宿主版本覆盖不生效，回落 GenericTool 原样展示 output 文本（优雅降级）。
+  //   permission action 保持 `hashline_edit`：权限表（read-only deny / writer
+  //   allow）不随注册名漂移，宿主按 action 名匹配权限。
+  // - host：保留 `hashline_edit` 原名，与宿主原生 edit/write/apply_patch 并存。
+  const isHashline = config.editing?.strategy !== 'host';
   return defineTool({
-    name: 'hashline_edit',
+    name: isHashline ? 'edit' : 'hashline_edit',
+    ...(isHashline ? { options: { permission: 'hashline_edit' } } : {}),
     description:
-      '按文件行 hash 锚点执行 replace / append / prepend，校验文件版本并返回结构化 diff。hash mismatch 时返回可操作的重新读取提示，不会静默重试。目标文件必须位于工作区内。',
+      '按文件行 hash 锚点执行 replace / append / prepend，校验文件版本并返回结构化 diff。先 read 目标文件取得行锚点（N#hash 前缀），再提交 edits 数组。hash mismatch（文件已变化）时返回可操作的重新读取提示，不会静默重试。目标文件必须位于工作区内；无锚点的 append/prepend 到不存在路径可创建新文件。',
     // 成功结果携带 output 字段（可读 diff 报告），必须声明 output schema。
     output: {
       type: 'string',
