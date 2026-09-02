@@ -172,6 +172,26 @@ describe("registerAutoUpdate", () => {
     expect(JSON.parse(writes.at(-1)!)).toEqual({ lastCheckedAt: 1_000, lastResult: "update_installed" })
   })
 
+  test("installer 返回 host-reloaded 时记 updated_via_host 且不提示重启；host-pending/void 仍提示重启", async () => {
+    for (const [marker, expectsHost, expectsRestart] of [
+      ["host-reloaded", true, false],
+      ["host-pending", false, true],
+      [undefined, false, true],
+    ] as const) {
+      const logs: Record<string, unknown>[] = []
+      const stream = context([{ type: "session.created", data: { sessionID: "root" } }])
+      const cleanup = registerAutoUpdate(stream.ctx, undefined, deps({
+        storage: { read: async () => null, write: async () => {} },
+        installer: async () => marker,
+        logger: (event) => logs.push(event),
+      }))
+      await tick(); await tick(); await cleanup()
+      expect(logs).toContainEqual(expect.objectContaining({ decision: "update_installed" }))
+      expect(logs.some((l) => l.decision === "updated_via_host")).toBe(expectsHost)
+      expect(logs.some((l) => l.decision === "restart_required")).toBe(expectsRestart)
+    }
+  })
+
   test("cleanup 调用 iterator.return", async () => {
     const stream = context([])
     const cleanup = registerAutoUpdate(stream.ctx, undefined, deps())

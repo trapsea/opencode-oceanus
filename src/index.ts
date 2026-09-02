@@ -14,7 +14,8 @@ import { buildCbmSharedDeps, type CbmWiringInjections } from './cbm/wiring';
 import type { PluginSetupContext } from './runtime/types';
 import { registerAutoUpdate } from './update';
 import { installStaged, resolveOpenCodeInstallContext } from './update/cache';
-import { syncEntryVersion, type ConfigEntry } from './update/config-entry';
+import { syncEntryVersion, PACKAGE_NAME, type ConfigEntry } from './update/config-entry';
+import { hasNativePluginUpdate, updateViaHost, waitForHostVersion } from './update/host-update';
 import { createTaskCoordinator, type TaskCoordinator } from './runtime/task-coordinator';
 import { resolvePluginDirectory } from './runtime/host-adapter';
 import { createCleanupRunner, createHostCleanup, runOptionalStages } from './runtime/setup-stages';
@@ -398,14 +399,56 @@ export async function runSetup(
         const updateCleanup = registerAutoUpdate(ctx as unknown as any, config, {
     logger: (event) => {
       const { event: kind, error, ...meta } = event;
-      const hint = kind === 'restart_required' ? '（新版本已安装到磁盘，重启 OpenCode 后生效）' : '';
+      const hint = kind === 'restart_required'
+        ? '（新版本已安装到磁盘，重启 OpenCode 后生效）'
+        : kind === 'updated_via_host'
+          ? '（宿主已原地热重载，新版本已生效，无需重启）'
+          : '';
       const message = error === undefined ? '' : ` error=${String(error)}`;
       console.warn(`[oceanus:update] ${String(kind)}${message}${hint}`, meta);
     },
-    installer: async (version: string, entry?: ConfigEntry) => {
+    installer: async (version: string, entry?: ConfigEntry): Promise<unknown> => {
       // 入口已由 registerAutoUpdate 过滤（file:/@latest 不会到达这里）；
       // 防御性缺失入口必须显式失败，不得静默返回（否则会被记为 update_installed 假成功）。
       if (!entry) throw new Error('自动更新缺少配置入口，拒绝静默跳过');
+
+      // ── 执行层三级回退 ──────────────────────────────────────────────────────
+      // ① ctx.plugin.update：未来宿主对插件上下文开放时自动启用（探测式，当前未开放）。
+      // ② HTTP 回环：读 service.json 发现宿主后台服务，POST /api/plugin/update。
+      //    宿主自己从 npm 拉最新、写新时间戳缓存目录并在其实例热重载；仅裸名 target
+      //    可用（pinned 与 inventory 不匹配会被 400 / no-op）。
+      // ③ installStaged 自管：pinned 入口（宿主不跟踪不能升级）与 ①② 失败的兜底。
+      const packageRaw = entry.kind === 'string'
+        ? entry.value
+        : String((entry.value as Record<string, unknown>).package ?? '');
+      const hostEligible = packageRaw === PACKAGE_NAME;
+      const directory = (ctx as unknown as { location?: { directory?: string } })?.location?.directory ?? process.cwd();
+
+      if (hostEligible && hasNativePluginUpdate(ctx)) {
+        try {
+          await (ctx as unknown as { plugin: { update: (input: { targets: string[] }) => Promise<unknown> } })
+            .plugin.update({ targets: [PACKAGE_NAME] });
+          // 走到这说明宿主在插件上下文开放了原生通道；返回后不要做任何依赖自身存续的操作。
+          console.warn('[oceanus:update] updated_via_host(ctx)', { latestVersion: version });
+          return 'host-reloaded';
+        } catch (error) {
+          console.warn('[oceanus:update] host(ctx) 更新失败，回退下一层', { error: String(error) });
+        }
+      }
+
+      if (hostEligible) {
+        const ok = await updateViaHost(PACKAGE_NAME, directory);
+        if (ok) {
+          // 若 service.json 指向本实例，后续热重载可能中断这里的等待——仅用于日志提示，
+          // 不做关键路径动作；验证不了也视为成功（文件已由宿主落盘，重启后必然生效）。
+          const reloaded = await waitForHostVersion(PACKAGE_NAME, directory, version);
+          console.warn('[oceanus:update] updated_via_host(http)', { latestVersion: version, reloaded });
+          return reloaded ? 'host-reloaded' : 'host-pending';
+        }
+        console.warn('[oceanus:update] host(http) 不可用，回退自管安装');
+      }
+
+      // ③ 自管：pinned 入口与宿主路径失败的兜底。
       // 从运行时 package.json 推导 OpenCode 实际使用的 install root，把更新发布到
       // OpenCode cache（而非 Oceanus 独立 cache），否则新版本不会被加载。
       const oc = resolveOpenCodeInstallContext();
@@ -430,6 +473,7 @@ export async function runSetup(
         // 配置回写失败不回滚已完成的磁盘更新，只如实记录。
         console.warn('[oceanus:update] config_sync_failed', { file: entry.file, version, error: String(error) });
       }
+      return undefined;
     },
         });
         cleanupRunner.add('auto-update.cleanup', updateCleanup);

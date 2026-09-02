@@ -113,12 +113,18 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
       const decision: UpdateDecision = decide(current, next, { ...entry, file: loadedPath })
        log({ decision, currentVersion: current, latestVersion: next })
        if (decision === "update") {
+         let installMarker: unknown
          try {
            if (!deps.installer) throw new Error("installer 未配置")
-           await deps.installer(next, entry)
+           installMarker = await deps.installer(next, entry)
          } catch (error) { await save("update_failed"); log({ decision: "update_failed", error }); return }
          await save("update_installed"); log({ decision: "update_installed", currentVersion: current, latestVersion: next })
-         log({ decision: "restart_required", currentVersion: current, latestVersion: next })
+         // 宿主路径热重载成功时无需重启；host-pending（跨实例/验证超时）与自管安装仍需重启。
+         if (installMarker === "host-reloaded") {
+           log({ decision: "updated_via_host", currentVersion: current, latestVersion: next })
+         } else {
+           log({ decision: "restart_required", currentVersion: current, latestVersion: next })
+         }
        } else {
          await save(decision)
        }
