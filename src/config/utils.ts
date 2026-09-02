@@ -15,12 +15,14 @@ export interface AutoUpdateResolvedConfig {
   checkIntervalMs: number;
 }
 
+/** 默认 5 分钟：每次插件加载的定时器检查 + 会话事件触发检查都极轻量（一次 registry GET）；
+ * 原 1 小时窗口在"发布→重启→应更新"的真实节奏下反复吞掉更新（状态文件跨进程复用）。 */
 const DEFAULT_AUTO_UPDATE_CONFIG: AutoUpdateResolvedConfig = {
   enabled: true,
-  checkIntervalMs: 3_600_000,
+  checkIntervalMs: 300_000,
 };
 
-/** 获取自动更新配置，缺省时启用并每小时检查一次。 */
+/** 获取自动更新配置，缺省时启用并按 checkIntervalMs（默认 5 分钟）节流检查。 */
 export function getAutoUpdateConfig(
   config?: PluginConfig,
 ): AutoUpdateResolvedConfig {

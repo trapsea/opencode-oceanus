@@ -105,14 +105,14 @@ bun run build
 
 ### 自动升级
 
-插件默认在根会话启动后后台检查 npm 最新稳定版本，每小时最多检查一次，不阻塞插件加载。
+插件默认在加载后 2 秒以及根会话活动时后台检查 npm 最新稳定版本，按 `checkIntervalMs`（默认 5 分钟）节流，不阻塞插件加载；裸名安装走宿主原生 `plugin.update`（热重载免重启），固定版本与旧宿主回退自管安装。
 可通过配置关闭：
 
 ```jsonc
 {
   "autoUpdate": {
     "enabled": false,
-    "checkIntervalMs": 3600000
+    "checkIntervalMs": 300000
   }
 }
 ```
