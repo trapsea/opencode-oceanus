@@ -6,8 +6,8 @@ import { createOracleAgent } from './oracle';
 import { createLibrarianAgent } from './librarian';
 import { createFixerAgent } from './fixer';
 import { createAgents } from './index';
-import { SISYPHUS_BRAINSTORM_SKILL } from '../skills/sisyphus-brainstorm';
-import { SISYPHUS_REVIEW_SKILL } from '../skills/sisyphus-review';
+import { OCEANUS_BRAINSTORM_SKILL } from '../skills/oceanus-brainstorm';
+import { OCEANUS_REVIEW_SKILL } from '../skills/oceanus-review';
 import { CBM_LIFECYCLE, CBM_TOOLS, cbmSection } from '../cbm/registry';
 
 /** 注册工具名来自注册表单一来源（src/cbm/registry.ts）。 */
@@ -34,7 +34,7 @@ describe('CBM-GATE-01 静态提示词契约', () => {
   });
 
   test('Sisyphus 直接完成 Intake，代码/混合任务只尝试一次并 fail-open', () => {
-    const prompt = `${createSisyphusAgent().system!}\n${SISYPHUS_BRAINSTORM_SKILL.content}`;
+    const prompt = `${createSisyphusAgent().system!}\n${OCEANUS_BRAINSTORM_SKILL.content}`;
     expect(prompt).toMatch(/Intake/);
     expect(prompt).toContain('cbm_index');
     expect(prompt).toMatch(/failure[\s\S]*timeout[\s\S]*(starting|stale)|失败[\s\S]*超时[\s\S]*(starting|stale)/i);
@@ -59,7 +59,7 @@ describe('CBM-GATE-01 静态提示词契约', () => {
   });
 
   test('Review 的 subagent、Momus、Sisyphus 证据边界明确', () => {
-    const review = SISYPHUS_REVIEW_SKILL.content;
+    const review = OCEANUS_REVIEW_SKILL.content;
     expect(review).toMatch(/Review subagent.*只读.*不修改代码.*不运行 task/i);
     expect(review).toContain('不能替代 @oracle 进行独立代码审查');
     expect(review).toMatch(/Sisyphus.*负责 spec\/plan\/diff 审查、测试验证和完成审计/);
@@ -69,14 +69,14 @@ describe('CBM-GATE-01 静态提示词契约', () => {
   });
 
   test('Finish 只接受阶段输入且声明禁止动作', () => {
-    const prompt = `${createSisyphusAgent().system!}\n${SISYPHUS_REVIEW_SKILL.content}`;
+    const prompt = `${createSisyphusAgent().system!}\n${OCEANUS_REVIEW_SKILL.content}`;
     expect(prompt).toMatch(/Finish/);
     expect(prompt).toMatch(/input|输入/i);
     expect(prompt).toMatch(/禁止|不得|must not|do not/i);
   });
 
   test('仅引用已注册 CBM 工具并包含初始化规则', () => {
-    const prompts = [buildOceanusPrompt(), createSisyphusAgent().system!, SISYPHUS_BRAINSTORM_SKILL.content, SISYPHUS_REVIEW_SKILL.content];
+    const prompts = [buildOceanusPrompt(), createSisyphusAgent().system!, OCEANUS_BRAINSTORM_SKILL.content, OCEANUS_REVIEW_SKILL.content];
     for (const prompt of prompts) {
       expect(prompt).not.toContain('trace_path');
       for (const match of prompt.matchAll(/\bcbm_[a-z_]+\b/g)) expect(registered).toContain(match[0]);

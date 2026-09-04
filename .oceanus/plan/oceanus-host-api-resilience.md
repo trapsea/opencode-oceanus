@@ -5,7 +5,7 @@
 - Spec：`.oceanus/spec/oceanus-host-api-resilience.md`（用户已批准）
 - TDD：严格 RED → GREEN；每个故障场景先写 mock-host 失败测试。
 - Worktree：用户确认共享工作区、串行执行；禁止 Git 操作。
-- 保护范围：不得修改已有未提交的 `src/agents/*`、`src/skills/sisyphus-execute.ts`、`xx.sql` 或既有删除项。
+- 保护范围：不得修改已有未提交的 `src/agents/*`、`src/skills/oceanus-execute.ts`、`xx.sql` 或既有删除项。
 - Momus：第 1、4 轮 REJECT 均已实质修订；第 2/3/5 轮结果读取故障；独立第 6 轮复审 OKAY，待人工 APPROVED。
 - 执行状态：用户在 R1 开始前要求停止，并扩大为允许且推荐重构的全面审计；本计划已失效，R1/R2 均未修改源码或测试。
 - 影响面预估：CBM 查询因 `index_status_failed:unparsed_status` 降级为文本检索。受影响符号为 public `runSetup`、其生产入口 `Plugin.define(...).setup`、内部共享函数 `applyAgentDefinitions`，以及 `/preset` 通过 `PresetCommandHandlers.reloadAgents` 间接调用的 reload 契约。直接测试调用方为 `src/smoke/cbm-wiring.test.ts`、`src/runtime/production-task-harness.test.ts`、`src/runtime/native-orchestration.e2e.test.ts`。计划不改变对外 API；新增的诊断仅为控制台日志。

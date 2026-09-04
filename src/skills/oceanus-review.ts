@@ -1,12 +1,12 @@
 import type { SkillDefinition } from './types';
 
-const SISYPHUS_REVIEW_SKILL: SkillDefinition = {
-  name: 'sisyphus-review',
+const OCEANUS_REVIEW_SKILL: SkillDefinition = {
+  name: 'oceanus-review',
   description:
     '第 5 阶段——审查：每个阶段结束后执行基于证据的审查门禁，将高强度审查交给 @oracle，并在接受任何发现前用证据核实。由 sisyphus agent 在审查阶段开始时加载。',
   slash: true,
   content: `---
-name: sisyphus-review
+name: oceanus-review
 input: 实现、plan、evidence、tests 与 completionMatrix
 owner: Sisyphus 主 Agent（subagent 只读；Oracle 仅条件委派）
 output: review 报告
@@ -79,4 +79,4 @@ Review subagent 只读检查，不修改代码、不运行 task；测试由 Revi
 `,
 };
 
-export { SISYPHUS_REVIEW_SKILL };
+export { OCEANUS_REVIEW_SKILL };

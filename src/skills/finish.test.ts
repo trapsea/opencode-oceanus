@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { decideFinish, SISYPHUS_FINISH_SKILL, type FinishInput } from './sisyphus-finish';
+import { decideFinish, OCEANUS_FINISH_SKILL, type FinishInput } from './oceanus-finish';
 
-const { content, description } = SISYPHUS_FINISH_SKILL;
+const { content, description } = OCEANUS_FINISH_SKILL;
 
 describe('Finish 自包含判定矩阵', () => {
   const complete: FinishInput = { review: 'accepted', completion: 'green', ledger: 'complete', momus: 'OKAY', human: 'APPROVED', evidence: 'fresh' };

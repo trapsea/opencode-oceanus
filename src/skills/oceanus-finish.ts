@@ -29,12 +29,12 @@ export function decideFinish(input: FinishInput): FinishDecision {
   return { complete: gaps.length === 0, gaps };
 }
 
-const SISYPHUS_FINISH_SKILL: SkillDefinition = {
-  name: 'sisyphus-finish',
+const OCEANUS_FINISH_SKILL: SkillDefinition = {
+  name: 'oceanus-finish',
   description: '阶段 6——Finish：依据审查、完成矩阵、ledger 与门禁状态自包含判定交付状态；只做正常只读交付汇总。',
   slash: true,
   content: `---
-name: sisyphus-finish
+name: oceanus-finish
 description: 阶段 6——Finish：依据审查、完成矩阵、ledger 与门禁状态自包含判定交付状态；只做正常只读交付汇总。
 input: Review 报告、Ledger 与 workspaceRef
 owner: Sisyphus
@@ -56,4 +56,4 @@ Sisyphus 主 Agent 持有最终交付上下文；不委派任何 agent。
 `,
 };
 
-export { SISYPHUS_FINISH_SKILL };
+export { OCEANUS_FINISH_SKILL };

@@ -1,12 +1,12 @@
 import type { SkillDefinition } from './types';
 
-const SISYPHUS_EXECUTE_SKILL: SkillDefinition = {
-  name: 'sisyphus-execute',
+const OCEANUS_EXECUTE_SKILL: SkillDefinition = {
+  name: 'oceanus-execute',
   description:
     'Sisyphus 工作流第 4 阶段——执行。逐项落实任务，使用原生 subagent 工具（background: true）并行派发相互独立的工作，让依赖任务等待终态结果，汇总输出，并保持 todo 列表同步。',
   slash: true,
   content: `---
-name: sisyphus-execute
+name: oceanus-execute
 input: Momus OKAY 的 plan
 owner: Sisyphus 主 Agent；workers 仅持有显式分配的文件范围
 output: 实现与证据
@@ -106,4 +106,4 @@ Sisyphus 主 Agent 持有计划、调度、ledger 与验收上下文；仅将无
 `,
 };
 
-export { SISYPHUS_EXECUTE_SKILL };
+export { OCEANUS_EXECUTE_SKILL };

@@ -1,12 +1,12 @@
 import type { SkillDefinition } from './types';
 
-const SISYPHUS_INTAKE_SKILL: SkillDefinition = {
-  name: 'sisyphus-intake',
+const OCEANUS_INTAKE_SKILL: SkillDefinition = {
+  name: 'oceanus-intake',
  description:
     'Sisyphus Intake — 由 Sisyphus 直接收集并分类最小需求；代码任务初始化 CBM 后输出 intake_report 交给 Brainstorm。',
    slash: true,
   content: `---
-name: sisyphus-intake
+name: oceanus-intake
 description: Sisyphus Intake — 由 Sisyphus 直接收集并分类最小需求；代码任务初始化 CBM 后输出 intake_report 交给 Brainstorm。
 input: 用户请求
 owner: Sisyphus
@@ -62,4 +62,4 @@ humanReview: required
 `,
 };
 
-export { SISYPHUS_INTAKE_SKILL };
+export { OCEANUS_INTAKE_SKILL };

@@ -1,13 +1,13 @@
 import { PLAN_ACCEPTANCE_RUBRIC } from '../agents/protocol';
 import type { SkillDefinition } from './types';
 
-const SISYPHUS_PLAN_SKILL: SkillDefinition = {
-  name: 'sisyphus-plan',
+const OCEANUS_PLAN_SKILL: SkillDefinition = {
+  name: 'oceanus-plan',
   description:
     '第 3 阶段 — 计划：读取 Intake 与已批准的 brainstorm spec，映射文件，合理划分任务，保存计划，在 execute 前通过 @momus 审查，并使用配置决策而不重复询问用户。由 sisyphus agent 在计划阶段开始时加载。',
   slash: true,
   content: `---
-name: sisyphus-plan
+name: oceanus-plan
 input: intake_report 与 spec
 owner: Sisyphus（主 Agent；Momus 仅条件委派并只读审查）
 output: plan 与 Momus verdict
@@ -99,4 +99,4 @@ Human status 只能是 \`APPROVED\`、\`NEEDS_CHANGES\`、\`CANCELLED\` 或 \`PE
 `,
 };
 
-export { SISYPHUS_PLAN_SKILL };
+export { OCEANUS_PLAN_SKILL };

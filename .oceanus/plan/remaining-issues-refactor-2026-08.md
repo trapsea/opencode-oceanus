@@ -26,31 +26,31 @@ Files owner：`src/agents/protocol.ts`、`src/agents/oceanus.ts`、`src/agents/s
 
 ### P2 Skill 文本质量（问题 4、13、14、16 部分）
 
-Files owner：`src/skills/sisyphus-brainstorm.ts`、`src/skills/sisyphus-intake.ts`、`src/skills/stages.test.ts`。
+Files owner：`src/skills/oceanus-brainstorm.ts`、`src/skills/oceanus-intake.ts`、`src/skills/stages.test.ts`。
 
 修正 Brainstorm/Intake 编号、缩进、占位符和工具参数标点边界；测试明确断言两个文件的 `## Steps` 为 1..N 连续编号、无重复 `2.`、无异常前导空格、工具调用示例使用 ASCII 标点。其它 Skill 的 description/frontmatter 与格式归 P3/P4/P5/P6 各自 owner，不在 P2 修改。
 
 ### P3 Plan 双门禁与 impact estimate（问题 5、9）
 
-Files owner：`src/skills/sisyphus-plan.ts`、`src/skills/gate.test.ts`。
+Files owner：`src/skills/oceanus-plan.ts`、`src/skills/gate.test.ts`。
 
 实现 APPROVED/NEEDS_CHANGES/CANCELLED/PENDING、Gate Status、Plan-Change 重审和 Sisyphus impact_estimate；同时修正本文件 `## Steps` 为 1..8 连续编号和 frontmatter/TS description 重复字段。测试四种批准状态、缺失/覆盖不足影响面、Momus 放行条件、编号和字段唯一性。
 
 ### P4 Execute evidence tier（问题 11）
 
-Files owner：`src/skills/sisyphus-execute.ts`、`src/skills/evidence.test.ts`。
+Files owner：`src/skills/oceanus-execute.ts`、`src/skills/evidence.test.ts`。
 
 实现 strict/light/exempt 选择、门禁前置检查、stale evidence 和高风险升级；同时校验 Execute skill 的 frontmatter/TS description 无重复字段。测试三档 tier、证据缺失、升级、重新 Plan 和字段唯一性。
 
 ### P5 Review CBM budget（问题 12）
 
-Files owner：`src/skills/sisyphus-review.ts`、`src/skills/review-budget.test.ts`。
+Files owner：`src/skills/oceanus-review.ts`、`src/skills/review-budget.test.ts`。
 
 实现纯文档跳过、30s 初次 + 60s 一次重试 + 90s 总预算、stale fail-open、Completion Audit tier 校验；同时校验 Review skill 的 frontmatter/TS description 无重复字段。所有 Review 文案和测试归 P5，P9 不修改 Review 文件。
 
 ### P6 Finish 判定（问题 10）
 
-Files owner：`src/skills/sisyphus-finish.ts`、`src/skills/finish.test.ts`。
+Files owner：`src/skills/oceanus-finish.ts`、`src/skills/finish.test.ts`。
 
 删除 `decideFinish`，以 Review 存在、矩阵全绿、ledger 无 failed/blocked/pending、Gate 无 PENDING 进行自包含判定；同时校验 Finish skill 的 frontmatter/TS description 无重复字段。测试所有缺失和全绿组合及字段唯一性。
 
@@ -99,7 +99,7 @@ Review 已确认 P1-P10 的基础测试通过，但发现以下必须补修的�
 
 ### P11 Finish 严格默认拒绝
 
-Files owner：`src/skills/sisyphus-finish.ts`、`src/skills/finish.test.ts`。
+Files owner：`src/skills/oceanus-finish.ts`、`src/skills/finish.test.ts`。
 
 导出纯函数 `decideFinish(input: FinishInput): FinishDecision`；`FinishInput` 至少包含 `reviewStatus: 'accepted' | 'rejected' | 'missing'`、`completionMatrix: 'green' | 'gaps' | 'missing'`、`ledger: 'complete' | 'pending' | 'failed' | 'blocked'`、`momus: 'OKAY' | 'REJECT' | 'PENDING'`、`human: 'APPROVED' | 'NEEDS_CHANGES' | 'CANCELLED' | 'PENDING'`、`evidence: 'fresh' | 'stale' | 'missing'`；`FinishDecision` 为 `{ done: true; gaps: [] }` 或 `{ done: false; gaps: string[] }`。只有 accepted/green/complete/OKAY/APPROVED/fresh 全部满足才完成；所有其它状态默认拒绝。补纯判定函数和完整状态矩阵测试。
 
@@ -130,7 +130,7 @@ Files owner：`docs/prompt-workflow-review-2026-08.md`、`docs/tooling-and-runti
 ### Follow-up acceptance and impact estimate
 
 - P11 必须证明所有负向 Gate 状态默认拒绝；P12 必须证明超时最终收敛且不误回退；P13 必须证明查询不会把异步/陈旧索引当 fresh；P14 必须证明 prompt、registry、guidance、commands 术语与注册表一致。
-- 静态影响面：`SISYPHUS_FINISH_SKILL`、`runCbmCli/runPass`、`createIndexer/guardForQuery/ensureIndexed`、`createCbmGuidanceHook`、`registerOceanusHooks`、`METIS_DEFAULT_PERMISSION`、`createCbmCommand`、`createAgents`、`registerOceanusTools`、`buildCbmTools`、`buildCbmSharedDeps`。CBM 查询若仍不可用，主 Agent 在 `.oceanus/review/Review v1.md` 记录原始响应、会话时间、qualified name/路径/行号、静态调用方和残余不确定性。
+- 静态影响面：`OCEANUS_FINISH_SKILL`、`runCbmCli/runPass`、`createIndexer/guardForQuery/ensureIndexed`、`createCbmGuidanceHook`、`registerOceanusHooks`、`METIS_DEFAULT_PERMISSION`、`createCbmCommand`、`createAgents`、`registerOceanusTools`、`buildCbmTools`、`buildCbmSharedDeps`。CBM 查询若仍不可用，主 Agent 在 `.oceanus/review/Review v1.md` 记录原始响应、会话时间、qualified name/路径/行号、静态调用方和残余不确定性。
 
 ## Gate Status（Review Follow-up）
 

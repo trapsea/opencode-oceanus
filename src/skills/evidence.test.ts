@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { SISYPHUS_SKILLS } from './index';
+import { OCEANUS_SKILLS } from './index';
 
-const execute = SISYPHUS_SKILLS.find((skill) => skill.name === 'sisyphus-execute');
+const execute = OCEANUS_SKILLS.find((skill) => skill.name === 'oceanus-execute');
 
 describe('Execute evidence tier 契约', () => {
   test('阶段说明使用中文自然语言', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { SISYPHUS_REVIEW_SKILL } from './sisyphus-review';
+import { OCEANUS_REVIEW_SKILL } from './oceanus-review';
 
-const { content, description } = SISYPHUS_REVIEW_SKILL;
+const { content, description } = OCEANUS_REVIEW_SKILL;
 
 describe('Review CBM budget/fail-open contract', () => {
   test('纯文档 diff 跳过索引', () => {

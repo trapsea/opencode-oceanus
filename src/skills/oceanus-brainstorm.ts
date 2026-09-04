@@ -1,12 +1,12 @@
 import type { SkillDefinition } from './types';
 
-const SISYPHUS_BRAINSTORM_SKILL: SkillDefinition = {
-  name: 'sisyphus-brainstorm',
+const OCEANUS_BRAINSTORM_SKILL: SkillDefinition = {
+  name: 'oceanus-brainstorm',
   description:
     '阶段 2——Brainstorm：接收需求接收交接，通过一次批量配置问题确认五项执行设置（metis 审核 / momus 审核 / SDD / TDD / 连续执行授权），探索上下文并澄清剩余歧义，按复杂度分层呈现方案，通过单个问题获得方案批准；启用 SDD 时将 spec 保存到 .oceanus/spec/。由 sisyphus agent 在 brainstorm 阶段开始时加载。',
   slash: true,
   content: `---
-name: sisyphus-brainstorm
+name: oceanus-brainstorm
 description: Sisyphus 工作流第 2 阶段——Brainstorm。接收需求接收交接，通过一次批量配置问题确认五项执行设置（metis 审核 / momus 审核 / SDD / TDD / 连续执行授权），探索上下文、澄清剩余歧义，按复杂度分层呈现方案，通过单个问题获得方案批准，并在启用 SDD 时将 spec 保存到 .oceanus/spec/。
 input: intake_report
 owner: Sisyphus
@@ -90,4 +90,4 @@ Spec 自检：目标/范围清楚；每项需求可追溯到设计；数据流�
 `,
 };
 
-export { SISYPHUS_BRAINSTORM_SKILL };
+export { OCEANUS_BRAINSTORM_SKILL };

@@ -5,7 +5,7 @@ import { getAgentDefinitions } from './agents';
 import type { AgentOverrideConfig, PluginConfig } from './config/schema';
 import { loadPluginConfig } from './config/loader';
 import { getUserPresetConfigPath, readUserConfig, switchPresetOnDisk, type Preset } from './config/presets';
-import { SISYPHUS_SKILLS } from './skills';
+import { OCEANUS_SKILLS } from './skills';
 import { createCommands } from './commands';
 import { registerCbmMcp } from './cbm/mcp';
 import { registerOceanusTools } from './tools';
@@ -226,7 +226,7 @@ export async function runSetup(
       name: 'skills',
       run: async () => {
         await ctx.skill.transform((draft) => {
-    for (const skill of SISYPHUS_SKILLS) {
+    for (const skill of OCEANUS_SKILLS) {
       const info = {
         id: skill.name,
         name: skill.name,
@@ -554,8 +554,8 @@ export async function runSetup(
  * - explorer / librarian / oracle / designer / fixer / observer / metis / momus（子 agent，observer 默认禁用）
  *
  * 同时通过 ctx.skill.transform 注入 sisyphus 工作流的六个阶段 Skill
- * （sisyphus-intake / sisyphus-brainstorm / sisyphus-plan / sisyphus-execute /
- * sisyphus-review），
+ * （oceanus-intake / oceanus-brainstorm / oceanus-plan / oceanus-execute /
+ * oceanus-review），
  * 安装插件即可使用，无需拷贝任何 skill 文件。
  *
  * 每个 agent 的模型可通过配置文件独立指定

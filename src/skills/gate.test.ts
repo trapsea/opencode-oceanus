@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { SISYPHUS_PLAN_SKILL } from './sisyphus-plan';
+import { OCEANUS_PLAN_SKILL } from './oceanus-plan';
 
-const content = SISYPHUS_PLAN_SKILL.content;
+const content = OCEANUS_PLAN_SKILL.content;
 
 describe('Plan 双门禁与 impact_estimate 契约', () => {
   test('Plan 说明使用中文自然语言', () => {

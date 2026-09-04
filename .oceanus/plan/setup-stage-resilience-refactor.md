@@ -5,7 +5,7 @@
 - Spec：`.oceanus/spec/setup-stage-resilience-refactor.md`（用户已批准）。
 - Momus：第 1、2 轮 REJECT 均已实质修订；复用会话结果读取异常；独立第 3 轮审查 OKAY，待人工 APPROVED。
 - 影响面：`runSetup`、`applyAgentDefinitions`、`/preset` 的 `reloadAgents`、插件 cleanup 返回值，以及构建产物调用方 `scripts/verify-dist-skills.ts`；CBM 本轮索引超时，待 Momus 查询型复核并 fail-open 记录。
-- 保护范围：不修改已有未提交的 `src/agents/*`、`src/skills/sisyphus-execute.ts`、`xx.sql` 或既有删除项。
+- 保护范围：不修改已有未提交的 `src/agents/*`、`src/skills/oceanus-execute.ts`、`xx.sql` 或既有删除项。
 
 ## 文件映射
 

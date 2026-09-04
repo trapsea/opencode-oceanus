@@ -14,7 +14,7 @@ const SKILL_ANCHORS: Record<
   string,
   { must: RegExp[]; mustNot: RegExp[] }
 > = {
-  'sisyphus-intake': {
+  'oceanus-intake': {
     must: [
       /Sisyphus Intake/,
       /owner:\s*Sisyphus/,
@@ -27,25 +27,25 @@ const SKILL_ANCHORS: Record<
     ],
     mustNot: [/技术方案.*(选择|决策)/, /@metis/],
   },
-  'sisyphus-brainstorm': {
+  'oceanus-brainstorm': {
     must: [
       /cbm_search_graph|cbm_trace/,
       /全量索引|不.*(索引|触发)/,
     ],
     mustNot: [/cbm_index/, /autoIndex[\s\S]{0,80}cbm_status/],
   },
-  'sisyphus-plan': {
+  'oceanus-plan': {
     must: [/intake/i, /brainstorm/i],
     mustNot: [/cbm_index|autoIndex|cbm_status/],
   },
-  'sisyphus-execute': {
+  'oceanus-execute': {
     must: [
       /高风险[\s\S]{0,100}(cbm_trace|cbm_query)[\s\S]{0,100}(影响|impact)/,
       /普通机械修改[\s\S]{0,60}(不强制|无需|可选)/,
     ],
     mustNot: [],
   },
-  'sisyphus-review': {
+  'oceanus-review': {
     must: [
       /Review\s+开始[\s\S]{0,120}[`']?cbm_index[`']?/i,
       /变更入口[\s\S]{0,80}独立验证/,
@@ -53,19 +53,19 @@ const SKILL_ANCHORS: Record<
     ],
     mustNot: [],
   },
-  'sisyphus-finish': {
+  'oceanus-finish': {
     must: [/只读.*Review.*报告/, /不测试|不构建/, /不调用 CBM/, /不委派.*subagent/, /不修改文件/],
     mustNot: [],
   },
 };
 
 const SKILL_NAMES = [
-  'sisyphus-intake',
-  'sisyphus-brainstorm',
-  'sisyphus-plan',
-  'sisyphus-execute',
-  'sisyphus-review',
-  'sisyphus-finish',
+  'oceanus-intake',
+  'oceanus-brainstorm',
+  'oceanus-plan',
+  'oceanus-execute',
+  'oceanus-review',
+  'oceanus-finish',
 ] as const;
 
 function createFakeCtx() {

@@ -24,7 +24,7 @@
 - Depends on：无
 - Files：`src/agents/index.test.ts`
 - 目标：新增提示词契约断言（RED，修复前失败）：
-  - 全部 agent 提示词不含裸工具名 `search_code`（词边界断言，豁免 `websearch/ast_grep_search/cbm_search_graph/task_*/sisyphus-execute`）；
+  - 全部 agent 提示词不含裸工具名 `search_code`（词边界断言，豁免 `websearch/ast_grep_search/cbm_search_graph/task_*/oceanus-execute`）；
   - explorer/fixer/librarian 与共享 RULES 注入的契约句：`grep` 用于文本搜索、宿主工具按当前会话工具目录直接调用、禁止通过 Code Mode `execute` 代理调用工具（用 `toContain` 必需句断言）；
   - 现有 tooling-registration 的 15 工具精确集合断言作为护栏确认无 `read/search/execute` 别名（此部分非 RED，预期即绿）。
 - 验收：提示词断言在 T2 前失败（RED）；注册集合护栏断言即绿；不修改生产代码。

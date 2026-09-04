@@ -95,7 +95,7 @@ Oceanus 正文、`DELEGATION_BRIEF_PROMPT`、Sisyphus `TASK_CONTINUITY`、门禁
 ### 5. 双门禁落地协议
 - 获取：Momus OKAY 后用 `question` 展示 plan 摘要（任务数/文件范围/风险 Top3），选项 APPROVED / 需要修改 / 取消。
 - 记录：plan 固定 `## Gate Status` 字段（momus verdict + round + 时间；human: APPROVED/PENDING/REJECTED+reason）。
-- 放行：execute 开工前必须读到 `human: APPROVED`；`sisyphus-execute` 补齐“只有 @momus 的 OKAY 才能继续执行”的人工门禁；Plan-Change Gate 同步。
+- 放行：execute 开工前必须读到 `human: APPROVED`；`oceanus-execute` 补齐“只有 @momus 的 OKAY 才能继续执行”的人工门禁；Plan-Change Gate 同步。
 - 分流：仅复杂任务启用双门禁；简单任务沿用 slim 式单评审并在 plan status 记录跳过理由（与现有"简单任务可跳过"呼应）。
 - 拒绝/沉默：用户不响应 → 停止并记 `PENDING`，不得自行放行（沿用 `wait_for_user` 边界）。
 
@@ -109,7 +109,7 @@ Oceanus 的 Progress Ledger 改会话级（todo list），删 `progress.md` 引�
 `RUNTIME_GUARDS` 放 Task Lifecycle Tools 之后；其余处删重复解释保留行为规则。
 
 ### 9. 影响面预估上移 Plan
-`sisyphus-plan` 步骤 6 前新增 Sisyphus 自查（cbm_search_graph → cbm_trace → cbm_code，产出 `impact_estimate` 记入 plan）；Momus 检查项第 5 条改为校验 `impact_estimate` 存在性与覆盖（可轻量 spot-check，不做全量 trace）；`sisyphus-review` 对比对象从"momus 预估"改为"plan 的 impact_estimate"；momus.ts 措辞同步。
+`oceanus-plan` 步骤 6 前新增 Sisyphus 自查（cbm_search_graph → cbm_trace → cbm_code，产出 `impact_estimate` 记入 plan）；Momus 检查项第 5 条改为校验 `impact_estimate` 存在性与覆盖（可轻量 spot-check，不做全量 trace）；`oceanus-review` 对比对象从"momus 预估"改为"plan 的 impact_estimate"；momus.ts 措辞同步。
 
 ### 10. decideFinish 处理
 先 `grep -rn "decideFinish" src/` 确认归属：宿主工具则补定义与降级；否则删除，替换为自包含判定（Review v1 存在 + matrix 全绿 + ledger 无 failed/blocked + 无 PENDING 门禁 → 完成；否则如实列为剩余不确定性）。
@@ -155,11 +155,11 @@ Wave 1（互不冲突，可并行）：
   B. 文本/格式修复（问题 13/14/16）                  [src/skills/*.ts, src/agents/metis.ts]
 Wave 2（依赖 Wave1 常量）：
   C. Sisyphus sections 化组装（问题 1）              [oceanus.ts, sisyphus.ts]
-  D. 门禁协议修齐（问题 5/9/12）                     [sisyphus-plan/execute/review.ts, momus.ts]
+  D. 门禁协议修齐（问题 5/9/12）                     [oceanus-plan/execute/review.ts, momus.ts]
 Wave 3（依赖 C）：
   E. 编号重排 + Verify 增强（问题 2）                [oceanus.ts]
   F. 禁用过滤参数化（问题 15）+ 语言外移（问题 4 缩小版） [oceanus.ts]
-  G. D-1 plan header 模板（含问题 11 声明式开关）+ D-2 finish 收尾协议（替换 decideFinish，问题 10） [sisyphus-plan/execute/review/finish.ts]
+  G. D-1 plan header 模板（含问题 11 声明式开关）+ D-2 finish 收尾协议（替换 decideFinish，问题 10） [oceanus-plan/execute/review/finish.ts]
 Wave 4：
   H. D-4 skill 迁移 SKILL.md + D-6 wave 统一提交 + D-7 轮询/唤醒确认 + D-5 CBM 下沉
 Backlog：D-3 council、promptVariant
