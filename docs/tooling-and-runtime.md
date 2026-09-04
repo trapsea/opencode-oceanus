@@ -12,7 +12,7 @@ prompt 契约驱动：Agent 负责编排与委派，Skill 规定阶段边界；�
 Brainstorm 前置的执行配置批问确认——一次 question 批量问五项，各带推荐值及
 依据（Metis/Momus 依据=预估拆分任务数与需求复杂度，其余依据=预估任务数），漏答回落
 推荐值并记录、不补问；方案方向由方案总批准单问覆盖。Momus 审核=开时 Plan 必须经过
-`@momus` 的 `OKAY` + 有效方案总批准；关闭时降级为仅人工批准并记录 SKIPPED_BY_USER。
+`@momus` 的 `OKAY` + 有效方案总批准；关闭时降级为仅人工批准并记录 `SKIPPED_BY_USER`。
 Review 由 review subagent、`@momus` 复核并运行测试。Finish 只读 Review 报告，不再测试、
 构建、调用 CBM、委派或写文件。
 
@@ -33,7 +33,7 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
   `codemode: false`。`permission` 不单独设置：宿主以工具名作为 permission
   action，与 `READONLY_DEFAULT_PERMISSION` 的 deny key（ast_grep_replace
   等）对齐，只读 agent 的写入边界经宿主权限系统直接生效。
-  Agent prompt 中"call directly, never through a Code Mode `execute` proxy"
+  Agent prompt 中“直接调用，不要通过 Code Mode 的 `execute` proxy”
   的既有措辞在直接化后语义更准（这些工具与宿主工具同级），无需弱化。
 - **写入 subagent 的工具族约束（WRITER_TOOL_PERMISSION）**：文件编辑使用宿主原生
   `edit` / `write` / `apply_patch`（原生 diff 渲染与模型通用心智）；`ast_grep_replace`
@@ -59,7 +59,7 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
 
 ## 内置 Hook
 
-固定执行顺序：无 coordinator 的 mock 注册为 3 个 before、5 个 after；生产接线另含
+固定执行顺序：无 `coordinator` 的 `mock` 注册为 3 个 `before`、5 个 `after`；生产接线另含
 `image_materializer` / `image_error_hint` 是 session hook，只有真实 Host 暴露相应 API
 时才注册，不计入上述 execute Hook 数量。
 
@@ -149,8 +149,8 @@ CLI 集成并输出诊断**，不把环境缺失误报为产品失败。
 
 - 单元测试覆盖工具参数、CLI 解析、CBM 与各 Hook。
 - `src/tooling-integration.test.ts` / `src/smoke/host-smoke.test.ts` 在 bun test 下用 mock ctx
-  验证注册契约（Oceanus 工具 + CBM 工具、before + after Hook 的数量与顺序）；生产 coordinator 接线还会
-  注册 subagent bridge，实际为 4 个 before + 6 个 after。
+  验证注册契约（Oceanus 工具 + CBM 工具、`before` + `after` Hook 的数量与顺序）；生产 `coordinator` 接线还会
+  注册子代理桥接，实际为 4 个 `before` + 6 个 `after`。
 - 真实 ast-grep CLI 集成测试仅在探针确认可用时运行（`describe.skipIf`）。
 - 真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内
   执行插件时验证；当前 smoke 主要是 mock ctx 注册契约，真实 Host/CLI 成功**未宣称、未默认验证**。

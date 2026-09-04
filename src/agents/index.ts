@@ -58,7 +58,7 @@ function parseModelString(input: string): ModelRef | undefined {
     return { id: ref.id, providerID: ref.providerID, variant: ref.variant };
   } catch (error) {
     console.warn(
-      `[opencode-oceanus] Invalid model ref "${input}":`,
+      `[opencode-oceanus] 无效的模型引用 "${input}":`,
       error instanceof Error ? error.message : String(error),
     );
     return undefined;

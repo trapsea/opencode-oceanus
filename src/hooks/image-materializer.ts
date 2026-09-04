@@ -3,14 +3,14 @@
  *
  * 通过 `ctx.session.hook("prompt")` 在附件进入模型前拦截：
  * - `data:image/*` 附件 → 物化到 `<workspace>/.oceanus/media/`，
- *   以内容 hash 命名（retry-safe：hook 并发重入时幂等，不重复写盘）；
+ *   以内容 hash 命名（重试安全：hook 并发重入时幂等，不重复写盘）；
  * - `orchestratorVision === "false"` 时：把图片附件从 `files` 移除
- *   （非视觉主模型，避免宿主报 "does not support image input"），
+ *   （非视觉主模型，避免宿主报告“不支持图片输入”），
  *   并在 text 末尾追加路径指引，提示主 agent 委派 @observer；
  * - `true` / `auto`：保留图片附件（data: URI 替换为 file://），同样追加路径提示。
  *
  * 设计文档：.oceanus/spec/clipboard-image-observer-workflow.md §3.4。
- * 全程 fail-open：任何异常仅记日志，绝不阻塞 prompt admission。
+ * 全程故障开放：任何异常仅记日志，绝不阻塞 prompt 接纳。
  */
 import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -106,8 +106,8 @@ export async function materializePromptImages(
       // 非视觉主模型：移除图片 part（防止宿主报错）；视觉模型：替换为 file:// 路径。
       if (visionSupported) nextFiles.push({ uri: `file://${path}` });
     } catch (e) {
-      // 物化失败 fail-open：保留原 part，不影响 admission。
-      log('[oceanus] 图片物化失败（fail-open）', {
+      // 物化失败时故障开放：保留原 part，不影响接纳。
+      log('[oceanus] 图片物化失败（故障开放）', {
         error: e instanceof Error ? e.message : String(e),
       });
       nextFiles.push(file);
@@ -126,7 +126,7 @@ export async function materializePromptImages(
  * 注册 prompt 物化 hook（仅 prompt；retry 兜底提示见 image-error-hint.ts）。
  *
  * beta-18743 的 `SessionDomain` hook 名联合已正式覆盖 `prompt`；注册仍保留
- * 接线层的运行时能力探测（类型声明不等于运行时保证）并 fail-open。参数采用
+ * 接线层的运行时能力探测（类型声明不等于运行时保证）并故障开放。参数采用
  * 最小结构形状（官方 `SessionPrompt` 的可用子集，经 `unknown` 显式窄化），
  * 不得因类型已声明而移除本注册。
  * retry hook 与 prompt hook 能力相互独立，不能从 prompt 可用推断 retry 可用。

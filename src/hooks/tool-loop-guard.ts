@@ -1,5 +1,5 @@
 /**
- * Tool loop guard.
+ * 工具循环保护。
  *
  * 检测一个 session 连续重复发出完全相同的工具调用（相同 tool + 相同参数），
  * 这是模型侧无限循环的典型表现（参考 issue #1071：子代理无限重复相同
@@ -57,7 +57,7 @@ export const LOOP_GUARD_BLOCK_TOOLS: Record<string, true> = {
   glob: true,
 };
 
-export const LOOP_GUARD_MARKER = '[REPEATED TOOL CALLS - STOP]';
+export const LOOP_GUARD_MARKER = '[重复工具调用 - 停止]';
 
 /**
  * 生成告警文案；使用实际 warnAt 以便阈值可配置后文案仍准确。
@@ -66,12 +66,12 @@ export function buildLoopGuardWarning(warnAt: number): string {
   return `
 ${LOOP_GUARD_MARKER}
 
-You have issued the exact same tool call with identical arguments ${warnAt} times in a row and received identical results. This is an infinite loop and you are making no progress.
+你已连续 ${warnAt} 次发出参数完全相同的工具调用，并收到相同结果。这是无限循环，你没有取得进展。
 
-STOP repeating this call. Instead:
-1. Reconsider what you are looking for; the result above already contains what this call can tell you.
-2. If you need different information, make a DIFFERENT call (different path, pattern, or tool).
-3. If the task is actually done, produce your final answer now instead of calling more tools.
+停止重复此调用，改为：
+1. 重新考虑你要查找的内容；上方结果已经包含此调用能提供的信息。
+2. 如果需要不同信息，请发起不同调用（不同路径、模式或工具）。
+3. 如果任务已经完成，现在直接给出最终答复，不要继续调用工具。
 `;
 }
 
@@ -213,13 +213,13 @@ export function createToolLoopGuardHook(
         existing.runs >= blockAt &&
         LOOP_GUARD_BLOCK_TOOLS[tool]
       ) {
-        log('[tool-loop-guard] blocked repeated tool call', {
+        log('[tool-loop-guard] 已阻止重复工具调用', {
           sessionID,
           tool,
           runs: existing.runs,
         });
         throw new Error(
-          `Refusing to execute "${tool}": this exact call (same tool, same arguments) has returned identical results ${existing.runs} times in a row and constitutes an infinite loop. Stop repeating it. Reassess your goal, make a different call, or produce your final answer.`,
+          `拒绝执行“${tool}”：此完全相同的调用（相同工具、相同参数）已连续 ${existing.runs} 次返回相同结果，构成无限循环。请停止重复，重新评估目标，发起不同调用，或给出最终答复。`,
         );
       }
 
@@ -277,7 +277,7 @@ export function createToolLoopGuardHook(
       // 追加告警到可变的文本字段（v2 结果文本在 result.content 或 result.output）。
       if (typeof result.content === 'string') {
         if (result.content.includes(LOOP_GUARD_MARKER)) return;
-        log('[tool-loop-guard] warned repeated tool call', {
+         log('[tool-loop-guard] 已警告重复工具调用', {
           sessionID,
           tool,
           runs: state.runs,
@@ -301,12 +301,12 @@ export function createToolLoopGuardHook(
             break;
           }
         }
-        // fail-open：数组为空或没有文本项时静默跳过，不抛错。
+        // 故障开放：数组为空或没有文本项时静默跳过，不抛错。
         if (textIndex === -1) return;
         const textItem = result.content[textIndex];
         // marker 幂等：文本项已含 marker 则不重复追加。
         if (textItem.text.includes(LOOP_GUARD_MARKER)) return;
-        log('[tool-loop-guard] warned repeated tool call', {
+         log('[tool-loop-guard] 已警告重复工具调用', {
           sessionID,
           tool,
           runs: state.runs,
@@ -318,7 +318,7 @@ export function createToolLoopGuardHook(
       }
       if (typeof result.output === 'string') {
         if (result.output.includes(LOOP_GUARD_MARKER)) return;
-        log('[tool-loop-guard] warned repeated tool call', {
+         log('[tool-loop-guard] 已警告重复工具调用', {
           sessionID,
           tool,
           runs: state.runs,

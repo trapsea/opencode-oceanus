@@ -161,7 +161,7 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 |-------|------|
 | `opencode-oceanus` | 说明 Oceanus 配置、preset 优先级、v2 限制及 `/preset` 命令 |
 | `sisyphus-brainstorm` | 探索上下文、先以执行配置批问（一问五项：Metis 审核/Momus 审核/SDD/TDD/连续执行授权，各带推荐值及依据）确认执行配置、研究优先澄清需求、按复杂度分层呈现方案（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）、再以方案总批准单问完成方向批准；SDD 开启时保存设计 spec 到 `.oceanus/spec/` |
-| `sisyphus-plan` | 映射文件、right-size 任务、保存实现计划到 `.oceanus/plan/`、Momus 审核=开时经 `@momus` 门禁（关闭时记录 SKIPPED_BY_USER 仅保留人工门禁）、消费执行配置批问中的 Metis/Momus/TDD 决策（不重复提问） |
+| `sisyphus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、Momus 审核=开时经 `@momus` 门禁（关闭时记录 `SKIPPED_BY_USER` 仅保留人工门禁）、消费执行配置批问中的 Metis/Momus/TDD 决策（不重复提问） |
 | `sisyphus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类与 CBM 初始化 |
 | `sisyphus-execute` | 按计划实现、后台并行委派 `task(run_in_background=true)`、同步 todo 状态 |
 | `sisyphus-review` | 阶段间证据化评审、重评审转交 @oracle、验证发现后才接受 |
@@ -178,7 +178,7 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 |------|------|-------------|
 | **Intake** | `Sisyphus 直接了解背景、完成最小需求 intake、分类任务，并在代码任务中初始化 CBM；不做方案决策 | Intake 结构化摘要 |
 | **Brainstorm** | Sisyphus 负责澄清与决策；先以执行配置批问（一问五项：Metis 审核/Momus 审核/SDD/TDD/连续执行授权，各带推荐值及依据）确认执行配置；调研按分层规则条件委派 `@metis`（Metis 审核=开时 Architecture 默认、Standard 两波自查后仍有未知才委派、Trivial 不委派）；澄清完成后以方案总批准单问完成方向批准 | `.oceanus/spec/` |
-| **Plan** | Sisyphus 负责拆分任务并维护进度 ledger；Momus 审核=开时 `@momus` 做方案质量门禁（人工批准由 Brainstorm 方案总批准覆盖，不重复提问），输出 `OKAY` / `REJECT`；关闭时记录 SKIPPED_BY_USER 仅保留人工门禁 | `.oceanus/plan/` + 批准记录 |
+| **Plan** | Sisyphus 负责拆分任务并维护进度台账；Momus 审核=开时 `@momus` 做方案质量门禁（人工批准由 Brainstorm 方案总批准覆盖，不重复提问），输出 `OKAY` / `REJECT`；关闭时记录 `SKIPPED_BY_USER` 仅保留人工门禁 | `.oceanus/plan/` + 批准记录 |
 | **Execute** | `fixer` / `designer` 实现；若计划发生实质变化或执行失败需重规划，回到 Plan 并**重新经过 momus** | 代码变更 + 更新后的计划 |
 | **Review** | 阶段开始先直接刷新当前项目 CBM 索引，再做证据化审查；高风险变更由 `@oracle` 独立审查 | 审查结论 |
 | **Finish** | Sisyphus 只读 Review 报告并收口，不测试、不构建、不调用 CBM、不委派、不修改文件 | 交付总结 |
@@ -218,7 +218,7 @@ Hook 通过 `execute.before` / `execute.after` 注册，每个 Hook 独立容错
 
 | Hook | 位置 | 作用 | 失败边界 |
 |------|------|------|----------|
-| `apply_patch` | before | 校验并保守规范化 `apply_patch` 输入（解析 Codex 风格 patch、路径边界、无损重写） | 工作区外路径、只读输入 **fail-open**（交由宿主处理）；输入/校验/内部异常 **fail-closed**（抛错阻断执行） |
+| `apply_patch` | `before` | 校验并保守规范化 `apply_patch` 输入（解析 Codex 风格 patch、路径边界、无损重写） | 工作区外路径、只读输入 **`fail-open`**（交由宿主处理）；输入/校验/内部异常 **`fail-closed`**（抛错阻断执行） |
 | `json_error_recovery` | after | 修正工具返回的错误 JSON 参数，避免错误被当作结果吞掉 | **fail-open**：恢复失败不阻断已完成结果 |
 | `tool_output_truncator` | after | 截断超长工具输出，避免破坏上下文 | **fail-open**，保留错误、状态、diff 与 hash mismatch 等控制信息 |
 

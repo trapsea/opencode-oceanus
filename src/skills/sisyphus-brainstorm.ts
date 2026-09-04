@@ -3,11 +3,11 @@ import type { SkillDefinition } from './types';
 const SISYPHUS_BRAINSTORM_SKILL: SkillDefinition = {
   name: 'sisyphus-brainstorm',
   description:
-    'Phase 2 — Brainstorm: consume the Intake handoff, confirm five execution settings (metis audit / momus audit / SDD / TDD / continuous-execution authorization) via one batched configuration question, then explore context, clarify remaining ambiguities, present approaches tiered by complexity, and obtain approach approval via a single question; save the spec to .oceanus/spec/ when SDD is enabled. Loaded by the sisyphus agent at the start of the brainstorm phase.',
+    '阶段 2——Brainstorm：接收需求接收交接，通过一次批量配置问题确认五项执行设置（metis 审核 / momus 审核 / SDD / TDD / 连续执行授权），探索上下文并澄清剩余歧义，按复杂度分层呈现方案，通过单个问题获得方案批准；启用 SDD 时将 spec 保存到 .oceanus/spec/。由 sisyphus agent 在 brainstorm 阶段开始时加载。',
   slash: true,
   content: `---
 name: sisyphus-brainstorm
-description: Phase 2 of the Sisyphus workflow — Brainstorm. Consume the Intake handoff, confirm five execution settings (metis audit / momus audit / SDD / TDD / continuous-execution authorization) via one batched configuration question, explore context, clarify remaining ambiguities, present approaches tiered by complexity, obtain approach approval via a single question, and save the spec to .oceanus/spec/ when SDD is enabled.
+description: Sisyphus 工作流第 2 阶段——Brainstorm。接收需求接收交接，通过一次批量配置问题确认五项执行设置（metis 审核 / momus 审核 / SDD / TDD / 连续执行授权），探索上下文、澄清剩余歧义，按复杂度分层呈现方案，通过单个问题获得方案批准，并在启用 SDD 时将 spec 保存到 .oceanus/spec/。
 input: intake_report
 owner: Sisyphus
 output: approved spec
@@ -18,14 +18,14 @@ verification: 批准与 spec 审计
 humanReview: required
 ---
 
-# Sisyphus Phase 2 — Brainstorm
+# Sisyphus 阶段 2——Brainstorm
 
-## Goal
-Turn a vague request into an approved design spec before any code is written.
+## 目标
+在编写任何代码前，将模糊请求转化为已批准的设计 spec。
 
-## Steps
-1. **Consume Intake** — load the completed Intake handoff and use its goal, scope, acceptance criteria, risks, constraints, and open questions as the starting contract; do not silently rewrite Intake decisions.
-2. **执行配置批问（Configuration Questions，一问五项）** — 基于 intake_report 的复杂度与初步范围预估，在任何 @metis 委派之前，用一次 question 批量询问五项执行配置，每项给出推荐值及依据；漏答或含糊项回落推荐值并记录，不补问；Trivial 同样完整批问。
+## 步骤
+1. **接收 Intake**——加载已完成的 Intake 交接，以其目标、范围、验收标准、风险、约束和开放问题作为起始契约；不得悄然改写 Intake 决策。
+2. **执行配置批问（配置问题，一问五项）** — 基于 intake_report 的复杂度与初步范围预估，在任何 @metis 委派之前，用一次 question 批量询问五项执行配置，每项给出推荐值及依据；漏答或含糊项回落推荐值并记录，不补问；Trivial 同样完整批问。
    - **Metis 审核**：预估拆分 >12 个任务或 \`architecture\` 复杂度 → 推荐「开」（开启后按步骤 3/5 分层规则执行调研与条件方案审核）；否则 → 推荐「关」（跳过全部 metis 委派，spec 的 Metis 分析小节记「用户关闭」与残余风险）。
    - **Momus 审核**：预估拆分 >12 个任务或 \`architecture\` 复杂度 → 推荐「开」（plan 阶段 Momus OKAY + 方案总批准双门禁照常）；否则 → 推荐「关」（plan 仅保留方案总批准人工门禁，skipped-by-user 与残余风险记入 plan status，不得伪造 OKAY）。
    - **SDD**：预估拆分 >12 个任务 → 推荐「开」（spec/plan/ledger/review 文档落盘）；≤12 个 → 推荐「关」（会话内 todo 维护，不落盘）。
@@ -38,9 +38,9 @@ Turn a vague request into an approved design spec before any code is written.
    - **Trivial**：单一方案精简呈现（一句话概述 / 验收标准 / 主要风险），无需 Metis 七维度全展开；
    - **Standard**：推荐方案 + 至多 1 个备选，按维度精简呈现（概述、需求覆盖、权衡、风险、边界与反例）；
    - **Architecture**：2-3 个方案按 @metis 的分析维度完整呈现，使其可直接进入 SOLUTION_ANALYSIS 验证而不是被重建或打回补料。每个方案包含：
-     - **一句话概述**：方案是什么、解决什么；
+    - **一句话概述**：方案是什么、解决什么；
      - **需求覆盖**：覆盖的目标、边界与验收标准（含明确不覆盖的）；
-     - **权衡（trade-offs）**：质量 / 速度 / 成本 / 风险四个维度的对比结论；
+      - **权衡（取舍）**：质量 / 速度 / 成本 / 风险四个维度的对比结论；
      - **依赖与迁移**：依赖的模块/库/接口、迁移与回滚路径；
      - **风险**：实现阶段最可能出错、成本最高的点；
      - **边界与非目标**：该方案明确不做什么、不可触达的范围；
@@ -52,11 +52,11 @@ spec 必须是下游无聊天上下文执行者可独立消费的设计文档，
 \`\`\`markdown
 # <标题>
 Status: approved | draft | blocked
-## Goal
+## 目标
 ## Context（术语、现状、接口与数据流定义）
-## Scope
-## Non-goals
-## Requirements
+## 范围
+## 非目标
+## 需求
 ## Architecture / Design
 ## Tech Stack / Constraints
 ## Decisions & Alternatives
@@ -67,10 +67,10 @@ Status: approved | draft | blocked
 ## Files touched map（文件、符号/区域、变更目的）
 ## Metis Analysis（七维：需求缺口、风险、边界与非目标、反例、依赖、迁移/回滚、验收；若跳过须写明确原因）
 \`\`\`
-禁止 \`TBD\`、\`TODO\`、\`later\`、占位符、未定义引用及“write tests for above”等空泛语句；接口、术语、输入输出和失败语义必须定义。
+禁止 \`TBD\`、\`TODO\`、\`later\`、占位符、未定义引用及“为上述内容编写测试”等空泛语句；接口、术语、输入输出和失败语义必须定义。
 Spec 自检：目标/范围清楚；每项需求可追溯到设计；数据流和边界已写明；文件地图完整；验收可复现；Metis 七维或跳过原因完整；无计划细节与禁止占位符。
 ## Checklist
-- [ ] Context explored (files read, not guessed)
+- [ ] 已探索上下文（已读取文件，而非凭空猜测）
 - [ ] 执行配置批问完成：一问五项（Metis 审核/Momus 审核/SDD/TDD/连续执行授权）均带推荐值及依据，漏答回落推荐值并记录，不补问，Trivial 亦完整批问，无补问
 - [ ] 分层调研完成（Metis 审核=开时）：Architecture 已委派并消费 @metis BACKGROUND_RESEARCH research_brief（task_id 已记录）；Standard 已自查或按条件委派；Trivial 仅最小自查；Metis 审核=关时确认无任何 @metis 委派且已记录
 - [ ] 研究先行：能由研究解决的疑问未转嫁给用户；研究后仍存疑的需求歧义已用 \`question\` 澄清
@@ -79,13 +79,13 @@ Spec 自检：目标/范围清楚；每项需求可追溯到设计；数据流�
 - [ ] 方案总批准完成：单问主问方案方向、三固定选项，不携带配置默认值，无补问
 - [ ] SDD 抉择已执行：开启时 spec 已保存到 \`.oceanus/spec/ 下按任务名称生成的 Markdown 文件\`（含 Metis 分析字段），未开启时确认无流程文档落盘
 
-## Rules
-- Never write implementation code during brainstorm.
-- 若满足条件（Metis 审核=开），Run @metis **before** finalizing the approach and before presenting the design for approval; it belongs after explore/clarify and before the proposal is fixed.
-- When @metis is disabled or 用户在配置批问中关闭 Metis 审核，do not claim the pre-proposal analysis was completed; record the degradation: mark the Metis 分析 section as "Metis 已禁用/用户关闭，未执行分析" and state the residual risk honestly.
-- Be honest about skipped or disabled analysis: if @metis was skipped for a simple task, write the skip reason; if it was disabled or turned off by the user, say so instead of implying coverage.
-- If the request is already precise and low-risk, propose the design directly without gratuitous questioning.
-- If the request is vague, ask before assuming.
+## 规则
+- 不得在 brainstorm 期间编写实现代码。
+- 若满足条件（Metis 审核=开），须在确定方案并呈现设计供批准**之前**运行 @metis；它应位于探索/澄清之后、方案定稿之前。
+- 当 @metis 被禁用或用户在配置批问中关闭 Metis 审核时，不得声称已完成方案前分析；记录降级情况：将 Metis 分析部分标记为“Metis 已禁用/用户关闭，未执行分析”，并如实说明残余风险。
+- 对跳过或禁用的分析保持诚实：若简单任务跳过 @metis，写明跳过原因；若被禁用或用户关闭，应明确说明，不得暗示已覆盖。
+- 如果请求已经明确且风险较低，直接提出设计，不做无必要的提问。
+- 如果请求含糊，先询问再假设。
 - 推荐值必须与推荐规则一致并在批问选项说明中带出；连续执行授权默认授予，不得虚构。
 `,
 };

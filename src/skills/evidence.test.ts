@@ -4,6 +4,9 @@ import { SISYPHUS_SKILLS } from './index';
 const execute = SISYPHUS_SKILLS.find((skill) => skill.name === 'sisyphus-execute');
 
 describe('Execute evidence tier 契约', () => {
+  test('阶段说明使用中文自然语言', () => {
+    expect(execute?.content ?? '').not.toMatch(/You must|The following|Evidence tier/);
+  });
   test('声明三档 tier 及各自证据要求', () => {
     const content = execute?.content ?? '';
     expect(content).toMatch(/strict[\s\S]*RED[\s\S]*GREEN[\s\S]*real-surface/);
@@ -24,10 +27,10 @@ describe('Execute evidence tier 契约', () => {
     expect(content).toMatch(/TDD × Evidence Tier 组合矩阵/);
     expect(content).toMatch(/strict \+ TDD on[\s\S]*RED \+ GREEN \+ real-surface/);
     expect(content).toMatch(/strict \+ TDD off[\s\S]*characterization[\s\S]*不得伪称存在 RED/);
-    // No-production-first 回退义务限定为 TDD on
-    expect(content).toMatch(/No production-first.*仅 TDD on 时适用/);
+    // 禁止先写生产代码的回退义务限定为 TDD on
+    expect(content).toMatch(/禁止先写生产代码.*仅 TDD on 时适用/);
     // 两份证明的 code proof 定义按 TDD 开关分流
-    expect(content).toMatch(/code proof \(TDD on: RED output \+ GREEN output of the same test; TDD off: characterization baseline \+ final-state GREEN\)/);
+    expect(content).toMatch(/代码证明（TDD on：同一测试的 RED 输出 \+ GREEN 输出；TDD off：characterization 基线 \+ 最终状态 GREEN）/);
   });
 
   test('Plan-Change 使门禁失效并要求重审', () => {

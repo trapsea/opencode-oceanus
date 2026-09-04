@@ -8,17 +8,17 @@ import type { SkillDefinition } from './types';
 const CLIPBOARD_IMAGE_OBSERVER_SKILL: SkillDefinition = {
   name: 'clipboard-image-observer',
   description:
-    'Unified image workflow: materialize pasted/screenshot images to a file, grade the analysis depth (L1-L5) per task understanding, dispatch @observer with the matching output template, and integrate the structured result. Frontend restoration tasks additionally follow the designer/fixer split with L5 visual acceptance as the completion gate.',
+    '统一图片流程：将粘贴/截图图片落盘，按任务理解划分分析深度（L1-L5），使用匹配的输出模板委派 @observer，并整合结构化结果。前端还原任务还需遵循 designer/fixer 分工，以 L5 视觉验收作为完成门禁。',
   slash: true,
   content: `---
 name: clipboard-image-observer
-description: Unified image workflow — materialize to a file, grade analysis depth (L1-L5), dispatch @observer with the graded template, integrate the result. Use whenever the user pastes or mentions an image, a "does not support image input" error appears, an [oceanus] materialized image path hint is present, or any image/screenshot/PDF needs visual analysis.
+ description: 统一图片流程——落盘到文件，划分分析深度（L1-L5），使用分级模板委派 @observer，并整合结果。用户粘贴或提到图片、出现“当前不支持图片输入”错误、存在 [oceanus] 已物化图片路径提示，或任何图片/截图/PDF 需要视觉分析时使用。
 ---
 
-# Skill: clipboard-image-observer（图片落盘 + Observer 分级分析统一流程）
+# 技能：clipboard-image-observer（图片落盘 + Observer 分级分析统一流程）
 
 ## 触发条件
-- 用户粘贴/提到截图、图片，且出现 "does not support image input" 类错误；或
+- 用户粘贴/提到截图、图片，且出现“当前不支持图片输入”类错误；或
 - 用户消息包含已物化的图片路径（[oceanus] 已物化图片附件: ...）；或
 - 任何需要理解图片/截图/图表/PDF 视觉内容的任务（含前端 UI 还原、报错截图解读、图表解读等）。
 

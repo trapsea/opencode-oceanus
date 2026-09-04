@@ -14,6 +14,9 @@ import { CBM_LIFECYCLE, CBM_TOOLS, cbmSection } from '../cbm/registry';
 const registered = CBM_TOOLS;
 
 describe('CBM-GATE-01 静态提示词契约', () => {
+  test('提示词自然语言使用中文', () => {
+    expect(createSisyphusAgent().system!).not.toMatch(/You are an?\s+|You must\s+/);
+  });
   test('sisyphus prompt 声明五阶段并包含 finish', () => {
     const prompt = createSisyphusAgent().system!;
     expect(prompt).toMatch(/intake[\s\S]*brainstorm[\s\S]*plan[\s\S]*execute[\s\S]*review[\s\S]*finish/i);
@@ -58,11 +61,11 @@ describe('CBM-GATE-01 静态提示词契约', () => {
   test('Review 的 subagent、Momus、Sisyphus 证据边界明确', () => {
     const review = SISYPHUS_REVIEW_SKILL.content;
     expect(review).toMatch(/Review subagent.*只读.*不修改代码.*不运行 task/i);
-    expect(review).toMatch(/Momus.*审查 evidence.*不.*替代.*代码 review/i);
-    expect(review).toMatch(/Sisyphus.*owns.*review|Sisyphus.*负责.*review/i);
-    expect(review).toMatch(/@oracle.*independent code review|@oracle.*独立.*代码审查/i);
-    expect(review).toMatch(/uncertainty.*not achieved|不确定性.*未达成/i);
-    expect(review).toMatch(/evidence.*tests.*matrix|证据.*测试.*矩阵/i);
+    expect(review).toContain('不能替代 @oracle 进行独立代码审查');
+    expect(review).toMatch(/Sisyphus.*负责 spec\/plan\/diff 审查、测试验证和完成审计/);
+    expect(review).toMatch(/@oracle.*独立代码审查/);
+    expect(review).toMatch(/不确定性.*未达成/);
+    expect(review).toContain('审查 evidence、tests 与 completionMatrix');
   });
 
   test('Finish 只接受阶段输入且声明禁止动作', () => {

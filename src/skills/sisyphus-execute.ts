@@ -3,7 +3,7 @@ import type { SkillDefinition } from './types';
 const SISYPHUS_EXECUTE_SKILL: SkillDefinition = {
   name: 'sisyphus-execute',
   description:
-    'Phase 4 of the Sisyphus workflow — Execute. Implement task-by-task, dispatch independent work in parallel with the native subagent tool (background: true), keep dependent tasks waiting for terminal results, reconcile outputs, and keep the todo list in sync.',
+    'Sisyphus 工作流第 4 阶段——执行。逐项落实任务，使用原生 subagent 工具（background: true）并行派发相互独立的工作，让依赖任务等待终态结果，汇总输出，并保持 todo 列表同步。',
   slash: true,
   content: `---
 name: sisyphus-execute
@@ -15,57 +15,57 @@ exit: 任务终态
 failure: 标记失败并重规划
 verification: 测试与 ledger
 humanReview: conditional
-description: Phase 4 of the Sisyphus workflow — Execute. Implement task-by-task, dispatch independent work in parallel with the native subagent tool (background: true), keep dependent tasks waiting for terminal results, reconcile outputs, and keep the todo list in sync.
+description: Sisyphus 工作流第 4 阶段——执行。逐项落实任务，使用原生 subagent 工具（background: true）并行派发相互独立的工作，让依赖任务等待终态结果，汇总输出，并保持 todo 列表同步。
 ---
 
-# Sisyphus Phase 4 — Execute
+# Sisyphus 第 4 阶段 — 执行
 
-## Goal
+## 目标
 Sisyphus 主 Agent 持有计划、调度、ledger 与验收上下文；仅将无冲突的明确任务条件委派给 workers。
 
-Implement the plan reliably: parallel where safe, serial where dependent, and fully tracked.
+可靠地执行计划：安全时并行，有依赖时串行，并进行完整跟踪。
 
 ## 无上下文执行协议
 执行者不得依赖聊天历史：先读取唯一 Spec 与 Plan，再核对当前 Task 的 Task ID、Goal/Context、Files、Interfaces、Dependencies、Preconditions、checkbox、Validation/Expected、Acceptance、风险与状态字段。缺少任一字段或 Spec 未绑定时立即阻塞并返回父 agent，不自行猜测。每一步记录命令、预期结果与实际结果；只修改声明的 Files。完成时输出实现摘要、验证证据（含实际输出/状态）、实际 diff 行数与剩余风险。
-## Steps
-1. **Load the plan and ledger** — SDD 开启时从 \`.oceanus/plan/\` 与 \`.oceanus/progress/<plan-name>.md\` 加载；SDD 关闭时使用会话内计划与 todo。compute the ready set (dependencies terminal, wave eligible)。
-2. **Dispatch in parallel** — for ready tasks with non-overlapping \`Files\` scopes and no shared state, issue multiple independent \`subagent({ agent, description, prompt, background })\` calls in the same turn (each with a lane marker in description). Never serialize a ready batch on progress-ledger updates.
-3. **Wait only when dependent** — do not block on a background task unless the next step truly needs its result.
-4. **Update before dispatch（SDD 模式）** — SDD 开启时，派发前把该任务 ledger 行从 \`pending\` 更新为 \`in_progress\`（含 worker/session 与时间戳），ledger 由 orchestrator 串行写入。SDD 关闭时用 \`todowrite\` 同步 todo 即可，不写文件。
-5. **Reconcile and update after each task** — when any task returns, integrate its result, run or verify its declared validation, then immediately record \`completed\`/\`failed\`/\`blocked\`（SDD 模式写入 ledger 行，含证据、时间戳、备注；非 SDD 更新 todo）。同时记录该任务**实际实现代码 diff 行数**（git diff --stat 或等价方式，测试代码不计入），与 plan 预估行数一并写入备注，供 review 对比。Do this for every task, including parallel tasks, without waiting for the rest of the Wave to finish.
-6. **Sync the todo list** — keep in-memory todo and the ledger (SDD 模式) consistent: register plan tasks as \`pending\`, mark the current task \`in_progress\` before dispatching, and mark it \`completed\`/\`failed\`/\`blocked\` only after its terminal result and validation evidence are in.
+## 步骤
+1. **加载计划与 ledger** — SDD 开启时从 \`.oceanus/plan/\` 与 \`.oceanus/progress/<plan-name>.md\` 加载；SDD 关闭时使用会话内计划与 todo。计算 ready set（依赖已终态、符合 wave 条件）。
+2. **并行派发** — 对于 \`Files\` 范围不重叠且没有共享状态的就绪任务，在同一轮发起多个独立的 \`subagent({ agent, description, prompt, background })\` 调用（每个任务的 description 中都要有 lane marker）。绝不要因为更新 progress-ledger 而串行执行就绪批次。
+3. **仅在存在依赖时等待** — 除非下一步确实需要其结果，否则不要阻塞于后台任务。
+4. **派发前更新（SDD 模式）** — SDD 开启时，派发前把该任务 ledger 行从 \`pending\` 更新为 \`in_progress\`（含 worker/session 与时间戳），ledger 由 orchestrator 串行写入。SDD 关闭时用 \`todowrite\` 同步 todo 即可，不写文件。
+5. **每个任务后协调并更新** — 任一任务返回后，整合其结果，运行或核验其声明的验证，然后立即记录 \`completed\`/\`failed\`/\`blocked\`（SDD 模式写入 ledger 行，含证据、时间戳、备注；非 SDD 更新 todo）。同时记录该任务**实际实现代码 diff 行数**（git diff --stat 或等价方式，测试代码不计入），与 plan 预估行数一并写入备注，供 review 对比。对每个任务（包括并行任务）都执行此操作，不要等待 Wave 的其余任务完成。
+6. **同步 todo 列表** — 保持内存中的 todo 与 ledger（SDD 模式）一致：将 plan 任务登记为 \`pending\`，派发前将当前任务标记为 \`in_progress\`，仅在获得终态结果和验证证据后将其标记为 \`completed\`/\`failed\`/\`blocked\`。
 
-## Current-directory execution
+## 当前目录执行
 
-All orchestrators and workers always use the current directory. Parallel workers are allowed only within a Wave when \`Files\` scopes are completely non-overlapping and there is no shared state, resource, or generated-directory interaction. Workers must not run \`git add\`, \`git commit\`, \`git reset\`, branch, or isolated-workspace operations, and must not edit outside their declared \`Files\`.
+所有 orchestrator 和 worker 始终使用当前目录。仅当 \`Files\` 范围完全不重叠，且不存在共享状态、资源或生成目录交互时，才允许在同一 Wave 内并行 worker。Worker 不得运行 \`git add\`、\`git commit\`、\`git reset\`、分支或隔离工作区操作，也不得编辑其声明的 \`Files\` 之外的内容。
 
-## Plan-Change & Re-plan Gate
+## 计划变更与重新规划门禁
 
-Ordinary execution does **not** re-invoke @metis or @momus on every task — 普通执行不重复调用 @metis 或 @momus；仅当 plan 需要变更时才会触发。 They are only touched when the plan itself must change.
+普通执行不会在每个任务上重复调用 @metis 或 @momus；仅当 plan 本身必须变更时才会触发。
 
-1. **Route re-planning according to the kind of change** — 需求或验收标准变化 → 配置批问与方案总批准一并失效、重新执行两问：pause and first re-run @metis to analyze the new requirements, risks, boundaries, counterexamples, and criteria（Metis 审核=开时；关闭时跳过并记录）; then return to plan, revise it, and 重新 call @momus（开启时）与 human \`question\`。仅 Files/依赖/任务结构变化或失败重规划 → 不重新提问用户，仅重走 @momus（仅 Momus 审核=开时）：return directly to plan, revise it, and re-run @momus without unnecessarily repeating @metis.
-2. **Only @momus OKAY lets execution continue** — after any re-planning, the revised plan must pass @momus review (计入 momus 3 轮上限). Only when @momus returns OKAY may execution resume; a REJECT means further revision, not execution。第 3 轮仍 REJECT 时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）。
-3. **Never fake the gate** — do not invent or fabricate a gate result. If @momus was not actually run on the revised plan, record that honestly and do not claim it passed.
+1. **根据变更类型安排重新规划** — 需求或验收标准变化 → 配置批问与方案总批准一并失效、重新执行两问：暂停并先重新运行 @metis，分析新需求、风险、边界、反例与标准（Metis 审核=开时；关闭时跳过并记录）；然后返回 plan、修订它，并重新调用 @momus（开启时）与 human \`question\`。仅 Files/依赖/任务结构变化或失败重规划 → 不重新提问用户，仅重走 @momus（仅 Momus 审核=开时）：直接返回 plan、修订它，并重新运行 @momus，不要不必要地重复 @metis。
+2. **只有 @momus OKAY 才能继续执行** — 任何重新规划后，修订后的 plan 必须通过 @momus review（计入 momus 3 轮上限）。只有 @momus 返回 OKAY 才能恢复执行；REJECT 表示继续修订，而不是执行。第 3 轮仍 REJECT 时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）。
+3. **绝不伪造门禁** — 不得臆造或伪造门禁结果。如果修订后的 plan 实际未运行 @momus，应如实记录，不得声称其已通过。
 
-## Failing-First Discipline
+## 失败优先纪律
 
-Apply this to every code change with a test seam; it turns "write tests first" from an intent into an enforced execution rule. **组合优先级**：本节与 Execute Evidence Tier 的 strict 档同时适用时，按下方组合矩阵执行——TDD 开关决定 RED 是否可得，tier 决定证据下限；任何组合下都不得伪称证据。
+将此规则应用于每项具有测试切入点的代码变更；它把“先写测试”从意图变成强制执行规则。**组合优先级**：本节与执行证据等级中的 strict 档同时适用时，按下方组合矩阵执行——TDD 开关决定 RED 是否可得，tier 决定证据下限；任何组合下都不得伪称证据。
 
 **TDD × Evidence Tier 组合矩阵**：
 - **strict + TDD on**：同一变更状态上的 RED + GREEN + real-surface（现状不变）。
 - **strict + TDD off**（用户在执行配置批问中关闭 TDD）：行为变更必须先写 characterization test 固定现有行为作为基线证据，再实现；完成以绑定最终 diff 状态的 GREEN + real-surface 两份证明判定，**不得伪称存在 RED 证据**。
 - **light / exempt**：按各档既有规则执行。
 
-1. **RED → GREEN → SURFACE** — for each implementation change（TDD off 时按矩阵改为：基线 → 实现 → GREEN → SURFACE）:
-   - RED: write/run a failing test first and capture the failing output.
-   - GREEN: implement until that test passes and capture the passing output.
-   - SURFACE: verify against a real surface (CLI output, live endpoint, manual QA, built artifact), not just green tests.
-2. **Pin existing behavior before changing it** — before modifying existing behavior, first write a characterization test that captures the current behavior, then change it.
-3. **No production-first**（仅 TDD on 时适用）— if you already wrote production code instead of the test: STOP, revert, write the test, redo. TDD off 时本条不触发回退义务，但行为变更的 characterization 基线义务仍然适用。
-4. **Completion requires two proofs per scenario** — a code proof (TDD on: RED output + GREEN output of the same test; TDD off: characterization baseline + final-state GREEN) plus a real-surface artifact. Passing tests alone do not make a task complete.
-5. **Exemption whitelist** (may skip RED→GREEN, but record the reason in Findings/ledger) — pure formatting, pure comments, dependency upgrades with no behavior change, pure renames.
+1. **RED → GREEN → SURFACE** — 对每项实现变更（TDD off 时按矩阵改为：基线 → 实现 → GREEN → SURFACE）：
+   - RED：先编写并运行失败测试，记录失败输出。
+   - GREEN：持续实现直到测试通过，并记录通过输出。
+    - SURFACE：使用真实表面（CLI 输出、实时 endpoint、手工 QA、构建制品）进行验证，而不只是通过测试。
+2. **变更前固定现有行为** — 修改现有行为前，先编写捕获当前行为的 characterization test，然后再修改。
+3. **禁止先写生产代码**（仅 TDD on 时适用）— 如果已经先写了生产代码而不是测试：停止、回退、编写测试并重做。TDD off 时本条不触发回退义务，但行为变更的 characterization 基线义务仍然适用。
+4. **每个场景完成需要两份证明** — 一份代码证明（TDD on：同一测试的 RED 输出 + GREEN 输出；TDD off：characterization 基线 + 最终状态 GREEN）加上一份真实表面制品。仅测试通过不能使任务完成。
+5. **豁免白名单**（可以跳过 RED→GREEN，但要在 Findings/ledger 中记录理由）— 纯格式、纯注释、无行为变化的依赖升级、纯重命名。
 
-## Execute Evidence Tier
+## 执行证据等级
 
 每个任务在进入终态前必须声明且执行一个 evidence tier；Execute 仍必须具备有效方案总批准，Momus 审核=开时另需实际的 Momus \`OKAY\`（关闭时以 plan status 的 SKIPPED_BY_USER 记录为准），不能以证据档位替代任一门禁。
 
@@ -75,33 +75,33 @@ Apply this to every code change with a test seam; it turns "write tests first" f
 
 证据必须绑定时间点与当前代码状态（优先 git state、提交或等价快照）。缺失任一 tier 要求，或证据对应的代码状态已改变而变 stale，任务保持未完成并退回补证；不得复用旧输出。发现公共符号或高风险影响时，必须升级为 strict，并在继续执行前补齐 strict 证据。
 
-## Checklist
-- [ ] Ready set computed from the plan
-- [ ] Independent tasks dispatched in parallel (\`subagent({ agent, description, prompt, background: true })\`, distinct lane marker per task)
-- [ ] Dependent tasks waited on terminal results
-- [ ] Results reconciled and conflicts resolved
+## 检查清单
+- [ ] 已根据 plan 计算 ready set
+- [ ] 已并行派发独立任务（\`subagent({ agent, description, prompt, background: true })\`，每个任务使用不同 lane marker）
+- [ ] 依赖任务已等待终态结果
+- [ ] 已协调结果并解决冲突
 - [ ] SDD 模式：ledger 在派发前与每任务终态后更新；非 SDD：todo 与任务状态一致
-- [ ] Todo list matches task state
-- [ ] Failing-first applied: RED→GREEN captured per change, existing behavior pinned before changes
-- [ ] Each scenario has two proofs: code proof (TDD on: RED+GREEN; TDD off: characterization baseline + final-state GREEN) and a real-surface artifact
-- [ ] Execute evidence tier 已声明：strict=RED+GREEN+real-surface，light=test-after+测试，exempt=白名单+理由
-- [ ] Evidence 完整且绑定当前状态；缺失或 stale 不得通过，公共符号/高风险变更已升级 strict
+- [ ] Todo 列表与任务状态一致
+- [ ] 已应用失败优先：每项变更都记录 RED→GREEN，且变更前已固定现有行为
+- [ ] 每个场景都有两份证明：代码证明（TDD on：RED+GREEN；TDD off：characterization 基线 + 最终状态 GREEN）和真实表面制品
+- [ ] 已声明执行证据等级：strict=RED+GREEN+real-surface，light=test-after+测试，exempt=白名单+理由
+- [ ] 证据完整且绑定当前状态；缺失或过时不得通过，公共符号/高风险变更已升级 strict
 - [ ] 修复/重试循环 ≤3 轮，第 3 轮失败停止自动重试并按 3 轮中断上报模板用 \`question\` 上报用户
-- [ ] All work is executed in the current directory; workers use only declared non-overlapping \`Files\` and perform no git, branch, or isolated-workspace operations
-- [ ] Substantive changes (requirements/Files/dependencies/acceptance) or re-planning routed back to plan and re-passed through @momus before continuing
+- [ ] 所有工作均在当前目录执行；workers 仅使用已声明且不重叠的 \`Files\`，不执行 git、分支或隔离工作区操作
+- [ ] 实质性变更（需求/Files/依赖/验收）或重新规划均已返回 plan，并在继续前重新通过 @momus
 
-## Rules
-- Use the real background parameter: \`subagent({ agent, description, prompt, background: true })\` with a distinct lane marker in description per task.
-- Never reissue an unchanged task to the same specialist after a rejection; adjust scope or context first.
+## 规则
+- 使用真实的 background 参数：\`subagent({ agent, description, prompt, background: true })\`，每个任务的 description 使用不同 lane marker。
+- 被拒绝后绝不将未改变的任务再次派给同一 specialist；先调整范围或上下文。
 - **修复循环上限统一 3 轮**：单个任务的失败修复/重派遣最多 3 轮；第 3 轮仍失败则标记 blocked 并停止自动重试，按 3 轮中断上报模板用 \`question\` 上报。
 - **探索性尝试循环上限**：同一目标的探索性尝试（环境/实例启动、隔离环境搭建、绕行 workaround、探测性命令）连续失败达 3 次必须停止换路：回到 plan 重估前提，或按 3 轮中断上报模板上报（模板须含推荐项及理由）；不得无限换姿势重试。
-- Parallel background tasks are allowed only when write scopes do not conflict.
-- Parallel workers must not write the shared progress ledger; the orchestrator serializes ledger updates so task records cannot overwrite one another.
+- 仅当写入范围不冲突时，才允许并行后台任务。
+- 并行 workers 不得写入共享 progress ledger；orchestrator 串行更新 ledger，避免任务记录相互覆盖。
 - **CBM 边界**：高风险公共符号修改前先做 trace/impact（cbm_trace / cbm_query 分析影响面）；普通机械修改不强制查询；修改后影响面由 Review 阶段复查。
-- Workers must not run \`git add\`/\`commit\`/\`reset\`, branch or isolated-workspace operations, or edit files outside their declared \`Files\`.
-- Follow the Failing-First Discipline above; do not skip RED→GREEN unless the change matches the exemption whitelist and the reason is recorded.
-- Never claim a task complete on passing tests alone; a real-surface artifact is required.
-- Requirement or acceptance changes re-run @metis before plan revision; Files/dependency/task-structure changes and failure re-planning may return directly to plan. Every revised plan must pass an actual @momus OKAY before continuing.
+- Workers 不得运行 \`git add\`/\`commit\`/\`reset\`、分支或隔离工作区操作，也不得编辑其声明的 \`Files\` 之外的文件。
+- 遵循上面的失败优先纪律；除非变更符合豁免白名单且已记录理由，否则不得跳过 RED→GREEN。
+- 仅凭测试通过绝不声称任务完成；必须提供真实表面制品。
+- 需求或验收变更须在修订 plan 前重新运行 @metis；Files/依赖/任务结构变更和失败重规划可以直接返回 plan。每个修订后的 plan 都必须在继续前通过实际的 @momus OKAY。
 - Plan-Change 后：需求或验收标准变化 → 旧的 Momus \`OKAY\` 与配置批问/方案总批准均失效，重新执行两问并重走 Momus（开启时）后才可恢复 Execute；仅 Files/依赖/任务结构变化或失败重规划 → 两问不失效、不重新提问，仅重走 @momus（Momus 审核=开时）。
 `,
 };

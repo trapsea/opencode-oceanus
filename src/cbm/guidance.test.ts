@@ -16,6 +16,9 @@ import type { IndexerOutcome } from './indexer';
  */
 
 describe('buildIndexingGuidance', () => {
+  test('引导提示使用中文自然语言', () => {
+    expect(INDEXING_IN_PROGRESS_MESSAGE).not.toMatch(/index is|Please|The /i);
+  });
   test('indexed → ready，不回退', () => {
     const g = buildIndexingGuidance({ kind: 'indexed' });
     expect(g.kind).toBe('ready');

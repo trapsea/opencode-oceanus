@@ -95,9 +95,9 @@ Oceanus 正文、`DELEGATION_BRIEF_PROMPT`、Sisyphus `TASK_CONTINUITY`、门禁
 ### 5. 双门禁落地协议
 - 获取：Momus OKAY 后用 `question` 展示 plan 摘要（任务数/文件范围/风险 Top3），选项 APPROVED / 需要修改 / 取消。
 - 记录：plan 固定 `## Gate Status` 字段（momus verdict + round + 时间；human: APPROVED/PENDING/REJECTED+reason）。
-- 放行：execute 开工前必须读到 `human: APPROVED`；`sisyphus-execute` "Only @momus OKAY lets execution continue" 补齐人工门禁；Plan-Change Gate 同步。
+- 放行：execute 开工前必须读到 `human: APPROVED`；`sisyphus-execute` 补齐“只有 @momus 的 OKAY 才能继续执行”的人工门禁；Plan-Change Gate 同步。
 - 分流：仅复杂任务启用双门禁；简单任务沿用 slim 式单评审并在 plan status 记录跳过理由（与现有"简单任务可跳过"呼应）。
-- 拒绝/沉默：用户不响应 → 停止并记 `human: PENDING`，不得自行放行（沿用 wait_for_user 边界）。
+- 拒绝/沉默：用户不响应 → 停止并记 `PENDING`，不得自行放行（沿用 `wait_for_user` 边界）。
 
 ### 6. Metis 触发条件统一
 全部替换为 `METIS_TRIGGER` 引用；修 sisyphus.ts:44 病句；可对照 openagent metis 措辞校准。
@@ -127,7 +127,7 @@ cbm_index 一次 + 最多一次重试；in-progress/超时/失败 → 降级为 
 逐文件修 brainstorm（两个 "2."、` 3.` 前导空格）、plan（6/7/8 前导空格）、intake（缩进）；`stages.test.ts` 加正则断言 `## Steps` 有序列号严格递增、无异常前导空格。根治见 D-4。
 
 ### 15. 禁用过滤参数化
-Dispatch efficiency 的 sisyphus 行、CBM 段 oracle 行、Session Reuse 第 4 条改为按 `disabledAgents` 插值的模板；metis 卡片 Modes 行改 "Mode: SOLUTION_ANALYSIS only (post-Intake candidate comparison)"，不可见分隔符换 `/`。测试：全禁用组合下 prompt 不含对应 `@name`。
+Dispatch 效率的 sisyphus 行、CBM 段 oracle 行、Session Reuse 第 4 条改为按 `disabledAgents` 插值的模板；metis 卡片 Modes 行改为“仅限 SOLUTION_ANALYSIS 模式（Intake 后候选方案比较）”，不可见分隔符换 `/`。测试：全禁用组合下 prompt 不含对应 `@name`。
 
 ### 16. 杂项
 `resolvePrompt` 拆为 `resolvePromptFromFile()` / `resolvePromptInline()` 消除语义对调歧义；frontmatter 删重复 `description` 并在测试校验字段集；`DelegationBrief` 的 files/forbidden/dependencies 改 `string[]` 列表渲染。

@@ -1,11 +1,11 @@
 /** Agent 编排协议的单一来源；各提示词只负责组合，不复制通用规则。 */
-export const DISPATCH_PROTOCOL = `### Dispatch Protocol
+export const DISPATCH_PROTOCOL = `### 调度协议
 所有调度使用结构化对象参数：subagent({ agent, description, prompt, background })。prompt 是单个字符串值，换行使用 \n，遵守引号和反斜杠的 JSON 转义，示例使用 ASCII 标点。派发前声明稳定 lane 与文件边界；不要依赖队列通知。`;
 
-export const LEDGER_PROTOCOL = `### Progress Ledger Protocol
-ledger 区分 pending、in_progress 与 completed/failed/blocked；记录验证 evidence 和 updated_at。并行 worker 不直接写共享 ledger。`;
+export const LEDGER_PROTOCOL = `### 进度账本协议
+ ledger 区分 pending、in_progress 与 completed/failed/blocked；记录验证证据和 updated_at。并行工作者不直接写共享账本。`;
 
-export const RUNTIME_GUARDS_PROTOCOL = `### Runtime Guards Protocol
+export const RUNTIME_GUARDS_PROTOCOL = `### 运行时护栏协议
 代码变更后旧 evidence 视为 stale；必须检查最终 diff、Files scope 与 acceptance criteria，并运行适用的测试、typecheck、build 和 real-surface 验证。`;
 
 /** 3 轮中断上报模板的完整定义（单一来源）。站点只保留引用句式，不复制完整定义。 */

@@ -1,7 +1,7 @@
 /**
- * CBM guidance / index health advisory hook（CBM-11）。
+ * CBM 引导/索引健康咨询 hook（CBM-11）。
  *
- * 在既有 hook 注册（src/hooks/index.ts）基础上追加一个独立、fail-open 的
+ * 在既有 hook 注册（src/hooks/index.ts）基础上追加一个独立、故障开放的
  * CBM 引导/索引健康咨询 hook，**绝不拦截合法工具**：
  *
  * before（execute.before）：
@@ -11,12 +11,12 @@
  *     结果上追加一条引导文案供 agent 回退原生工具。
  *
  * after（execute.after）：
- *   - 已索引项目对**重复** grep/read 追加 advisory hint，建议改用结构化查询；
+ *   - 已索引项目对**重复** grep/read 追加建议提示，建议改用结构化查询；
  *   - grep 的 text/comment/ast 模式、glob、ast_grep_* 一律不提示（避免误伤）；
  *   - 同一 session 只提示一次（去重）；
  *   - 尊重 codebaseMemory.guidance：guidanceEnabled=false 时全部静默。
  *
- * 任何异常一律 fail-open（记日志、不抛错），保证不拦截合法工具、不伪造索引
+ * 任何异常一律故障开放（记日志、不抛错），保证不拦截合法工具、不伪造索引
  * 状态。错误归一化复用 `buildIndexingGuidance` / IndexerOutcome。
  */
 import { buildIndexingGuidance } from '../cbm/guidance';
@@ -45,7 +45,7 @@ export const CBM_GUIDANCE_MARKER = '[oceanus:cbm-guidance]';
 /** 默认索引检查/状态查询超时（毫秒）。 */
 const DEFAULT_CBM_GUIDANCE_TIMEOUT_MS = 30_000;
 
-/** 组装重复 grep/read 的 advisory hint 文案。 */
+/** 组装重复 grep/read 的建议提示文案。 */
 export function buildGrepReadHint(projectPath?: string): string {
   const scope = projectPath ? `项目 ${projectPath}` : '当前项目';
   return (
@@ -80,7 +80,7 @@ function isGrepReadEligible(tool: unknown, input: unknown): boolean {
   return false;
 }
 
-/** 向事件结果追加一条 advisory 文本；结果形状不匹配时静默（fail-open）。 */
+/** 向事件结果追加一条建议文本；结果形状不匹配时静默（故障开放）。 */
 function appendContent(event: any, text: string): void {
   const result = event?.result;
   if (result && typeof result === 'object' && typeof result.content === 'string') {
@@ -113,7 +113,7 @@ export function createCbmGuidanceHook(opts: CbmGuidanceHookOptions) {
     projectPath ? `${sessionID}::${projectPath}` : sessionID;
 
   return {
-    /** execute.before：首次结构化查询前检查索引（fail-open）。 */
+    /** execute.before：首次结构化查询前检查索引（故障开放）。 */
     async before(event: any): Promise<void> {
       if (!event) return;
       if (!CBM_STRUCTURED_QUERY_TOOLS.includes(event.tool)) return;
@@ -145,11 +145,11 @@ export function createCbmGuidanceHook(opts: CbmGuidanceHookOptions) {
         const guidance = buildIndexingGuidance(outcome, root);
         if (guidance.fallbackRecommended) pendingGuidance.set(k, guidance.message);
       } catch (e) {
-        log('cbm-guidance.before 失败(fail-open)', { error: messageOf(e) });
+        log('cbm-guidance.before 失败（fail-open）', { error: messageOf(e) });
       }
     },
 
-    /** execute.after：结构化查询引导 + 重复 grep/read 提示（均 fail-open）。 */
+    /** execute.after：结构化查询引导 + 重复 grep/read 提示（均故障开放）。 */
     async after(event: any): Promise<void> {
       if (!event) return;
       try {
@@ -196,7 +196,7 @@ export function createCbmGuidanceHook(opts: CbmGuidanceHookOptions) {
         appendContent(event, buildGrepReadHint(root));
         hintEmitted.add(sid);
       } catch (e) {
-        log('cbm-guidance.after 失败(fail-open)', { error: messageOf(e) });
+        log('cbm-guidance.after 失败（fail-open）', { error: messageOf(e) });
       }
     },
   };

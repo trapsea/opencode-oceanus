@@ -6,7 +6,7 @@ import type { IndexerOutcome } from './indexer';
  * CBM-06：把索引器结果（indexer.ts）翻译成对 agent / 用户的简明引导文案与
  * 回退建议。核心语义：
  *   - 已索引 → 可直接使用结构化查询，不回退；
- *   - 索引启动中 → 返回 `starting`，超时标记 `stale` 并 fail-open 回退原生工具；
+ *   - 索引启动中 → 返回 `starting`，超时标记 `stale` 并故障开放回退原生工具；
  *   - 未索引且自动索引关闭 → 指向已注册的 cbm_index 工具并允许 fallback；
  *   - 失败降级 → 回退原生工具，绝不伪造“完整索引结果”。
  *

@@ -6,6 +6,10 @@ const { content, description } = SISYPHUS_FINISH_SKILL;
 describe('Finish 自包含判定矩阵', () => {
   const complete: FinishInput = { review: 'accepted', completion: 'green', ledger: 'complete', momus: 'OKAY', human: 'APPROVED', evidence: 'fresh' };
 
+  test('Finish 说明使用中文自然语言', () => {
+    expect(content).not.toMatch(/Review accepted|Completion Matrix green/);
+  });
+
   test('六类输入全部满足时才允许完成', () => {
     expect(decideFinish(complete)).toEqual({ complete: true, gaps: [] });
   });
@@ -31,9 +35,9 @@ describe('Finish 自包含判定矩阵', () => {
     }
   });
   test('完成条件与当前目录收尾语义', () => {
-    expect(content).toContain('Review accepted');
-    expect(content).toContain('Completion Matrix green');
-    expect(content).toContain('ledger complete');
+    expect(content).toContain('Review（accepted）');
+    expect(content).toContain('Completion Matrix（green）');
+    expect(content).toContain('ledger（complete）');
     expect(content).toContain('当前目录');
     expect(content).toContain('只做正常只读交付汇总');
   });

@@ -4,11 +4,11 @@ import type { SkillDefinition } from './types';
 const OPENCODE_OCEANUS_SKILL: SkillDefinition = {
   name: 'opencode-oceanus',
   description:
-    'Configure Oceanus agents and presets, understand configuration priority, and use /preset to select an agent preset.',
+    '配置 Oceanus agent 和 preset，了解配置优先级，并使用 /preset 选择 agent preset。',
   slash: true,
   content: `---
 name: opencode-oceanus
-description: Configure opencode-oceanus agents and presets, including configuration priority, v2 limitations, and the /preset command.
+description: 配置 opencode-oceanus agent 和 preset，包括配置优先级、v2 限制和 /preset 命令。
 ---
 
 # opencode-oceanus 配置

@@ -12,9 +12,9 @@ import {
   THREE_ROUND_TEMPLATE,
 } from './protocol';
 
-const SISYPHUS_ROLE = `You are Sisyphus, the lead of a six-phase development workflow. Always run these phases in order: intake → brainstorm → plan → execute → review → finish. At the start of every phase, load and follow its matching Skill (sisyphus-intake / sisyphus-brainstorm / sisyphus-plan / sisyphus-execute / sisyphus-review / sisyphus-finish). The Skills contain all phase-specific procedures; this contract defines only global order, routing rules, and gate list.`;
+const SISYPHUS_ROLE = `你是 Sisyphus，六阶段开发工作流负责人。主 Agent 负责用户澄清与批准。始终按 intake → brainstorm → plan → execute → review → finish 顺序运行。每个阶段开始时加载并遵循对应 Skill（sisyphus-intake / sisyphus-brainstorm / sisyphus-plan / sisyphus-execute / sisyphus-review / sisyphus-finish）。Skill 包含阶段专属流程；本契约只定义全局顺序、路由规则和门禁清单。`;
 
-const SISYPHUS_PHASES = `## Sisyphus Workflow
+const SISYPHUS_PHASES = `## Sisyphus 工作流
 
 阶段顺序（不可跳过 review 门禁）：
 1. Intake — load \`sisyphus-intake\`：需求收集 + 复杂度分流（Trivial / Standard / Architecture）。
@@ -125,7 +125,7 @@ export function createSisyphusAgent(
   const definition: AgentDefinition = {
     name: 'sisyphus',
     description:
-      'Six-phase workflow lead: intake → brainstorm → plan → execute → review → finish for large, multi-phase development work',
+      '六阶段工作流负责人：为大型、多阶段开发工作执行 intake → brainstorm → plan → execute → review → finish。',
     mode: 'primary',
     color: '#3FFFCC',
     system,

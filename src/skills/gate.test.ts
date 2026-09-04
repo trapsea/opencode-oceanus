@@ -4,6 +4,9 @@ import { SISYPHUS_PLAN_SKILL } from './sisyphus-plan';
 const content = SISYPHUS_PLAN_SKILL.content;
 
 describe('Plan 双门禁与 impact_estimate 契约', () => {
+  test('Plan 说明使用中文自然语言', () => {
+    expect(content).not.toMatch(/Plan changes after approval|re-run the @momus/);
+  });
   test('覆盖四种人工状态与 question 闭环', () => {
     for (const status of ['APPROVED', 'NEEDS_CHANGES', 'CANCELLED', 'PENDING']) expect(content).toContain(status);
     expect(content).toContain('question');
@@ -24,8 +27,8 @@ describe('Plan 双门禁与 impact_estimate 契约', () => {
   });
 
   test('Plan 变化触发重审', () => {
-    expect(content).toMatch(/Plan changes after approval/);
+    expect(content).toMatch(/计划变更后/);
     expect(content).toMatch(/需求或验收标准变化[^\n]{0,80}配置批问与方案总批准一并失效/);
-    expect(content).toMatch(/re-run.*@momus.*question/);
+    expect(content).toMatch(/再次运行.*@momus.*question/);
   });
 });
