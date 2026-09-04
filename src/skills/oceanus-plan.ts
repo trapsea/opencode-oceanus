@@ -44,7 +44,7 @@ Sisyphus 主 Agent 持有 Intake/spec 上下文与计划写入权；仅按复杂
    - **影响面（影响面预估）** — 对计划声明的修改文件/公共符号排查计划外受影响面：先复用 metis research_brief 与 plan 中已记录的 CBM 事实结论（符号/调用链），只对未覆盖的符号做增量查询**（cbm_search_graph 定位 → cbm_trace 查调用方/被调用方 → 必要时 cbm_code 读源码）；发现计划未声明的受影响调用方/契约 → REJECT 并列出具体符号；预估结论（受影响符号与差异）记入 plan status 供 Review 对比。momus 只查询、不重建索引；CBM 不可用时标注不确定性，不虚构影响面。复用已有结论不损害 momus 判断独立性——复用的是事实查询结果，不是评估结论。
   记录 Momus 的 verdict（\`OKAY\` 或 \`REJECT\`）、问题清单、修订轮次、验证时间戳和影响面预估结论（受影响符号与差异）。SDD 开启时记入 \`.oceanus/plan/<name>.md\`（或对应 plan status）；SDD 关闭时在会话内向用户呈现 verdict 与问题清单即可。Momus 审核=开时，Momus \`OKAY\` 是必要但不充分的条件：人工批准沿用 Brainstorm 方案总批准（consolidated approval，plan 阶段不重复提问），gate status 记录 human: { status: 'APPROVED', via: 'consolidated' }；Momus OKAY 与有效方案总批准两个门禁（both gates）齐备才进 execute（Trivial 任务除外）。Momus 审核=关时仅有效方案总批准即进 execute（skipped 已记录）。
   8. **重新分析变更后的输入** — 如果 Plan 在批准后发生变化：需求或验收标准变化 → 配置批问与方案总批准一并失效、重新执行两问（先经 @metis 重析新需求（Metis 审核=开时；关闭时跳过并记录）、重新计算 \`impact_estimate\`、修订 plan，再次运行 @momus 与 human \`question\`（开启时））；仅 Files/依赖/任务结构变化或失败重规划 → 不重新提问用户，仅重走 @momus（metis 与 momus 均计入各自 3 轮上限，且仅在其审核=开时适用）。
- 9. **使用配置问题的决策** — Metis/Momus/TDD 与当前目录执行沿用批问中的用户抉择，不再单独提问、不补问：
+ 9. **使用配置问题的决策** — Metis/Momus/TDD 与当前目录执行沿用 Intake 批问中的用户抉择，不再单独提问、不补问：
    - **TDD 推荐规则**（配置批问呈现时依据）：预估拆分 >12 个任务 → 推荐 TDD（测试先行，配合 execute 阶段 Failing-First 纪律）；≤12 个 → 不推荐（先开发功能，完成后再补测试验证）。plan 实际拆分任务数与 brainstorm 预估跨阈值（>12）偏差时记入 plan status，不重新提问。
    - **当前目录执行**：所有 orchestrator 和 worker 始终在当前目录；并行仅在 Wave 内 Files 完全不重叠且无共享状态/生成目录时进行。worker 禁止 git add/commit/reset、分支和隔离工作区操作。
   遵循配置批问中记录的用户明确选择。
@@ -85,7 +85,7 @@ Validation: \`<command>\`；Expected: \`<预期输出>\`
 - [ ] OKAY / REJECT verdict、问题、修订轮次和验证时间已记录在 plan status
 - [ ] Momus 影响面预估结论（受影响符号与差异）已记入 plan status，供 Review 复查对比（Momus 审核=关时记 SKIPPED_BY_USER）
 - [ ] REJECT 已返回修订并重新审查；仅 OKAY 可进入 execute
-- [ ] TDD 策略已随执行配置批问确认（plan 阶段不单独提问；漏答已回落推荐值，不补问）
+- [ ] TDD 策略已随 Intake 执行配置批问确认（plan 阶段不单独提问；漏答已回落推荐值，不补问）
 - [ ] 当前目录执行约束已确认：所有 worker 使用当前目录，禁止隔离工作区、分支及 git 操作
 
 ## 规则
@@ -95,7 +95,7 @@ Human status 只能是 \`APPROVED\`、\`NEEDS_CHANGES\`、\`CANCELLED\` 或 \`PE
 - 为每个任务记录 \`Wave\`、\`Depends on\` 和 \`Files\`，以便 execute 阶段安全调度并行后台工作。
 - Momus 审核=开时，缺少以下两者不得进入 execute：来自 @momus 的 \`OKAY\` 与明确的人工 \`APPROVED\`（方案总批准）；REJECT 时不得进入 execute。Momus 审核=关时，有效方案总批准即可进入，但 skipped 与残余风险必须已记录。
 - 如果 Momus 被禁用或由用户关闭，不得伪造检查结果；记录已跳过的审查及其风险作为 open issue。
-- 始终遵循配置问题中关于 metis/momus、TDD、当前目录执行和进度台账的决策。
+- 始终遵循 Intake 配置问题中关于 metis/momus、TDD、当前目录执行和进度台账的决策。
 `,
 };
 

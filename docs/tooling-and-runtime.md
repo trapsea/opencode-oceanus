@@ -9,7 +9,7 @@
 六阶段工作流（Intake → Brainstorm → Plan → Execute → Review → Finish）由 Agent/Skill 的
 prompt 契约驱动：Agent 负责编排与委派，Skill 规定阶段边界；工具和 Hook 只提供运行时
 能力，不是阶段 supervisor。执行配置（Metis 审核/Momus 审核/SDD/TDD/连续执行授权）由
-Brainstorm 前置的执行配置批问确认——一次 question 批量问五项，各带推荐值及
+Intake 前置的执行配置批问确认——一次 question 批量问五项，各带推荐值及
 依据（Metis/Momus 依据=预估拆分任务数与需求复杂度，其余依据=预估任务数），漏答回落
 推荐值并记录、不补问；方案方向由方案总批准单问覆盖。Momus 审核=开时 Plan 必须经过
 `@momus` 的 `OKAY` + 有效方案总批准；关闭时降级为仅人工批准并记录 `SKIPPED_BY_USER`。
