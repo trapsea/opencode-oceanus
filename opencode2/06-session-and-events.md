@@ -1,7 +1,7 @@
 # Session / Generate / Event / RPC 域
 
-> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18721` + schema beta-18721
-> 证据源：tarball `promise/{session,rpc}.d.ts`（18721 全量）；`GenerateApi`/`EventApi` 经 client 包类型（node_modules beta-18230，`GenerateApi = Client["generate"]`，方法面 `generate.text` / `event.subscribe`）；宿主 `/api/*` 路由实测（beta-18721 二进制）。client 侧签名以 18230 类型 + 18721 实测交叉，未逐字对齐处已标注。
+> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743` + schema beta-18743（与 beta-18721 的 dist 全量 diff 为零）
+> 证据源：tarball `promise/{session,rpc}.d.ts`（18743，与 18721 全量一致）；`GenerateApi`/`EventApi` 经 client 包类型（node_modules beta-18230，`GenerateApi = Client["generate"]`，方法面 `generate.text` / `event.subscribe`）；宿主 `/api/*` 路由实测证据为 beta-18721 二进制。client 侧签名以 18230 类型 + 18721 实测交叉，未逐字对齐处已标注。
 
 ## 1. SessionDomain
 

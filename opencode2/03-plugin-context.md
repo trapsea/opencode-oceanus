@@ -1,6 +1,6 @@
 # Plugin Context 域速查
 
-> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18721`（promise 入口 `dist/promise/plugin.d.ts:26-49`）
+> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零；promise 入口 `dist/promise/plugin.d.ts:26-49`）
 > 证据源：npm tarball 类型声明全量；`Registration` 原语见 `dist/promise/registration.d.ts`。
 
 ## 1. Context 全貌

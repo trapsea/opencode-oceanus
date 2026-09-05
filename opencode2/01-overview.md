@@ -1,6 +1,6 @@
 # OpenCode v2 架构总览
 
-> 版本基线：`0.0.0-beta-18721`（2026-08-31 核实）
+> 版本基线：`0.0.0-beta-18743`（2026-09-01 核实；与 beta-18721 的插件/schema dist 全量 diff 为零）
 > 证据源：npm registry dist-tags、tarball 类型声明、宿主 CLI 实测、官方文档站结构。
 
 ## 1. 产品形态
@@ -22,23 +22,23 @@ OpenCode 是开源 AI coding agent。v2 beta（CLI 名 `opencode2`）延续三�
 
 | 包 | beta 版本 | 角色 |
 |---|---|---|
-| `@opencode-ai/plugin` | 0.0.0-beta-18721 | 插件开发 SDK（promise/effect/tui 三入口） |
-| `@opencode-ai/schema` | 0.0.0-beta-18721 | 全量领域 schema（agent/session/tool/config/...） |
-| `@opencode-ai/client` | 0.0.0-beta-18721 | HTTP API 客户端（promise/effect 双轨 + generated） |
-| `@opencode-ai/ai` | 0.0.0-beta-18721 | AI provider 适配层 |
-| `@opencode-ai/protocol` | 0.0.0-beta-18721 | 协议定义 |
-| `@opencode-ai/sdk` | latest 1.18.25 / beta 0.0.0-beta-18721 | SDK（`createOpencode()` / `createOpencodeClient()`，structured output） |
-| `@opencode-ai/server` | 0.0.0-beta-18721 | server 包 |
-| `@opencode-ai/cli` | 0.0.0-beta-18721 | CLI 二进制分发（平台子包 cli-linux-x64 等） |
+| `@opencode-ai/plugin` | 0.0.0-beta-18743 | 插件开发 SDK（promise/effect/tui 三入口） |
+| `@opencode-ai/schema` | 0.0.0-beta-18743 | 全量领域 schema（agent/session/tool/config/...） |
+| `@opencode-ai/client` | 0.0.0-beta-18743 | HTTP API 客户端（promise/effect 双轨 + generated） |
+| `@opencode-ai/ai` | 0.0.0-beta-18743 | AI provider 适配层 |
+| `@opencode-ai/protocol` | 0.0.0-beta-18743 | 协议定义 |
+| `@opencode-ai/sdk` | latest 1.18.25 / beta 0.0.0-beta-18743 | SDK（`createOpencode()` / `createOpencodeClient()`，structured output） |
+| `@opencode-ai/server` | 0.0.0-beta-18743 | server 包 |
+| `@opencode-ai/cli` | 0.0.0-beta-18743 | CLI 二进制分发（平台子包 cli-linux-x64 等） |
 
 v1 stable（`opencode-ai@1.18.25`）与 v2 beta 并行发布；v2 包名统一 `0.0.0-beta-<build>`。
 
-## 3. 版本模型（npm dist-tags，2026-08-31）
+## 3. 版本模型（npm dist-tags，2026-09-01）
 
 | tag | 版本 | 说明 |
 |---|---|---|
 | `latest` | 1.18.25 | v1 stable |
-| `beta` | 0.0.0-beta-18721 | v2 beta（本库基线） |
+| `beta` | 0.0.0-beta-18743 | v2 beta（本库基线） |
 | `dev` | 0.0.0-dev-18732 | 开发构建 |
 | `next` | 0.0.0-next-17444 | 预发布 |
 | `snapshot-*` / `v0` / `v1` / `opentui` / `windows` 等 | 各异 | 分支/特性快照（数百个，不作为兼容目标） |

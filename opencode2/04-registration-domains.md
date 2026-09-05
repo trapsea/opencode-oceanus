@@ -1,6 +1,6 @@
 # 注册类域：Agent / Skill / Command / Catalog
 
-> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18721` + `@opencode-ai/schema@0.0.0-beta-18721`
+> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743` + `@opencode-ai/schema@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零）
 > 证据源：tarball `promise/{agent,skill,command,catalog}.d.ts`、schema `{agent,skill,prompt-input,session-inbox}.d.ts`；官方文档 agents/skills/commands 页（v1/v2 混杂已甄别，标注处见下文）。
 
 ## 1. AgentDomain

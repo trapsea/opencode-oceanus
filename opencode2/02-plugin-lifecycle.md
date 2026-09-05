@@ -1,7 +1,7 @@
 # 插件生命周期与入口
 
-> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18721`
-> 证据源：npm tarball 类型声明（`dist/promise/plugin.d.ts`、`dist/effect/plugin.d.ts`、`dist/tui/*.d.ts`、`dist/app.d.ts`、`dist/options.d.ts`）；schema `dist/plugin.d.ts`；宿主 `opencode2 v0.0.0-beta-18721` 实测；官方文档 opencode.ai/docs/plugins（v1/v2 混杂，已按类型定义甄别）。
+> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零）
+> 证据源：npm tarball 类型声明（`dist/promise/plugin.d.ts`、`dist/effect/plugin.d.ts`、`dist/tui/*.d.ts`、`dist/app.d.ts`、`dist/options.d.ts`）；schema `dist/plugin.d.ts`；宿主行为实测证据为 `opencode2 v0.0.0-beta-18721`；官方文档 opencode.ai/docs/plugins（v1/v2 混杂，已按类型定义甄别）。
 
 ## 1. 三种插件入口
 

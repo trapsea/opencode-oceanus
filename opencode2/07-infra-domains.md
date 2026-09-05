@@ -1,6 +1,6 @@
 # 基础设施域：MCP / Permission / Storage / VCS / Shell / WebSearch / Reference / Integration / AISDK / Experimental
 
-> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18721` + schema beta-18721
+> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743` + schema beta-18743（与 beta-18721 的 dist 全量 diff 为零）
 > 证据源：tarball `promise/{mcp,permission,storage,vcs,shell,websearch,reference,integration,aisdk}.d.ts`、根级 `storage.d.ts`、`vcs.d.ts`；schema `{mcp,permission,vcs,websearch,persistent-pty}.d.ts`。
 
 ## 1. MCPDomain

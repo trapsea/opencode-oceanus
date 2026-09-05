@@ -2,7 +2,7 @@
 
 OpenCode v2 beta 宿主的能力 / API / 工具 / hook / 配置参考文档，服务于 `opencode-oceanus` 插件开发与版本适配。
 
-> **版本基线**：`0.0.0-beta-18721`（2026-08-31 核实；宿主 `opencode2 v0.0.0-beta-18721`，`@opencode-ai/{plugin,schema}@0.0.0-beta-18721`；2026-09-01 核实 beta-18743 与 18721 插件 API 零差异，本库内容对 18743 直接适用）
+> **版本基线**：`0.0.0-beta-18743`（2026-09-01 核实；`@opencode-ai/{plugin,schema}@0.0.0-beta-18743` 与 18721 的 `dist` 全量 diff 为零；宿主实测证据仍以 `opencode2 v0.0.0-beta-18721` 标注）
 > **本项目锁定版本**：`beta-18743`（`package.json`）；与旧锁定 18230 的差异见 [versions/changelog.md](versions/changelog.md)
 
 ## 文档索引
@@ -19,7 +19,7 @@ OpenCode v2 beta 宿主的能力 / API / 工具 / hook / 配置参考文档，�
 | [08-host-capabilities.md](08-host-capabilities.md) | TUI 插件上下文（Data/Keymap/Storage/UI/Slot 系统）、API server、ACP、worktree、Form/PTY |
 | [09-config-schema.md](09-config-schema.md) | opencode.json 配置全景（config 家族 schema 字段级） |
 | [10-builtin-inventory.md](10-builtin-inventory.md) | 宿主内置工具 / agent / 命令 / skill 清单（实测证据分级） |
-| [versions/changelog.md](versions/changelog.md) | beta 版本变动台账（首条：beta-18230 → beta-18721 全量差异）+ 追加模板 |
+| [versions/changelog.md](versions/changelog.md) | beta 版本变动台账（含 beta-18230 → beta-18721、beta-18721 → beta-18743）+ 追加模板 |
 
 ## 使用方式
 

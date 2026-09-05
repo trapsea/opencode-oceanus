@@ -1,6 +1,6 @@
 # 配置全景（opencode.json）
 
-> 版本基线：`@opencode-ai/schema@0.0.0-beta-18721`
+> 版本基线：`@opencode-ai/schema@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零）
 > 证据源：tarball schema `dist/config.d.ts` 与 `dist/config/*.d.ts` 全量字段提取；官方 config 页（加载优先级/变量插值口径）。字段为 schema 声明级事实；标注"官方"处为文档口径。
 
 ## 1. 顶层 Config 字段（schema `config.d.ts`）

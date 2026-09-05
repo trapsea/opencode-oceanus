@@ -1,9 +1,9 @@
 # 宿主内置清单：工具 / Agent / 命令 / Skill
 
-> 版本基线：宿主 `opencode2 v0.0.0-beta-18721`（全局 `@opencode-ai/cli`）
+> 版本基线：插件/schema `0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零）；宿主实测基线为 `opencode2 v0.0.0-beta-18721`
 > 证据源与等级：①运行中宿主的会话工具目录（最强实证——本记录即在宿主 beta-18721 会话内取得）；②宿主二进制 strings 交叉（`bash/edit/list/patch/question/read/task/write` 独立字符串命中）；③干净目录 `opencode2 api get /api/command`、`/api/skill` 实测；④官方文档 tools/agents 页（v1/v2 混杂，仅作参考并标注）。
 
-## 1. 内置工具（宿主原生，beta-18721）
+## 1. 内置工具（宿主原生，实测 beta-18721；18743 宿主未单独复测）
 
 | 工具 | 证据 | 说明 |
 |---|---|---|

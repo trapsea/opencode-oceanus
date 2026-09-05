@@ -1,6 +1,6 @@
 # Tool 域与 Hook 体系
 
-> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18721` + `@opencode-ai/schema@0.0.0-beta-18721`
+> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743` + `@opencode-ai/schema@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零）
 > 证据源：tarball `promise/tool.d.ts`、schema `tool.d.ts`；宿主 beta-18721 registry 实测（codemode 行为，见本仓库 `docs/tooling-and-runtime.md` 同口径）。
 
 ## 1. ToolDomain
