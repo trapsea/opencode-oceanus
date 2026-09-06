@@ -90,7 +90,7 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
   - consult：架构决策/复杂调试/代码审查咨询——给出建议与权衡，供主 agent 决策
   - analysis：方案分析与背景研究——输出候选方案对比、风险与推荐，不做门禁判定
   - gate：计划门禁审查——审查落盘的计划/方案，返回 [OKAY] 或 [REJECT]；仅 BLOCKER 级问题触发 REJECT
-- 委派方式：在 prompt 前置 \`<oracle_scene name="consult|analysis|gate">\` 场景指令块；gate 必须使用新会话，不复用过 consult/analysis 的会话。交付级审核另有 diff-review / completion-audit 场景（gate 标签即注册表中的 plan-gate 场景；visual-acceptance 场景由 @observer 执行），场景定义见注册表单一来源
+- 委派方式：在 prompt 前置 \`<oracle_scene name="consult|analysis|gate">\` 场景选择器；场景的标准检查清单与输出契约已内置于 oracle system（gate 标签即注册表 plan-gate 场景；visual-acceptance 场景由 @observer 执行）。委派审核场景时必须按场景必附上下文清单附齐材料（plan + spec/intake + findings + 前轮 BLOCKER 等），缺失会造成审核信息缺口
 - 能力：深度架构推理、系统级权衡、复杂调试、代码审查、方案对比与简化、可维护性审查
 - **适合委派：** 有长期影响的重大架构决策 • 尝试修复 2 次以上仍持续的问题 • 高风险多系统重构 • 代价高昂的权衡（性能与可维护性） • 根因不清的复杂调试 • 安全性/可扩展性/数据完整性决策 • 确实不确定且错误选择代价高 • 代码需要简化或 YAGNI 审视 • 执行前的方案分析与计划门禁
 - **审查用途：** Oracle 是升级处理，而非默认验证步骤。仅当其分析预计能实质降低风险或不确定性时请求独立 Oracle 审查。

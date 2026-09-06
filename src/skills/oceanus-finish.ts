@@ -11,7 +11,7 @@ export interface FinishInput {
   review: ReviewStatus;
   completion: CompletionStatus;
   ledger: LedgerStatus;
-  /** oracle plan-gate 门禁状态；'waived' = 用户关闭 Oracle 门禁审核时以 SKIPPED_BY_USER 记录作为有效豁免。 */
+  /** oracle plan-gate 门禁状态；'waived' = 用户关闭 Oracle 审查时以 SKIPPED_BY_USER 记录作为有效豁免。 */
   gate: GateStatus;
   human: HumanStatus;
   evidence: EvidenceStatus;

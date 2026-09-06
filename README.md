@@ -159,8 +159,8 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 |-------|------|
 | `opencode-oceanus` | 说明 Oceanus 配置、preset 优先级、v2 限制及 `/preset` 命令 |
 | `oceanus-brainstorm` | 读取 Intake 已确认的执行配置、研究优先澄清需求、按复杂度分层呈现方案（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）、再以方案总批准单问完成方向批准；SDD 开启时保存设计 spec 到 `.oceanus/spec/` |
-| `oceanus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、Oracle 门禁审核=开时经 `@oracle`（plan-gate）门禁（关闭时记录 `SKIPPED_BY_USER` 仅保留人工门禁）、消费执行配置批问中的 Oracle 门禁审核/SDD/TDD/连续执行授权决策（不重复提问） |
-| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类、执行配置批问与 CBM 初始化 |
+| `oceanus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、Oracle 审查=开时经 `@oracle`（plan-gate）门禁（关闭时记录 `SKIPPED_BY_USER` 仅保留人工门禁）、消费执行配置批问中的 Oracle 审查/SDD/TDD/连续执行授权决策（不重复提问） |
+| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类、执行配置批问（四项默认全关；仅实现类任务批问，调研/查询/方案设计类跳过并按默认关闭记录）与 CBM 初始化 |
 | `oceanus-execute` | 按计划实现、后台并行委派 `task(run_in_background=true)`、同步 todo 状态 |
 | `oceanus-review` | 阶段间证据化评审、重评审转交 @oracle、验证发现后才接受 |
 
@@ -175,8 +175,8 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 | 阶段 | 职责 | 产物 / 落点 |
 |------|------|-------------|
 | **Intake** | `Sisyphus 直接了解背景、完成最小需求 intake、分类任务，并在代码任务中初始化 CBM；不做方案决策 | Intake 结构化摘要 |
-| **Brainstorm** | Sisyphus 消费 Intake 已确认的执行配置，负责研究、澄清与方案决策；调研按分层规则条件委派 `@oracle`（analysis）（Oracle 门禁审核=开时 Architecture 默认、Standard 两波自查后仍有未知才委派、Trivial 不委派）；澄清完成后以方案总批准单问完成方向批准 | `.oceanus/spec/` |
-| **Plan** | Sisyphus 负责拆分任务并维护进度台账；Oracle 门禁审核=开时 `@oracle`（plan-gate）做方案质量门禁（人工批准由 Brainstorm 方案总批准覆盖，不重复提问），输出 `[OKAY]` / `[REJECT]`；关闭时记录 `SKIPPED_BY_USER` 仅保留人工门禁 | `.oceanus/plan/` + 批准记录 |
+| **Brainstorm** | Sisyphus 消费 Intake 已确认的执行配置，负责研究、澄清与方案决策；调研按分层规则条件委派 `@oracle`（analysis）（Oracle 审查=开时 Architecture 默认、Standard 两波自查后仍有未知才委派、Trivial 不委派）；澄清完成后以方案总批准单问完成方向批准 | `.oceanus/spec/` |
+| **Plan** | Sisyphus 负责拆分任务并维护进度台账；Oracle 审查=开时 `@oracle`（plan-gate）做方案质量门禁（人工批准由 Brainstorm 方案总批准覆盖，不重复提问），输出 `[OKAY]` / `[REJECT]`；关闭时记录 `SKIPPED_BY_USER` 仅保留人工门禁 | `.oceanus/plan/` + 批准记录 |
 | **Execute** | 主 agent 按计划顺序直接执行（读代码/编辑/测试），上下文缺口委派 `@explorer` 补侦察；批量机械任务满足逃生舱三条件（文件集完全不相交 + 机械同构 + 任务数 ≥3）时并行 `@fixer`；视觉迭代任务 `@designer`；重规划回 Plan 重新过 oracle 门禁 | 代码变更 + 更新后的计划 |
 | **Review** | 主 agent 复查：先刷新当前项目 CBM 索引，再做证据化影响面复查与 Completion Audit；高风险变更条件触发 `@oracle` diff-review / completion-audit 场景审查 | 审查结论 |
 | **Finish** | Sisyphus 只读 Review 报告并收口，不测试、不构建、不调用 CBM、不委派、不修改文件 | 交付总结 |

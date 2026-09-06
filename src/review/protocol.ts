@@ -21,6 +21,8 @@ export interface ReviewScene {
   subjectGlobs: readonly string[];   // 审核对象路径白名单，如 ['.omo/plans/*.md', '.oceanus/plan/*.md']
   contract: ReviewContract;
   checks: string;                    // 检查清单文本
+  /** 委派该场景时委派方必须附带的对象/信息（单一来源：主 agent 委派协议与 oracle 场景指令均从此拼装）。 */
+  requiredContext: readonly string[];
   independence: 'fresh-session' | 'reusable';
   maxRounds: number;                 // 默认 3
   onReject: 'revise-plan' | 'return-execute' | 'escalate';

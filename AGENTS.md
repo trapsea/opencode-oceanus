@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-`opencode-oceanus` 是基于 OpenCode v2 beta 插件 API 的 TypeScript/Bun 插件，当前包版本为 `0.46.0`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。
+`opencode-oceanus` 是基于 OpenCode v2 beta 插件 API 的 TypeScript/Bun 插件，当前包版本为 `0.47.0`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。
 
 OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode-v2-compatibility.md`](docs/opencode-v2-compatibility.md)，变更 OpenCode 依赖或宿主 API 前必须先更新该文档。
 
@@ -31,7 +31,7 @@ OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode
 - 只读 subagent：`explorer`、`librarian`、`oracle`、`observer`。
 - 写入/设计 subagent：`designer`、`fixer`。
 - `observer` 默认禁用，需要视觉模型；只读 subagent（`explorer` / `librarian` / `oracle`）默认启用且不写代码文件、不委派、不执行 task（`explorer` 仅有 `.oceanus/findings/*` 的落盘例外）。
-- 复杂任务遵循 `intake → brainstorm → plan → execute → review → finish`；执行配置由 Intake 前置的执行配置批问确认——一次 question 批量问四项（Oracle 门禁审核/SDD/TDD/连续执行授权），每项带推荐值及依据（Oracle 门禁审核依据=预估拆分任务数与需求复杂度，其余依据=预估任务数；漏答回落推荐值并记录、不补问，Trivial 亦完整批问）；方案方向由方案总批准单问覆盖。Oracle 门禁审核=开时标准/架构任务进入 execute 前需要 `@oracle`（plan-gate 场景）返回 `OKAY` + 有效方案总批准双门禁；用户关闭 Oracle 门禁审核时降级为仅人工批准并如实记录 SKIPPED_BY_USER，不伪造 verdict。连续执行授权授予时连续执行到完成，仅在 3 轮循环到顶时按统一上报模板中断；拒绝则每阶段结束停顿汇报。
+- 复杂任务遵循 `intake → brainstorm → plan → execute → review → finish`；执行配置由 Intake 前置的执行配置批问确认——一次 question 批量问四项（Oracle 审查/SDD/TDD/连续执行授权），**四项默认推荐全部关闭**（选项说明中可提示何种规模值得开启）；仅实现类任务批问，调研/查询/方案设计等非实现类任务跳过批问并按默认关闭记录（not_asked: non-implementation）；漏答回落默认关闭并记录、不补问，Trivial 实现任务亦完整批问；方案方向由方案总批准单问覆盖。Oracle 审查=开时标准/架构任务进入 execute 前需要 `@oracle`（plan-gate 场景）返回 `OKAY` + 有效方案总批准双门禁；用户关闭 Oracle 审查时降级为仅人工批准并如实记录 SKIPPED_BY_USER，不伪造 verdict。连续执行授权授予时连续执行到完成，仅在 3 轮循环到顶时按统一上报模板中断；默认拒绝（每阶段结束停顿汇报）。
 
 ## 修改与协作边界
 

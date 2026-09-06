@@ -29,7 +29,7 @@ Sisyphus 主 Agent 持有 spec/plan/diff/evidence 上下文与最终门禁；仅
 0. **当前目录范围**——审查始终针对当前目录中的实际 diff 执行；不创建或合并隔离工作区。
 1. **审查查询前规划 CBM 预算**——先根据实际 diff 分类：纯文档 diff（仅 Markdown、注释或文案，且不影响代码契约）跳过 \`cbm_index\`，记录 \`cbm: skipped (docs-only)\`。其余 diff 在 Review 开始直接调用 \`cbm_index\` 重建索引，成功后再执行查询：首次尝试最多 30 秒；若状态为 starting/in-progress 或超时，最多再重试一次、最多 60 秒；总预算严格为 90 秒。成功后再进入影响面复查。预算耗尽、失败或工具不可用时记录 \`cbm: stale\`，改用 grep/read 与手工 diff 复查，记录降级证据但不得阻断 Review。
 2. **在实际 diff 上重新检查影响面**——用 \`cbm_trace\`/\`cbm_detect_changes\` 对实际 diff 再次排查影响面；以实际代码为准，不用 plan 期预估替代复查。优先增量检测并复用已覆盖的符号结论，只对未覆盖符号做增量 trace。
-3. **与 plan-gate 场景预估对比**——将复查结果与 plan status 中 plan-gate 场景的影响面预估对比（Oracle 门禁审核=关时无预估可对比，跳过该对比并记录 \`plan-gate: skipped\`）：一致 → 记为验证证据；不一致（新调用方受影响/预估遗漏）→ 解释差异或退回 execute。同时将每任务实际实现 diff 行数与 plan 预估行数对比，偏差显著（如 >50%）记为 plan 质量信号（不阻断门禁）。
+3. **与 plan-gate 场景预估对比**——将复查结果与 plan status 中 plan-gate 场景的影响面预估对比（Oracle 审查=关时无预估可对比，跳过该对比并记录 \`plan-gate: skipped\`）：一致 → 记为验证证据；不一致（新调用方受影响/预估遗漏）→ 解释差异或退回 execute。同时将每任务实际实现 diff 行数与 plan 预估行数对比，偏差显著（如 >50%）记为 plan 质量信号（不阻断门禁）。
 4. **执行审查门禁**——每个阶段结束后，在继续之前根据 spec 和 plan 审查实际输出。
 5. **接受前验证**——对于任何发现，在采取行动前用证据（阅读代码、运行检查）确认它。
 6. **将高强度审查升级给 @oracle**——将高风险架构决策、持续性故障或安全敏感审查交给 @oracle。

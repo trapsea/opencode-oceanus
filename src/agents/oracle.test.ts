@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createOracleAgent } from './oracle';
 import { cbmSection } from '../cbm/registry';
+import { REVIEW_SCENES } from '../review/scenes';
 
 describe('oracle 基础定义', () => {
   test('工厂返回 name/mode/temperature 不变', () => {
@@ -37,10 +38,11 @@ describe('oracle 场景路由段', () => {
     expect(system).toContain('consult');
   });
 
-  test('场景指令优先级语义：最高优先级且只读永不失效', () => {
+  test('场景指令底线语义：内置标准指令不可省略或削弱，只读永不失效', () => {
     const system = createOracleAgent().system!;
-    expect(system).toMatch(/最高优先级/);
-    expect(system).toMatch(/只读.*永不失效|READ-ONLY.*永不失效|永不失效/);
+    expect(system).toMatch(/执行底线/);
+    expect(system).toMatch(/不得省略或削弱/);
+    expect(system).toMatch(/只读约束永不失效/);
   });
 
   test('gate 场景：二元判定、Blocking Issues 最多 3 条、仅 BLOCKER 触发 REJECT', () => {
@@ -51,7 +53,7 @@ describe('oracle 场景路由段', () => {
     expect(system).toMatch(/BLOCKER/);
     expect(system).toMatch(/SUGGESTION/);
     expect(system).toMatch(/仅\s*BLOCKER\s*触发\s*REJECT/);
-    expect(system).toMatch(/二元判定/);
+    expect(system).toMatch(/必须且只能输出/);
   });
 
   test('analysis 场景：结构化对比且不输出门禁格式、不替代用户决策', () => {
@@ -66,6 +68,45 @@ describe('oracle 场景路由段', () => {
     expect(system).toMatch(/默认咨询/);
     expect(system).toContain('本次为新会话');
     expect(system).toMatch(/前次会话结论/);
+  });
+});
+
+describe('oracle 内嵌场景标准指令（0.46.1 修复：注册表 checks 不再是死代码）', () => {
+  test('内嵌 plan-gate（标签 gate）完整检查清单与必附上下文', () => {
+    const system = createOracleAgent().system!;
+    expect(system).toContain('<oracle_scene name="gate">');
+    expect(system).toContain('注册表场景名：plan-gate');
+    expect(system).toContain('impact_estimate');
+    expect(system).toContain('最小修订集');
+    expect(system).toContain('不伪造');
+    expect(system).toContain('**必附上下文**');
+    expect(system).toContain('信息缺口');
+    expect(system).toContain('spec / intake 报告路径');
+    expect(system).toContain('research_brief 或 .oceanus/findings/');
+    expect(system).toContain('round=N、前轮 BLOCKER 清单');
+  });
+
+  test('内嵌 solution-analysis / diff-review / completion-audit 指令', () => {
+    const system = createOracleAgent().system!;
+    expect(system).toContain('<oracle_scene name="solution-analysis">');
+    expect(system).toContain('BACKGROUND_RESEARCH');
+    expect(system).toContain('SOLUTION_ANALYSIS');
+    expect(system).toContain('<oracle_scene name="diff-review">');
+    expect(system).toMatch(/PASS\/WARN\/FAIL|PASS=.*WARN=.*FAIL=/);
+    expect(system).toContain('<oracle_scene name="completion-audit">');
+    expect(system).toContain('六项判定矩阵');
+  });
+
+  test('visual-acceptance（observer 场景）不内嵌于 oracle', () => {
+    const system = createOracleAgent().system!;
+    expect(system).not.toContain('<oracle_scene name="visual-acceptance">');
+  });
+
+  test('内嵌内容与场景注册表单一来源一致', () => {
+    const system = createOracleAgent().system!;
+    expect(system).toContain(REVIEW_SCENES['plan-gate']!.checks);
+    expect(system).toContain(REVIEW_SCENES['diff-review']!.checks);
+    expect(system).toContain(REVIEW_SCENES['completion-audit']!.checks);
   });
 });
 

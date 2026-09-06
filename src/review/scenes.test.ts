@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { buildReviewPrompt, validateSubjectPath } from './protocol';
 import { getReviewScene, REVIEW_SCENES } from './scenes';
+import { createSisyphusAgent } from '../agents/sisyphus';
 
 describe('REVIEW_SCENES 注册表', () => {
   test('恰好注册五个审核场景', () => {
@@ -210,5 +211,29 @@ describe('validateSubjectPath · diff-review（含 .oceanus 内 .diff/.patch 落
   test('拒绝范围外路径', () => {
     expect(validateSubjectPath(scene, 'src/foo.ts')).toBe(false);
     expect(validateSubjectPath(scene, '.oceanus/review/../../etc/passwd')).toBe(false);
+  });
+});
+
+describe('requiredContext · 委派必附上下文（单一来源）', () => {
+  test('五场景全部声明 requiredContext 且非空', () => {
+    for (const [name, scene] of Object.entries(REVIEW_SCENES)) {
+      expect(scene.requiredContext.length, `${name} requiredContext 非空`).toBeGreaterThan(0);
+      for (const item of scene.requiredContext) {
+        expect(item.length, `${name} 条目非空串`).toBeGreaterThan(4);
+      }
+    }
+  });
+
+  test('plan-gate 必附上下文覆盖 spec/findings/前轮 BLOCKER', () => {
+    const ctx = REVIEW_SCENES['plan-gate']!.requiredContext.join('\n');
+    expect(ctx).toContain('spec / intake');
+    expect(ctx).toContain('research_brief 或 .oceanus/findings/');
+    expect(ctx).toContain('round=N、前轮 BLOCKER');
+  });
+
+  test('sisyphus 门禁文本注入必附上下文清单', () => {
+    const system = createSisyphusAgent().system!;
+    expect(system).toContain('按场景必附上下文清单附齐材料') ;
+    expect(system).toContain('spec / intake 报告路径');
   });
 });

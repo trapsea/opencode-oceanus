@@ -44,7 +44,7 @@ Sisyphus 主 Agent 持有计划、实现、ledger 与验收上下文；默认自
 
 普通执行不会在每个任务上重复调用 @oracle(analysis) 或 @oracle(plan-gate)；仅当 plan 本身必须变更时才会触发。
 
-1. **根据变更类型安排重新规划** — 需求或验收标准变化 → 配置批问与方案总批准一并失效、重新执行两问：暂停并先重新运行 @oracle(analysis)，分析新需求、风险、边界、反例与标准（Oracle 门禁审核=开时；关闭时跳过并记录）；然后返回 plan、修订它，并重新调用 @oracle(plan-gate)（开启时）与 human \`question\`。仅 Files/依赖/任务结构变化或失败重规划 → 不重新提问用户，仅重走 oracle 门禁（仅 Oracle 门禁审核=开时）：直接返回 plan、修订它，并重新运行 @oracle(plan-gate)，不要不必要地重复 @oracle(analysis)。
+1. **根据变更类型安排重新规划** — 需求或验收标准变化 → 配置批问与方案总批准一并失效、重新执行两问：暂停并先重新运行 @oracle(analysis)，分析新需求、风险、边界、反例与标准（Oracle 审查=开时；关闭时跳过并记录）；然后返回 plan、修订它，并重新调用 @oracle(plan-gate)（开启时）与 human \`question\`。仅 Files/依赖/任务结构变化或失败重规划 → 不重新提问用户，仅重走 oracle 门禁（仅 Oracle 审查=开时）：直接返回 plan、修订它，并重新运行 @oracle(plan-gate)，不要不必要地重复 @oracle(analysis)。
 2. **只有 oracle plan-gate OKAY 才能继续执行** — 任何重新规划后，修订后的 plan 必须通过 @oracle(plan-gate) review（计入 oracle 门禁 3 轮上限）。只有 oracle plan-gate 返回 OKAY 才能恢复执行；REJECT 表示继续修订，而不是执行。第 3 轮仍 REJECT 时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）。
 3. **绝不伪造门禁** — 不得臆造或伪造门禁结果。如果修订后的 plan 实际未运行 @oracle(plan-gate)，应如实记录，不得声称其已通过。
 
@@ -68,7 +68,7 @@ Sisyphus 主 Agent 持有计划、实现、ledger 与验收上下文；默认自
 
 ## 执行证据等级
 
-每个任务在进入终态前必须声明且执行一个 evidence tier；Execute 仍必须具备有效方案总批准，Oracle 门禁审核=开时另需实际的 oracle plan-gate \`OKAY\`（关闭时以 plan status 的 SKIPPED_BY_USER 记录为准），不能以证据档位替代任一门禁。
+每个任务在进入终态前必须声明且执行一个 evidence tier；Execute 仍必须具备有效方案总批准，Oracle 审查=开时另需实际的 oracle plan-gate \`OKAY\`（关闭时以 plan status 的 SKIPPED_BY_USER 记录为准），不能以证据档位替代任一门禁。
 
 1. **strict**（默认用于公共符号、接口、路由、配置契约或其它高风险变更）：必须同时记录同一变更状态上的 \`RED\`、\`GREEN\` 与 \`real-surface\` 证据；TDD off 时按 Failing-First 组合矩阵以 characterization 基线替代 RED，禁止伪称 RED。real-surface 必须来自 CLI 输出、live endpoint、手工 QA 或构建制品，而不是测试通过的复述。
 2. **light**（低风险且不触及公共符号）：允许 \`test-after\`，但仍必须运行并记录测试结果；不得伪称存在 RED 或 real-surface 证据。
@@ -104,7 +104,7 @@ Sisyphus 主 Agent 持有计划、实现、ledger 与验收上下文；默认自
 - 遵循上面的失败优先纪律；除非变更符合豁免白名单且已记录理由，否则不得跳过 RED→GREEN。
 - 仅凭测试通过绝不声称任务完成；必须提供真实表面制品。
 - 需求或验收变更须在修订 plan 前重新运行 @oracle(analysis)；Files/依赖/任务结构变更和失败重规划可以直接返回 plan。每个修订后的 plan 都必须在继续前通过实际的 @oracle(plan-gate) OKAY。
-- Plan-Change 后：需求或验收标准变化 → 旧的 oracle plan-gate \`OKAY\` 与配置批问/方案总批准均失效，重新执行两问并重走 oracle 门禁（开启时）后才可恢复 Execute；仅 Files/依赖/任务结构变化或失败重规划 → 两问不失效、不重新提问，仅重走 @oracle(plan-gate)（Oracle 门禁审核=开时）。
+- Plan-Change 后：需求或验收标准变化 → 旧的 oracle plan-gate \`OKAY\` 与配置批问/方案总批准均失效，重新执行两问并重走 oracle 门禁（开启时）后才可恢复 Execute；仅 Files/依赖/任务结构变化或失败重规划 → 两问不失效、不重新提问，仅重走 @oracle(plan-gate)（Oracle 审查=开时）。
 `,
 };
 

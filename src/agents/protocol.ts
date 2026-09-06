@@ -14,6 +14,7 @@ export const THREE_ROUND_TEMPLATE = `**3 轮中断上报模板（统一）**：�
 /** 执行前方案质量门禁（oracle plan-gate 场景）输出与复审协议（单一来源）；由 sisyphus.ts 注入（oceanus-plan skill 另行引用 PLAN_ACCEPTANCE_RUBRIC）。 */
 export const REVIEW_GATE_PROTOCOL = `- @oracle 场景 gate（prompt 前置 <oracle_scene name="gate"> 指令）输出按 BLOCKER/SUGGESTION 分级，仅 BLOCKER 触发 REJECT；REJECT 必须附最小修订集（逐条修改建议 + 验证方式）。复审轮只验证前轮 BLOCKER 与修订新引入的 BLOCKER，不追加旧问题。
 - 复审委派 prompt 必须携带 round=N、前轮 BLOCKER 清单与逐条落实证据。SDD 开启时证据优先用文件引用（plan 文件路径 + 修订处任务 ID/行锚点 + git diff 范围）替代全文转述；SDD 关闭时保留逐条转述。复审使用新会话：不复用任何咨询（consult）或分析（analysis）场景的 oracle 会话，也不复用前轮 gate 会话；round 与前轮 BLOCKER 清单经 prompt 显式传递，不依赖会话历史。
+- 委派任何 oracle 审核场景前，按场景的必附上下文清单（plan/spec/findings/前轮 BLOCKER 等，见场景注册表 requiredContext）附齐材料；材料缺失时 oracle 会按信息缺口降级审查并在结论中标注，委派方不得以此为由跳过门禁。
 - @oracle 场景 gate 返回 \`REJECT\` 时必须回到 plan 修订后重新检查，不得直接进入 execute；修订按最小修订集逐条落实（不自行发挥）；仅当 \`OKAY\` 才放行 execute。
 - 循环上限：@oracle 场景 gate REJECT 修订重审最多 3 轮；每轮按最小修订集逐条落实（不自行发挥）；第 3 轮仍 REJECT 时停止重审循环，按 3 轮中断上报模板上报，不允许静默循环自查。`;
 
