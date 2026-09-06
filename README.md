@@ -159,8 +159,8 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 |-------|------|
 | `opencode-oceanus` | 说明 Oceanus 配置、preset 优先级、v2 限制及 `/preset` 命令 |
 | `oceanus-brainstorm` | 读取 Intake 已确认的执行配置、研究优先澄清需求、按复杂度分层呈现方案（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）、再以方案总批准单问完成方向批准；SDD 开启时保存设计 spec 到 `.oceanus/spec/` |
-| `oceanus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、Oracle 审查=开时经 `@oracle`（plan-gate）门禁（关闭时记录 `SKIPPED_BY_USER` 仅保留人工门禁）、消费执行配置批问中的 Oracle 审查/SDD/TDD/连续执行授权决策（不重复提问） |
-| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类、执行配置批问（四项默认全关；仅实现类任务批问，调研/查询/方案设计类跳过并按默认关闭记录）与 CBM 初始化 |
+| `oceanus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、Oracle 审查=开时经 `@oracle`（plan-gate）门禁（关闭时记录 `SKIPPED_BY_USER` 仅保留人工门禁）、消费执行配置批问中的 Oracle 审查/SDD/TDD 决策（不重复提问） |
+| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类、执行配置批问（三项默认全关；仅实现类任务批问，调研/查询/方案设计类跳过并按默认关闭记录）与 CBM 初始化 |
 | `oceanus-execute` | 按计划实现、后台并行委派 `task(run_in_background=true)`、同步 todo 状态 |
 | `oceanus-review` | 阶段间证据化评审、重评审转交 @oracle、验证发现后才接受 |
 

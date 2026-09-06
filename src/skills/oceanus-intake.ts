@@ -34,19 +34,18 @@ humanReview: required
    - **非代码任务**：仅文档、解释、研究、问答或外部操作，不改代码；
    - **混合任务**：同时包含代码变更与非代码交付。
 4. **复杂度分流**：将请求分为三档，写入 \`intake_report.complexity\`：
-   - **Trivial**：单文件、低风险、方案明确，预估 ≤2 小时 → 后续走轻量路径：推荐 Oracle 门禁/SDD/TDD 关闭、连续执行授权授予，brainstorm 单方案精简呈现 + 一次开工确认后开工。
+   - **Trivial**：单文件、低风险、方案明确，预估 ≤2 小时 → 后续走轻量路径：推荐 Oracle 门禁/SDD/TDD 关闭，brainstorm 单方案精简呈现 + 一次开工确认后开工。
    - **Standard**：常规多文件/有依赖 → 完整六阶段流程；调研由主 Agent 自查（两波自查内无新有用事实即停止），仅 Oracle 审查=开且主 Agent 两波自查后仍存在未知依赖/约束才委派 @oracle(analysis) 背景研究；Oracle 门禁按配置批问抉择执行。
    - **Architecture**：跨模块、高风险、方案未定型 → 完整流程 + Oracle 审查=开时默认委派 @oracle(analysis) 背景研究（方案分析按未决分歧条件触发）+ oracle 审查（Review 阶段条件触发）。
-5. **执行配置批问（一问四项，默认全关；仅实现类任务）**：
-   - **适用判定**：任务产出涉及代码或文件实现改动 → 实现类，执行批问；产出为调研报告、查询结果、方案设计、评审意见等且不产生实现 diff → 非实现类，**跳过批问**，四项按默认关闭记录并在 intake_report 标注 \`execution_config.not_asked: non-implementation\`。
-   - 实现类任务用一次 \`question\` 批量询问四项——Oracle 审查、SDD、TDD、连续执行授权；每项给出**默认推荐（全部关闭）**与开启的影响说明，漏答或含糊项回落默认关闭并记录，不补问；Trivial 实现任务也必须完成这次批问。
+ 5. **执行配置批问（一问三项，默认全关；仅实现类任务）**：
+   - **适用判定**：任务产出涉及代码或文件实现改动 → 实现类，执行批问；产出为调研报告、查询结果、方案设计、评审意见等且不产生实现 diff → 非实现类，**跳过批问**，三项按默认关闭记录并在 intake_report 标注 \`execution_config.not_asked: non-implementation\`。
+   - 实现类任务用一次 \`question\` 批量询问三项——Oracle 审查、SDD、TDD；每项给出**默认推荐（全部关闭）**与开启的影响说明，漏答或含糊项回落默认关闭并记录，不补问；Trivial 实现任务也必须完成这次批问。
    - **Oracle 审查**：默认推荐关闭（跨模块、高风险或预估拆分 >12 个任务的实现任务，可在选项说明中提示用户考虑开启）；开启时 plan 进入 execute 前需要 oracle plan-gate \`OKAY\`，关闭时只保留人工方案门禁，不得伪造 verdict。
    - **SDD**：默认推荐关闭（仅维护会话内状态）；开启则落盘 spec/plan/progress/review。
    - **TDD**：默认推荐关闭（先功能后补测试，非免测试——仍须 test-after 或其它适用测试证据）；开启则采用 RED → GREEN。
-   - **连续执行授权**：默认推荐拒绝（每阶段结束停顿汇报）；授予后连续执行至 finish。
 6. **初始化 CBM（代码相关任务）**：对代码任务和混合任务由 Sisyphus 直接尝试一次 \`cbm_index\`，以便后续阶段使用准确的项目上下文；这是全工作流唯一初始化点，后续阶段不重复初始化。
 7. **Fail-open**：CBM 调用失败、超时或返回 \`in-progress\` 时不得阻塞 intake；记录状态、错误/超时信息和残余风险，继续使用可用的文件读取、grep 等方式完成报告。不得伪造索引成功。
-8. **交接**：输出结构化 \`intake_report\`，其中必须包含四项配置的用户选择、推荐值、回落情况和理由，并将其交给 Brainstorm。Brainstorm 以该报告为起始上下文继续探索、澄清和设计，再以方案总批准（单问）完成方向批准。非代码任务也必须交接分类与交付要求。
+ 8. **交接**：输出结构化 \`intake_report\`，其中必须包含三项配置的用户选择、推荐值、回落情况和理由，并将其交给 Brainstorm。Brainstorm 以该报告为起始上下文继续探索、澄清和设计，再以方案总批准（单问）完成方向批准。非代码任务也必须交接分类与交付要求。
 
 ## intake_report 格式
 
@@ -57,7 +56,7 @@ humanReview: required
 - \`project_context\` 与 \`workspace_context\`；
 - \`minimum_requirements\`、范围/非目标与验收信号；
 - \`open_questions\` 与风险；
-- \`execution_config\`：Oracle 审查/SDD/TDD/连续执行授权的选择、默认推荐（全关）、依据及回落记录；非实现类任务标注 \`not_asked: non-implementation\`（四项默认关闭未询问）；
+ - \`execution_config\`：Oracle 审查/SDD/TDD 的选择、默认推荐（全关）、依据及回落记录；非实现类任务标注 \`not_asked: non-implementation\`（三项默认关闭未询问）；
 - \`cbm\`: 是否执行、结果（成功/失败/超时/in-progress/不适用）、证据及 fail-open 说明；
 - \`handoff\`: 明确“交给 Brainstorm”，以及 Brainstorm 的下一步。
 

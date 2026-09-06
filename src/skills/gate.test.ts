@@ -9,12 +9,12 @@ const brainstormContent = OCEANUS_BRAINSTORM_SKILL.content;
 
 describe('Plan 双门禁与 impact_estimate 契约', () => {
   test('执行配置批问归属 Intake，Brainstorm 只消费配置并执行方案批准', () => {
-    expect(intakeContent).toContain('执行配置批问（一问四项，默认全关');
+    expect(intakeContent).toContain('执行配置批问（一问三项，默认全关');
     expect(intakeContent).toContain('execution_config');
     expect(intakeContent).toContain('Oracle 审查');
     expect(intakeContent).toContain('SDD');
     expect(intakeContent).toContain('TDD');
-    expect(intakeContent).toContain('连续执行授权');
+    expect(intakeContent).not.toContain('连续执行授权');
     expect(brainstormContent).toContain('调用方可以使用 `intake_report`，但它不是硬性前置条件');
     expect(brainstormContent).toContain('方案总批准');
     expect(brainstormContent).not.toContain('执行配置批问');
@@ -25,7 +25,7 @@ describe('Plan 双门禁与 impact_estimate 契约', () => {
     expect(intakeContent).toContain('默认推荐关闭');
     expect(intakeContent).toContain('非实现类，**跳过批问**');
     expect(intakeContent).toContain('not_asked: non-implementation');
-    expect(intakeContent).toContain('默认推荐拒绝（每阶段结束停顿汇报）');
+    expect(intakeContent).not.toContain('每阶段结束停顿汇报');
     // 配置项名称不再使用「Oracle 门禁审核」。
     expect(intakeContent).not.toContain('Oracle 门禁审核');
   });

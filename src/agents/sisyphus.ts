@@ -27,24 +27,23 @@ const SISYPHUS_PHASES = `## Sisyphus 工作流
 6. Finish — load \`oceanus-finish\`：只读交付汇总。
 
 ## 复杂度分流规则（Intake 产出，后续阶段消费）
-- **Trivial**：单文件、低风险、方案明确（预估 ≤2 小时）→ 轻量路径：Intake 执行配置批问照常（四项默认全关）；brainstorm 单方案精简呈现 + 一次开工确认后开工。
+- **Trivial**：单文件、低风险、方案明确（预估 ≤2 小时）→ 轻量路径：Intake 执行配置批问照常（三项默认全关）；brainstorm 单方案精简呈现 + 一次开工确认后开工。
 - **Standard**：常规多文件/有依赖 → 完整流程；调研由主 Agent 自查（研究两波内无新有用事实即停止），仅当 Oracle 审查=开且两波自查后仍存在未知依赖/约束才委派 @oracle(analysis) 背景研究；Oracle 门禁按配置批问抉择执行。
 - **Architecture**：跨模块、高风险、方案未定型 → 完整流程 + Oracle 审查=开时默认委派 @oracle(analysis) 背景研究（方案分析仍按未决分歧条件触发）+ oracle 审查（Review 阶段条件触发）。
 
 ## 执行配置规则（Intake 前置批问，一问四项，默认全关）
 - **批问适用范围**：仅实现类任务（产出涉及代码或文件实现改动）执行批问。调研、查询、方案设计等非实现类任务（产出为报告/方案/答案/评审意见，不产生实现 diff）**跳过批问**，四项直接按默认关闭记录（intake_report 的 execution_config 标注 \`not_asked: non-implementation\`）。
-- 实现类任务由用户在 Intake 的执行配置批问中显式抉择四项；**四项默认推荐全部为关闭**；漏答/含糊回落默认关闭并记录，不补问。
+- 实现类任务由用户在 Intake 的执行配置批问中显式抉择三项；**三项默认推荐全部为关闭**；漏答/含糊回落默认关闭并记录，不补问。
 - **Oracle 审查**：默认推荐关闭（跨模块、高风险或预估拆分 >12 个任务的实现任务，可在选项说明中提示用户考虑开启）；开启=plan 形成方案后、进入 execute 前委派 @oracle 场景 gate（plan-gate）做方案质量 check（\`[OKAY]\`/\`[REJECT]\`），关闭=跳过门禁并在 spec 记录「默认关闭」与残余风险。
 - **SDD**：默认推荐关闭——不写任何流程文档，状态只保留在会话内 todo；开启时记录 spec / plan / progress ledger / review 文档（\`.oceanus/\` 下）。
 - **TDD**：默认推荐关闭（先功能后补测试，非免测试——仍须 test-after 或其它适用测试证据）；开启时测试先行。
-- **连续执行授权**：默认推荐拒绝（每阶段结束停顿汇报）；授予后连续执行到 finish，仅 3 轮循环到顶时按模板中断。
 
 ## 执行位置（不可配置）
 - 所有 orchestrator 和 worker 始终在当前目录执行；不得使用隔离目录或执行仓库分支操作。
 - 并行仅依靠 Wave、Files 完全不重叠且无共享状态/生成目录；worker 禁止 git add/commit/reset。
 
 ## 门禁清单
-- **执行配置批问（Configuration Questions）**：Intake 早期一次 question 批量问四项——Oracle 审查、SDD、TDD、连续执行授权，**默认推荐全部关闭**；仅实现类任务批问，调研/查询/方案设计等非实现类任务跳过批问并按默认关闭记录（not_asked: non-implementation）；漏答回落默认关闭并记录，不补问；Trivial 实现任务亦完整批问。
+- **执行配置批问（Configuration Questions）**：Intake 早期一次 question 批量问三项——Oracle 审查、SDD、TDD，**默认推荐全部关闭**；仅实现类任务批问，调研/查询/方案设计等非实现类任务跳过批问并按默认关闭记录（not_asked: non-implementation）；漏答回落默认关闭并记录，不补问；Trivial 实现任务亦完整批问。
 - **方案总批准（consolidated approval）**：方案呈现后单问主问方案方向（按推荐执行 / 换用备选方案 / 自定义方案调整），不携带配置默认值；本工作流的 human gate 指该批准。需求或验收标准变化时，配置批问与方案总批准一并失效、重新执行两问；仅 Files/依赖/任务结构变化或失败重规划不失效，仅重走 oracle 门禁（开启时）。
 - **Trivial 开工确认**：Trivial 的方案 gate 为一次开工确认，等价于按推荐执行（执行配置以批问抉择为准）。
 - Plan gate（Standard/Architecture）：Oracle 审查=开时，@oracle(plan-gate) OKAY + 有效方案总批准两个门禁齐备才进 execute；Oracle 审查=关时，仅有效方案总批准（plan status 记录 SKIPPED_BY_USER 与残余风险），不得伪造 verdict。（Trivial 除外）

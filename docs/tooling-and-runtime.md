@@ -8,8 +8,8 @@
 
 六阶段工作流（Intake → Brainstorm → Plan → Execute → Review → Finish）由 Agent/Skill 的
 prompt 契约驱动：Agent 负责编排与委派，Skill 规定阶段边界；工具和 Hook 只提供运行时
-能力，不是阶段 supervisor。执行配置（Oracle 审查/SDD/TDD/连续执行授权）由
-Intake 前置的执行配置批问确认——一次 question 批量问四项，**四项默认推荐全部关闭**
+能力，不是阶段 supervisor。执行配置（Oracle 审查/SDD/TDD）由
+Intake 前置的执行配置批问确认——一次 question 批量问三项，**三项默认推荐全部关闭**
 （选项说明中可提示何种规模值得开启）；仅实现类任务批问，调研/查询/方案设计等非实现
 类任务跳过批问并按默认关闭记录（\`not_asked: non-implementation\`），漏答回落默认关闭
 并记录、不补问；方案方向由方案总批准单问覆盖。Oracle 审查=开时 Plan 必须经过
