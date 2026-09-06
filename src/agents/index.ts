@@ -1,8 +1,8 @@
 import { Model } from '@opencode-ai/plugin';
 import {
+  EXPLORER_DEFAULT_PERMISSION,
   READONLY_AGENTS,
   READONLY_DEFAULT_PERMISSION,
-  METIS_DEFAULT_PERMISSION,
   SUBAGENT_NAMES,
 } from '../config/constants';
 import type { AgentOverrideConfig, PluginConfig } from '../config/schema';
@@ -12,8 +12,6 @@ import { createDesignerAgent } from './designer';
 import { createExplorerAgent } from './explorer';
 import { createFixerAgent } from './fixer';
 import { createLibrarianAgent } from './librarian';
-import { createMetisAgent } from './metis';
-import { createMomusAgent } from './momus';
 import { createObserverAgent } from './observer';
 import { createOracleAgent } from './oracle';
 import {
@@ -47,8 +45,6 @@ const SUBAGENT_FACTORIES: Record<(typeof SUBAGENT_NAMES)[number], AgentFactory> 
     designer: createDesignerAgent,
     fixer: createFixerAgent,
     observer: createObserverAgent,
-    metis: createMetisAgent,
-    momus: createMomusAgent,
   };
 
 /** 解析配置中的 model 字符串（provider/model#variant）为 v2 ModelRef */
@@ -165,9 +161,10 @@ export function createAgents(
 
       // 只读 agent 在无显式 permission 时集中应用默认只读权限。
       // 显式 agents.<name>.permission 已在上方 applyOverrides 中设置，此处分支自动跳过。
+      // explorer 特判：放开 .oceanus/findings/* 的 write（落盘契约），其余写路径仍 deny。
        if (READONLY_AGENTS.has(name) && agent.permission === undefined) {
          agent.permission =
-           name === 'metis' ? METIS_DEFAULT_PERMISSION : READONLY_DEFAULT_PERMISSION;
+           name === 'explorer' ? EXPLORER_DEFAULT_PERMISSION : READONLY_DEFAULT_PERMISSION;
       }
       return agent;
     });

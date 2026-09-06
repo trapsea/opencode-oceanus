@@ -18,14 +18,14 @@ const SKILL_ANCHORS: Record<
     must: [
       /Sisyphus Intake/,
       /owner:\s*Sisyphus/,
-      /Intake 不调用 Metis INTAKE/,
+      /Intake 不委派 oracle analysis/,
       /项目背景|工作区结构/,
       /最小需求|minimum_requirements/,
       /分类任务|代码任务|非代码任务/,
       /直接调用 [`']?cbm_index|cbm_index.*初始化/,
       /Fail-open|fail-open/,
     ],
-    mustNot: [/技术方案.*(选择|决策)/, /@metis/],
+    mustNot: [/技术方案.*(选择|决策)/, /@metis/, /@momus/],
   },
   'oceanus-brainstorm': {
     must: [

@@ -14,8 +14,6 @@ export const SUBAGENT_NAMES = [
   'designer',
   'fixer',
   'observer',
-  'metis',
-  'momus',
 ] as const;
 
 export const ALL_AGENT_NAMES = [
@@ -42,8 +40,6 @@ export const DEFAULT_MODELS: Record<AgentName, string | undefined> = {
   designer: undefined,
   fixer: undefined,
   observer: undefined,
-  metis: undefined,
-  momus: undefined,
 };
 
 /** 写权限 agent（designer/fixer）的文件操作规则 */
@@ -124,8 +120,6 @@ export const READONLY_AGENTS: ReadonlySet<string> = new Set([
   'librarian',
   'oracle',
   'observer',
-  'metis',
-  'momus',
 ]);
 
 /**
@@ -168,12 +162,21 @@ export const READONLY_DEFAULT_PERMISSION: NonNullable<
   clipboard_image: 'deny',
 };
 
-/** Metis 的只读权限：方案分析仅允许查询，索引初始化由 Intake 主流程负责。 */
-export const METIS_DEFAULT_PERMISSION: NonNullable<
+/**
+ * explorer 专用默认 permission：在只读基线上放开 findings 落盘路径。
+ * write 采用资源级规则（窄 allow 声明在前、宽 deny 在后，宿主 findLast 语义）：
+ * - `*` 不跨 `/` 时：`.oceanus/findings/<file>` 命中 allow，其余路径命中 deny；
+ * - `*` 跨 `/` 时：两条规则均匹配，后声明的 `*` deny 生效（fail-closed 回落只读）。
+ * 无论宿主 glob 语义如何都不会放大写权限。
+ */
+export const EXPLORER_DEFAULT_PERMISSION: NonNullable<
   AgentOverrideConfig['permission']
 > = {
   ...READONLY_DEFAULT_PERMISSION,
-  cbm_index: 'deny',
+  write: {
+    '.oceanus/findings/*': 'allow',
+    '*': 'deny',
+  },
 };
 
 /**

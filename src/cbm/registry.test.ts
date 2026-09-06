@@ -2,7 +2,7 @@
  * CBM 规则注册表契约测试（RED→GREEN）。
  *
  * 单一来源收敛：工具名清单、共享示例、三阶段生命周期主线（intake 初始化 →
- * momus 影响面预估 → review 影响面复查）、各角色 CBM 段落与公共边界句。
+ * oracle plan-gate 影响面预估 → review 影响面复查）、各角色 CBM 段落与公共边界句。
  */
 import { describe, expect, test } from 'bun:test';
 import {
@@ -87,8 +87,8 @@ describe('CBM_LIFECYCLE 三阶段主线', () => {
     expect(lifecycle).toMatch(/fail-open/i);
   });
 
-  test('阶段二：momus 影响面预估（查询型排查、REJECT 判定、结论记录）', () => {
-    expect(lifecycle).toMatch(/momus[\s\S]{0,400}影响面/);
+  test('阶段二：oracle plan-gate 影响面预估（查询型排查、REJECT 判定、结论记录）', () => {
+    expect(lifecycle).toMatch(/oracle[\s\S]{0,400}影响面/);
     expect(lifecycle).toMatch(/cbm_search_graph[\s\S]{0,80}cbm_trace/);
     expect(lifecycle).toMatch(/REJECT/);
     expect(lifecycle).toMatch(/plan status|plan 状态/);
@@ -113,9 +113,9 @@ describe('CBM_LIFECYCLE 三阶段主线', () => {
 });
 
 describe('cbmSection 角色段落', () => {
-  const ROLES: CbmRole[] = ['explorer', 'oracle', 'fixer', 'librarian', 'momus', 'metis'];
+  const ROLES: CbmRole[] = ['explorer', 'oracle', 'fixer', 'librarian'];
 
-  test('六个角色段落齐全', () => {
+  test('四个角色段落齐全', () => {
     for (const role of ROLES) {
       const section = cbmSection(role);
       expect(section.length).toBeGreaterThan(40);
@@ -159,40 +159,24 @@ describe('cbmSection 角色段落', () => {
     expect(section).toContain('cbm_code');
   });
 
-  test('momus：影响面预估清单（定位→调用链→源码、计划外受影响 → REJECT、结论记录、只查询不建索引、fail-open）', () => {
-    const section = cbmSection('momus');
-    expect(section).toMatch(/影响面/);
-    expect(section).toMatch(/cbm_search_graph/);
-    expect(section).toMatch(/cbm_trace/);
-    expect(section).toMatch(/cbm_code/);
-    expect(section).toMatch(/调用方|被调用方/);
-    expect(section).toMatch(/REJECT/);
-    expect(section).toMatch(/plan status|plan 状态/);
-    expect(section).toMatch(/不重建索引|不调用 cbm_index|禁止 cbm_index/);
-    expect(section).toMatch(/不确定性/);
-    expect(section).toMatch(/fail-open|不可用/i);
+  test('已删角色类型面收窄：CbmRole 不再包含 momus/metis（编译期）', () => {
+    // @ts-expect-error 'momus' 已不是合法 CbmRole
+    const momusRole: CbmRole = 'momus';
+    // @ts-expect-error 'metis' 已不是合法 CbmRole
+    const metisRole: CbmRole = 'metis';
+    expect(momusRole).toBe('momus');
+    expect(metisRole).toBe('metis');
   });
 
-  test('momus：校验 Plan impact_estimate 覆盖，不要求全量 trace，保持 advisory/fail-open', () => {
-    const section = cbmSection('momus');
-    expect(section).toMatch(/impact_estimate/);
-    expect(section).toMatch(/校验|检查/);
-    expect(section).toMatch(/覆盖/);
-    expect(section).toMatch(/不要求|不执行.*全量|无需.*全量/);
-    expect(section).toMatch(/advisory|建议性/i);
-    expect(section).toMatch(/fail-open/i);
+  test('已删角色不再有段落：SECTIONS 运行时不残留 momus/metis 键', () => {
+    expect(cbmSection('momus' as never)).toBeUndefined();
+    expect(cbmSection('metis' as never)).toBeUndefined();
   });
 
-  test('registry 生命周期与 Momus 段落对职责文案保持一致', () => {
+  test('registry 生命周期与 oracle gate 场景对职责文案保持一致', () => {
     expect(CBM_LIFECYCLE.full).toContain('impact_estimate');
     expect(CBM_LIFECYCLE.full).toMatch(/不要求.*全量|不执行.*全量/);
     expect(CBM_LIFECYCLE.full).toMatch(/advisory|建议性/i);
-    expect(cbmSection('momus')).toContain('fail-open');
-  });
-
-  test('metis：SOLUTION_ANALYSIS 检索用查询型 CBM', () => {
-    const section = cbmSection('metis');
-    expect(section).toMatch(/cbm_search_graph|cbm_code/);
-    expect(section).toMatch(/SOLUTION_ANALYSIS|方案分析|独立分析/);
+    expect(CBM_LIFECYCLE.full).toMatch(/fail-open/i);
   });
 });

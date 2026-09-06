@@ -161,7 +161,7 @@ export interface RunSetupOptions {
  * 接线顺序（CBM 相关）：
  *   1. 解析 resolved codebaseMemory，计算共享 cacheRoot，构造共享依赖；
  *   2. `startBackgroundInstall(installOptions)`，**不 await**（后台安装非阻塞）；
- *   3. 注册 agents / skills（保留 agent-supervision/metis/momus 改动）；
+ *   3. 注册 agents / skills（agent 拓扑已收敛：metis/momus 并入 oracle 场景，见 src/review/）；
  *   4. 注册命令（仅 /preset；cbm 不再暴露用户命令，能力由 MCP 工具供 agent 调度）；
  *   5. **非阻塞**注册 `codebase-memory-mcp`（占位→安装完成启用，不阻塞插件启动）；
  *   6. 注册 CLI fallback 工具，传入共享 runDeps / indexer（env 经 config 推导）；
@@ -551,7 +551,8 @@ export async function runSetup(
  * 通过 ctx.agent.transform 注册一组参考 oh-my-opencode-slim 的 agent：
  * - oceanus（主 agent，颜色 #0FFFFF）
    * - sisyphus（主 agent，六阶段工作流）
- * - explorer / librarian / oracle / designer / fixer / observer / metis / momus（子 agent，observer 默认禁用）
+ * - explorer / librarian / oracle / designer / fixer / observer（子 agent，observer 默认禁用；
+ *   oracle 为统一分析顾问，三场景 consult/analysis/gate 见 src/review/scenes.ts）
  *
  * 同时通过 ctx.skill.transform 注入 sisyphus 工作流的六个阶段 Skill
  * （oceanus-intake / oceanus-brainstorm / oceanus-plan / oceanus-execute /

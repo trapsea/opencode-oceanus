@@ -5,7 +5,6 @@ import { createExplorerAgent } from './explorer';
 import { createOracleAgent } from './oracle';
 import { createLibrarianAgent } from './librarian';
 import { createFixerAgent } from './fixer';
-import { createAgents } from './index';
 import { OCEANUS_BRAINSTORM_SKILL } from '../skills/oceanus-brainstorm';
 import { OCEANUS_REVIEW_SKILL } from '../skills/oceanus-review';
 import { CBM_LIFECYCLE, CBM_TOOLS, cbmSection } from '../cbm/registry';
@@ -20,17 +19,6 @@ describe('CBM-GATE-01 静态提示词契约', () => {
   test('sisyphus prompt 声明五阶段并包含 finish', () => {
     const prompt = createSisyphusAgent().system!;
     expect(prompt).toMatch(/intake[\s\S]*brainstorm[\s\S]*plan[\s\S]*execute[\s\S]*review[\s\S]*finish/i);
-  });
-
-  test('SOLUTION_ANALYSIS 具有完整前置条件且不承担 Intake', () => {
-    const prompt = createAgents().find((a) => a.name === 'metis')!.system!;
-    expect(prompt).toMatch(/INTAKE/i);
-    expect(prompt).toMatch(/SOLUTION_ANALYSIS/i);
-    expect(prompt).toMatch(/exactly one mode|一个模式/i);
-    expect(prompt).toMatch(/explicitly requested|明确指定/i);
-    expect(prompt).toMatch(/clarification|澄清/);
-    expect(prompt).toMatch(/unresolved|未决/);
-    expect(prompt).toMatch(/do not silently perform Intake|不得.*Intake/i);
   });
 
   test('Sisyphus 直接完成 Intake，代码/混合任务只尝试一次并 fail-open', () => {
@@ -50,22 +38,22 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(prompt).toMatch(/Finish/);
   });
 
-  test('Plan 必须经过 Momus OKAY，并保留人工批准门禁', () => {
+  test('Plan 必须经过 oracle 场景 gate OKAY，并保留人工批准门禁', () => {
     const prompt = createSisyphusAgent().system!;
-    expect(prompt).toMatch(/@momus[\s\S]*OKAY[\s\S]*execute/i);
+    expect(prompt).toMatch(/@oracle[\s\S]*OKAY[\s\S]*execute/i);
     expect(prompt).toMatch(/REJECT[\s\S]*(back to plan|回.*plan)/i);
     expect(prompt).toMatch(/human approval|人工批准|approval/i);
     expect(prompt).toMatch(/both|双|two gates|两个门禁/i);
   });
 
-  test('Review 的 subagent、Momus、Sisyphus 证据边界明确', () => {
+  test('Review 的 subagent、oracle gate 场景、Sisyphus 证据边界明确', () => {
     const review = OCEANUS_REVIEW_SKILL.content;
     expect(review).toMatch(/Review subagent.*只读.*不修改代码.*不运行 task/i);
-    expect(review).toContain('不能替代 @oracle 进行独立代码审查');
+    expect(review).toContain('代码审查走 diff-review 场景（条件触发）');
     expect(review).toMatch(/Sisyphus.*负责 spec\/plan\/diff 审查、测试验证和完成审计/);
     expect(review).toMatch(/@oracle.*独立代码审查/);
     expect(review).toMatch(/不确定性.*未达成/);
-    expect(review).toContain('审查 evidence、tests 与 completionMatrix');
+    expect(review).toContain('核查 evidence、tests 与 completionMatrix');
   });
 
   test('Finish 只接受阶段输入且声明禁止动作', () => {
@@ -103,12 +91,6 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(createOracleAgent().system).toContain(cbmSection('oracle'));
     expect(createLibrarianAgent().system).toContain(cbmSection('librarian'));
     expect(createFixerAgent().system).toContain(cbmSection('fixer'));
-    expect(createAgents().find((a) => a.name === 'momus')!.system).toContain(
-      cbmSection('momus'),
-    );
-    expect(createAgents().find((a) => a.name === 'metis')!.system).toContain(
-      cbmSection('metis'),
-    );
   });
 
   test('CBM_LIFECYCLE.full 只注入 sisyphus 一次，oceanus 基座不重复注入', () => {
@@ -125,12 +107,9 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(sys.split('唯一初始化点').length - 1).toBe(1);
   });
 
-  test('momus prompt 含查询型影响面预估与 REJECT 门禁', () => {
-    const sys = createAgents().find((a) => a.name === 'momus')!.system!;
-    expect(sys).toMatch(/影响面/);
-    expect(sys).toContain('cbm_search_graph');
-    expect(sys).toContain('cbm_trace');
+  test('sisyphus system 含 oracle 场景 gate 影响面预估与 REJECT 门禁', () => {
+    const sys = createSisyphusAgent().system!;
+    expect(sys).toContain('plan-gate');
     expect(sys).toMatch(/REJECT/);
-    expect(sys).toMatch(/plan status/);
   });
 });

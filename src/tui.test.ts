@@ -63,8 +63,21 @@ describe('sidebar 模型展示', () => {
 });
 
 describe('sidebar agent 排序', () => {
-  test('sidebar 白名单包含 metis 与 momus', () => {
-    expect(ALL_AGENT_NAMES).toEqual(expect.arrayContaining(['metis', 'momus']));
+  test('sidebar 白名单不含已删除的 metis/momus 且覆盖全部现行 agent', () => {
+    expect(ALL_AGENT_NAMES).toEqual(
+      expect.arrayContaining([
+        'oceanus',
+        'sisyphus',
+        'explorer',
+        'librarian',
+        'oracle',
+        'observer',
+        'designer',
+        'fixer',
+      ]),
+    );
+    expect(ALL_AGENT_NAMES).not.toContain('metis');
+    expect(ALL_AGENT_NAMES).not.toContain('momus');
   });
 
   test('按默认 agent 顺序排序并将未知 agent 放在末尾', () => {

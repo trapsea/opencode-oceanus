@@ -4,7 +4,7 @@ import { decideFinish, OCEANUS_FINISH_SKILL, type FinishInput } from './oceanus-
 const { content, description } = OCEANUS_FINISH_SKILL;
 
 describe('Finish 自包含判定矩阵', () => {
-  const complete: FinishInput = { review: 'accepted', completion: 'green', ledger: 'complete', momus: 'OKAY', human: 'APPROVED', evidence: 'fresh' };
+  const complete: FinishInput = { review: 'accepted', completion: 'green', ledger: 'complete', gate: 'OKAY', human: 'APPROVED', evidence: 'fresh' };
 
   test('Finish 说明使用中文自然语言', () => {
     expect(content).not.toMatch(/Review accepted|Completion Matrix green/);
@@ -14,8 +14,8 @@ describe('Finish 自包含判定矩阵', () => {
     expect(decideFinish(complete)).toEqual({ complete: true, gaps: [] });
   });
 
-  test('Momus 用户豁免（waived）放行完成', () => {
-    const waived = { ...complete, momus: 'waived' as const };
+  test('门禁用户豁免（waived）放行完成', () => {
+    const waived = { ...complete, gate: 'waived' as const };
     expect(decideFinish(waived)).toEqual({ complete: true, gaps: [] });
   });
 
@@ -24,7 +24,7 @@ describe('Finish 自包含判定矩阵', () => {
       ['review', 'pending'], ['review', 'rejected'], ['review', 'missing'],
       ['completion', 'red'], ['completion', 'incomplete'],
       ['ledger', 'failed'], ['ledger', 'blocked'], ['ledger', 'pending'],
-      ['momus', 'REJECT'], ['momus', 'PENDING'], ['momus', 'missing'],
+      ['gate', 'REJECT'], ['gate', 'PENDING'], ['gate', 'missing'],
       ['human', 'REJECTED'], ['human', 'PENDING'], ['human', 'missing'],
       ['evidence', 'stale'], ['evidence', 'missing'],
     ];

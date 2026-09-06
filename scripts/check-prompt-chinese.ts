@@ -10,8 +10,9 @@ import { resolve } from 'node:path';
 const TARGET_FILES = [
   'src/agents/oceanus.ts', 'src/agents/sisyphus.ts', 'src/agents/explorer.ts',
   'src/agents/librarian.ts', 'src/agents/oracle.ts', 'src/agents/designer.ts',
-  'src/agents/fixer.ts', 'src/agents/observer.ts', 'src/agents/metis.ts',
-  'src/agents/momus.ts', 'src/agents/orchestrator-context.ts', 'src/agents/protocol.ts',
+  'src/agents/fixer.ts', 'src/agents/observer.ts',
+  'src/agents/orchestrator-context.ts', 'src/agents/protocol.ts',
+  'src/review/scenes.ts', 'src/review/protocol.ts',
   'src/agents/index.ts', 'src/skills/clipboard-image-observer.ts', 'src/skills/opencode-oceanus.ts',
   'src/skills/oceanus-intake.ts', 'src/skills/oceanus-brainstorm.ts', 'src/skills/oceanus-plan.ts',
   'src/skills/oceanus-execute.ts', 'src/skills/oceanus-review.ts', 'src/skills/oceanus-finish.ts',
@@ -23,7 +24,7 @@ const TARGET_FILES = [
 ];
 
 const APPROVED_TOKENS = new Set([
-  'OpenCode', 'Oceanus', 'Sisyphus', 'CBM', 'Metis', 'Momus', 'Fixer', 'Explorer',
+  'OpenCode', 'Oceanus', 'Sisyphus', 'CBM', 'Fixer', 'Explorer',
   'Librarian', 'Oracle', 'Designer', 'Observer', 'README', 'Markdown', 'TypeScript',
   'ESM', 'Bun', 'API', 'UI', 'UX', 'TUI', 'JSON', 'OCR', 'PDF', 'YAGNI', 'TDD', 'SDD', 'L1', 'L2', 'L3', 'L4', 'L5',
   'AST', 'ast-grep', 'wait_for_user', 'intake_report', 'open_questions', 'risks', 'clipboard-image-observer',
@@ -33,11 +34,12 @@ const APPROVED_TOKENS = new Set([
   'in', 'progress', 'Task', 'ID', 'Context', 'Interfaces', 'Dependencies', 'Preconditions', 'Validation',
   'Expected', 'Acceptance', 'Risks', 'rollback', 'status', 'owner', 'wave', 'updated', 'strict', 'light',
   'exempt', 'TDD', 'on', 'off', 'RED', 'GREEN', 'SURFACE', 'characterization', 'test', 'endpoint', 'live',
-  'Findings', 'ready', 'set', 'Todo', 'list', 'Momus', 'OKAY', 'REJECT', 'Review', 'accepted', 'green',
+  'Findings', 'ready', 'set', 'Todo', 'list', 'OKAY', 'REJECT', 'Review', 'accepted', 'green',
   'MATCH', 'RETURN', 'does', 'support', 'session', 'issue', 'read', 'AND', 'N', 'M', 'run', 'task',
   'execute', 'before', 'after', 'hook', 'v2', 'ToolHooks', 'task-session-manager', 'task_*', 'wait_for_*',
   'no-op', 'spy', 'warnAt', 'blockAt', 'MAX_TRACKED_SESSIONS', 'LOOP_GUARD_WARN_AT', 'LOOP_GUARD_BLOCK_AT',
   'verdict', 'tier',
+  'STATUS', 'FINDINGS', 'UNAVAILABLE', 'findings', 'write', 'fail', 'closed',
   'LOOP', 'GUARD', 'default', 'no', 'op', 'grep', 'Execute', 'SKIPPED_BY_USER', 'BY', 'USER',
   'for', 'user', 'intake', 'report', 'ast',
 ]);
@@ -70,7 +72,12 @@ function scanTypeScript(file: string, lines: string[]): void {
         continue;
       }
       if (fenced) {
-        const end = raw.indexOf('`', i);
+        // 与引号分支一致：跳过转义反引号 \`，避免模板字符串内成对的
+        // 转义反引号把 fence 状态翻错位、把后续代码行误当模板内容扫描。
+        let end = -1;
+        for (let j = i; j < raw.length; j++) {
+          if (raw[j] === '`' && raw[j - 1] !== '\\') { end = j; break; }
+        }
         text += end < 0 ? raw.slice(i) : raw.slice(i, end);
         if (end < 0) break;
         fenced = false;
@@ -83,7 +90,7 @@ function scanTypeScript(file: string, lines: string[]): void {
       } else if (raw.startsWith('//', i)) {
         text += raw.slice(i + 2);
         break;
-      } else if (raw[i] === '`') {
+      } else if (raw[i] === '`' && raw[i - 1] !== '\\') {
         fenced = true;
         i += 1;
       } else if (raw[i] === '"' || raw[i] === "'") {
