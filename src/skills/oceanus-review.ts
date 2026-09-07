@@ -2,11 +2,13 @@ import type { SkillDefinition } from './types';
 
 const OCEANUS_REVIEW_SKILL: SkillDefinition = {
   name: 'oceanus-review',
+  category: 'phase',
   description:
-    '第 5 阶段——审查：每个阶段结束后执行基于证据的审查门禁，将高强度审查交给 @oracle，并在接受任何发现前用证据核实。由 sisyphus agent 在审查阶段开始时加载。',
+    '第 5 阶段——审查：Execute 完成后执行最终 diff、影响面和验收证据审查，将高强度审查交给 @oracle，并在接受任何发现前用证据核实。由 sisyphus agent 在审查阶段开始时加载。',
   slash: true,
   content: `---
 name: oceanus-review
+category: phase
 input: 实现、plan、evidence、tests 与 completionMatrix
 owner: Sisyphus 主 Agent（subagent 只读；Oracle 仅条件委派）
 output: review 报告
@@ -15,33 +17,85 @@ exit: 验收证据齐全
 failure: 缺口退回 execute
 verification: 主流程测试与 evidence 审查
 humanReview: conditional
-description: Sisyphus 工作流的第 5 阶段——审查。每个阶段结束后执行基于证据的审查门禁，将高强度审查交给 @oracle，并在接受任何发现前用证据核实。
+description: 第 5 阶段——审查：Execute 完成后执行最终 diff、影响面和验收证据审查，将高强度审查交给 @oracle，并在接受任何发现前用证据核实。由 sisyphus agent 在审查阶段开始时加载。
 ---
 
 # Sisyphus 第 5 阶段——审查
 
 ## 目标
-Sisyphus 主 Agent 持有 spec/plan/diff/evidence 上下文与最终门禁；仅对高风险架构、持续故障或安全敏感问题条件委派 @oracle。
+Sisyphus 主 Agent 持有 spec/plan/diff/evidence 上下文并负责完成判定；仅对高风险架构、持续故障或安全敏感问题条件委派 @oracle。
 
-在阶段之间使用证据而非直觉发现缺陷和设计偏移。
+Review 是 Execute 完成后的正式审查阶段；Intake、discuss、Plan 和 Execute 内部只做阶段内自查，不重复创建 Review/Completion Audit 门禁。
+
+在最终状态上使用证据而非直觉发现缺陷和设计偏移。
+
+## 完成声明铁律
+
+**没有新鲜、完整的验证证据，不得声称完成。** 对每个完成声明执行：
+
+1. **IDENTIFY**：明确什么命令、diff、构建制品或真实表面能证明该声明。
+2. **RUN**：在当前最终状态完整运行验证，不复用变更前输出。
+3. **READ**：读取完整输出、退出码和失败计数，不只看最后一行。
+4. **VERIFY**：确认输出确实覆盖声明；不覆盖就记录 gap 并退回 execute。
+5. **CLAIM**：只有前四步成立才写 accepted/completed。
+
+测试通过不等于构建通过，类型检查通过不等于运行时表面通过，worker 自报完成不等于范围和 diff 已核实。
+
+## 对抗性立场
+
+**假设目标未达成，直到代码证据证明相反。** 起始假设是"任务完成了但目标没达成"；逐条证伪执行摘要与自报叙述。执行者说的不是证据，代码库实际存在的才是。
+
+审查者变软的失效模式（自查对照，出现任一即纠正）：
+
+- 信任执行摘要的要点而不读它描述的实际代码。
+- 把"文件存在"当作"行为已验证"——占位实现满足存在性但不满足行为。
+- 该判 FAILED 时选 UNCERTAIN 回避冲突；该请求人工决策时替用户放行。
+- 被高任务完成率锚定：7 项过 6 项就放松第 7 项的审查力度。
+- 早期通过的条目降低了对后续条目的怀疑。
+
+**发现分级（每条必须显式标注）**：
+- **BLOCKER**：准则未达成或证据缺失，不修复不得进入下一阶段。
+- **WARNING**：质量或一致性受损，建议修复但可继续。
+- **INFO**：仅供参考，永不单独触发退回。
+
+无法用证据确认又无法证伪的准则 → UNCERTAIN：标注缺失的具体证据并请求用户决策，不得默认通过。矩阵状态为 VERIFIED / FAILED（BLOCKER）/ UNCERTAIN；BLOCKER 退回 Execute，WARNING 记录后可继续，UNCERTAIN 阻塞并请求用户决策，INFO 不阻塞。
+
+## BLOCKER 自动回退闭环
+
+发现 BLOCKER 后，Review 必须在报告中输出可执行的完整 BLOCKER 清单（每项包含准则、证据缺口、目标文件/任务、验证命令和验收标准），并立即把该清单交给 Execute。不得等待用户再次提示，也不得只报告“review failed”后停顿。Execute 完成**全部 blocker 任务**并取得当前状态的验证证据后，主流程自动重新进入 Review；只有新的 Review 全部通过，才自动进入 Finish。
+
+该闭环最多自动运行三轮。三轮内应合并处理本轮发现的全部 BLOCKER，不能修完一项就请求用户继续。第三轮仍有 BLOCKER，或发现属于 UNCERTAIN 的未决决策时，才使用 \`question\` 建立用户阻塞边界；WARNING 和 INFO 不得打断自动闭环。
 
 ## 步骤
 0. **当前目录范围**——审查始终针对当前目录中的实际 diff 执行；不创建或合并隔离工作区。
-1. **审查查询前规划 CBM 预算**——先根据实际 diff 分类：纯文档 diff（仅 Markdown、注释或文案，且不影响代码契约）跳过 \`cbm_index\`，记录 \`cbm: skipped (docs-only)\`。其余 diff 在 Review 开始直接调用 \`cbm_index\` 重建索引，成功后再执行查询：首次尝试最多 30 秒；若状态为 starting/in-progress 或超时，最多再重试一次、最多 60 秒；总预算严格为 90 秒。成功后再进入影响面复查。预算耗尽、失败或工具不可用时记录 \`cbm: stale\`，改用 grep/read 与手工 diff 复查，记录降级证据但不得阻断 Review。
-2. **在实际 diff 上重新检查影响面**——用 \`cbm_trace\`/\`cbm_detect_changes\` 对实际 diff 再次排查影响面；以实际代码为准，不用 plan 期预估替代复查。优先增量检测并复用已覆盖的符号结论，只对未覆盖符号做增量 trace。
-3. **与 plan-gate 场景预估对比**——将复查结果与 plan status 中 plan-gate 场景的影响面预估对比（Oracle 审查=关时无预估可对比，跳过该对比并记录 \`plan-gate: skipped\`）：一致 → 记为验证证据；不一致（新调用方受影响/预估遗漏）→ 解释差异或退回 execute。同时将每任务实际实现 diff 行数与 plan 预估行数对比，偏差显著（如 >50%）记为 plan 质量信号（不阻断门禁）。
-4. **执行审查门禁**——每个阶段结束后，在继续之前根据 spec 和 plan 审查实际输出。
+1. **审查查询前规划 CBM 预算**——先根据实际 diff 分类：纯文档 diff（仅 Markdown、注释或文案，且不影响代码契约）跳过刷新，记录 \`cbm: skipped (docs-only)\`。其余 diff 在 Review 开始允许调用 \`cbm_index\` 刷新索引，成功后再执行查询：首次尝试最多 30 秒；若状态为 starting/in-progress 或超时，最多再重试一次、最多 60 秒；总预算严格为 90 秒。预算耗尽、失败或工具不可用时记录 \`cbm: stale\`，改用 grep/read 与手工 diff 复查，记录降级证据、覆盖范围和残余风险，但不得仅因 CBM 故障阻断 Review。
+2. **在实际 diff 上重新检查影响面**——用 \`cbm_trace\`/\`cbm_detect_changes\` 对实际 diff 再次排查影响面，以实际代码为准，并与 plan 的 \`impact_estimate\` 普通对比；差异解释或退回 execute。
+3. **与计划预估普通对比**——将实际 diff 的影响面与 plan 的 \`impact_estimate\` 对比；一致则记为证据，不一致则解释差异或退回 execute。同时对比每任务实际与预估 diff 行数，显著偏差记为 plan 质量信号。
+4. **执行最终审查门禁**——在进入 Finish 前，根据 spec 和 plan 审查最终实际输出。
+   - **代码格式审查**——对实际代码 diff（不含无关文件）识别并执行项目已有的 formatter 或 \`format:check\` 命令；读取完整输出与退出码，并确认修改区域的换行、import、声明、方法和控制流符合仓库风格。若仓库没有格式化命令，必须明确记录“无可用 formatter”，并以 \`git diff --check\` 和人工结构检查作为降级证据；已有格式检查失败或代码仍明显难以审查时，作为 **BLOCKER** 列入回退清单，不得仅以测试通过替代格式证据。
 5. **接受前验证**——对于任何发现，在采取行动前用证据（阅读代码、运行检查）确认它。
 6. **将高强度审查升级给 @oracle**——将高风险架构决策、持续性故障或安全敏感审查交给 @oracle。
-7. **执行门禁，不要跳过**——审查是阶段之间的门禁，而非可选附加项。已知声明未经验证时，不得推进到 execute 或 finish。
+7. **完成审计**——Review/Completion Audit 只在正式 Review 中执行；已知声明未经验证时，不得进入 Finish。
+
+## 反馈与发现处理
+
+接受任何 @oracle、worker 或代码审查反馈前，按以下顺序处理：完整阅读 → 用当前代码/调用方/测试复述 → 验证技术事实 → 判断是否适用于本仓库 → 逐项接受或技术性反驳 → 逐项实现并验证。反馈是 advisory，不是未经核实的事实；不得只因来源权威而直接修改。
+
+常见错误对照：
+
+- 测试通过 ≠ 验收完成：还要核对 spec、最终 diff 和真实表面。
+- typecheck 通过 ≠ build 通过：分别执行并读取结果。
+- build 通过 ≠ 运行时正确：需要 CLI、live endpoint、手工 QA 或构建制品证据。
+- worker 报告成功 ≠ 文件范围正确：主 Agent 必须独立检查 diff、Files 和验证输出。
+- 旧命令曾通过 ≠ 当前状态仍通过：任意代码变化都会使相关 evidence stale。
 
 ## 审查职责
 
-Review subagent 只读检查，不修改代码、不运行 task；测试由 Review 主流程执行。oracle 审查场景（diff-review/completion-audit）核查 evidence、tests 与 completionMatrix 边界，不默认替代代码审查。SDD 开启时报告写入 \`.oceanus/review/Review v1.md\`；SDD 关闭时 review 结论在会话内呈现，不落盘。
+Review subagent 只读检查，不修改代码、不运行 task；测试由 Review 主流程执行。oracle 审查场景（diff-review/completion-audit）仅在独立审查能实质降低高风险不确定性时调用，核查 evidence、tests 与 completionMatrix 边界，且委派必须附完整 Oracle Brief；不默认替代代码审查。SDD 开启时报告写入 \`.oceanus/review/Review v1.md\`；SDD 关闭时 review 结论在会话内呈现，不落盘。
 
 - **Sisyphus** 负责 spec/plan/diff 审查、测试验证和完成审计；采取行动前用证据验证每项发现。
 - **@oracle** 负责高风险架构审查、复杂故障诊断和独立代码审查。将高强度或独立审查交给 @oracle，而不是自行执行。
-- **oracle 不是默认的实现 agent；代码审查走 diff-review 场景（条件触发）**——plan-gate 场景审查 plan（第 3 阶段）而非代码；交付代码审查按条件触发委派 @oracle 的 diff-review 场景，不默认执行。
+- **Oracle 不是默认的实现 agent**——仅在高风险条件下委派 @oracle 的 diff-review 或 completion-audit 场景，提供 advisory，不作为默认门禁。
 - **咨询性发现不会转移职责**——如果某项发现仅检查实现是否偏离 plan，将其记录为咨询性发现，并保持上述主要审查职责不变。
 
 ## 完成矩阵（固定格式）
@@ -50,30 +104,31 @@ Review subagent 只读检查，不修改代码、不运行 task；测试由 Revi
 | criterion | evidence（命令/输出或当前 diff 状态） | status | gap / next action |
 |---|---|---|---|
 \`\`\`
-逐条覆盖 Spec acceptance criteria、Plan 每个 Task acceptance criteria，以及测试、构建、real-surface 证据；缺口必须具体指出缺哪个准则和证据，并回退 execute，不得只写 \`review failed\`。
+逐条覆盖 requirements acceptance criteria、edge_coverage（每个 specified/backstop 边界有证据，dismissed/deferred 有理由）、Plan 每个 Task acceptance criteria、可观察行为（truths 逐条核验：每个可观察行为有当前证据）、禁止行为（prohibitions 逐条核验：没有违规证据）、锁定决策（D-ID 覆盖核验：每个锁定决策有证据证明其完整交付，排除项未混入）、代码格式审查、以及测试、构建、real-surface 证据；每条 evidence 至少记录 command、exit_code、executed_at、state_head、diff_scope、covers 和 freshness；缺口必须具体指出缺哪个准则和证据，并回退 Execute，不得只写 \`review failed\`。
 ## 完成审计（覆盖矩阵）
 
 在接受任何任务或场景确实完成之前，执行完成审计：将每项成功标准作为一行，将收集到的证据作为这些行的覆盖情况。完成度审计可用 oracle completion-audit 场景（条件触发）执行独立门禁判定；本矩阵由 Review 主流程先行构建与核查。
 
-1. **构建矩阵**——对于每个计划中的任务/场景，列出其成功标准（行）和收集到的证据（测试、人工 QA、CLI/实时输出、代码审查、构建产物）。
+1. **构建矩阵**——对于每个计划中的任务/场景，列出其成功标准（行）和收集到的证据（测试、人工 QA、CLI/实时输出、代码审查、构建产物）；从 discuss 复用 requirements、edge_coverage、truths、prohibitions 和 D-ID，不重新发明验收口径。
 2. **要求覆盖**——每项准则至少必须由一条可验证证据覆盖。没有证据的准则就是缺口。
 3. **将不确定性视为未达成**——如果无法用证据确认某项准则，即使工作看似完成，也不能视为完成。绝不接受口头的“已完成”。
-4. **报告缺口**——存在任何缺口时，不得将任务标记为完成；列出缺失准则并退回 execute，以补充证据或完成实现。按 evidence tier 审计：Tier 1（可复现测试/构建输出）优先，Tier 2（绑定当前 diff 的人工代码审查/CLI 输出）可覆盖其余准则，Tier 3（口头或未绑定状态的声明）不计入证据。任何缺口都退回 execute，最多 3 轮；第 3 轮仍有未覆盖准则时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）。
+4. **报告缺口**——BLOCKER 缺口不得将任务标记为完成，列出缺失准则并退回 Execute；WARNING 记录影响和建议动作后可继续；UNCERTAIN 暂停并用 \`question\` 请求用户决策。按 evidence tier 审计：Tier 1（可复现测试/构建输出）优先，Tier 2（绑定当前 diff 的人工代码审查/CLI 输出）可覆盖其余准则，Tier 3（口头或未绑定状态的声明）不计入证据。BLOCKER 退回最多 3 轮；第 3 轮仍有未覆盖准则时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）。
 5. **证据必须可审计**——优先将每条证据绑定到其时间点/git 状态；如果代码发生变化，旧证据即已过时，必须针对当前状态重新记录，绝不将其重新粘贴或生成后当作新证据。
 6. **矩阵全绿才算完成**——每项准则都有证据时，任务才真正完成；否则仍未完成。
 
 ## 检查清单
 - [ ] 已根据 spec 和 plan 审查输出
+- [ ] 已对实际代码 diff 执行并记录项目约定的格式化/格式检查，且格式证据包含完整输出、退出码和当前 diff 范围
 - [ ] 已用证据验证发现
 - [ ] 在必要时已将高强度审查升级给 @oracle
 - [ ] 仅在门禁通过后推进阶段
 - [ ] 已执行完成审计：每项准则均有证据覆盖（矩阵全绿）
 
 ## 规则
-- 审查是阶段之间的门禁，而非可选附加项。
+- Review 与 Completion Audit 是阶段之间的必经步骤，但 Oracle 咨询不是默认门禁。
 - 除非最终状态发生变化，否则不要重复已有证据。
 - 如果某项发现无法验证，应明确说明不确定性，而不是自行假定。
-- **CBM 边界**：对变更入口与影响面做独立验证——按步骤 1-3 复查流程执行（重建索引 → 对实际 diff 再次排查 → 与 plan-gate 场景预估对比，一致记为验证证据、不一致解释或退回 execute）；CBM 不可用时明确记录降级证据。
+- **CBM 边界**：对变更入口与影响面做独立验证，以实际 diff 为准，并与 plan 的 impact_estimate 普通对比；CBM 不可用时明确记录降级证据。
 - **CBM 预算与 fail-open**：纯文档 diff 不初始化；非文档 diff 遵守 30s + 最多一次 60s 重试、总预算 90s。失败只标记 \`cbm: stale\` 并用 grep/read+手工 diff 继续，不能把 CBM 故障当作 Review 失败。
 - 在将任何任务标记为真正完成前执行完成审计；缺口（未覆盖准则）应退回 execute，不得接受。
 `,

@@ -124,6 +124,8 @@ export const HooksConfigSchema = z
     json_error_recovery: HookConfigSchema.optional(),
     tool_loop_guard: HookConfigSchema.optional(),
     cbm_guidance: HookConfigSchema.optional(),
+    secret_read_guard: HookConfigSchema.optional(),
+    planning_write_guard: HookConfigSchema.optional(),
   })
   .strict();
 

@@ -22,7 +22,71 @@
 |---|---|
 | beta-18230 → beta-18721 | ✅ 已核实（全量 .d.ts diff，2026-08-31） |
 | beta-18721 → beta-18743 | ✅ 已核实（全量 dist diff，2026-09-01） |
+| beta-18743 → beta-19242 | ✅ 已核实（全量 dist diff，2026-09-07） |
 | 更早历史版本 | 未回溯（build 数百个，按需增量补录） |
+
+---
+
+## beta-18743 → beta-19242
+
+- 日期：2026-09-07（npm `beta` dist-tag 当前指向 `0.0.0-beta-19242`）
+- 证据源类型：tarball 全量 dist diff（plugin + schema 两包，`.d.ts` 与 `.js` 均比对，`diff -rq` 定位差异文件后逐个 `diff -u`）
+- 变更文件面：plugin 包 promise/effect 几乎全部域（agent/catalog/command/integration/mcp/plugin/reference/session/skill/tool/vcs/websearch）、`tui/context.d.ts`；新增根级 `host.d.ts`/`source{,.bun,.node}.d.ts` 与 `promise|effect/worktree.d.ts`，根级 `vcs.d.ts` 移除；schema 包 `config{,/command,/provider,/worktree}`、`event-manifest`、`model`、`plugin`、`project`、`session-event`、`session-message`、`session-transfer`、`token-usage`、`tool`、`worktree`。`registration.d.ts`、permission/storage/shell 等 infra 域无变化。
+
+### 1. `Plugin.vcs?: VcsDiscovery` 字段被移除【breaking】
+
+`Plugin` 接口回归 `{ id, setup }`；`vcs.d.ts` 根级模块（`VcsDiscovery`）删除。自定义 VCS 后端注册统一收口到 `ctx.vcs.transform`（`VcsEditor.add(VcsDefinition)`），worktree 管理拆分到新 `ctx.worktree` 域。对插件影响：本插件未使用 `Plugin.vcs`，无迁移；但参考文档中 18721 引入的 `vcs?` 描述已过时。
+
+### 2. `Context.plugin` 类型收窄：`PluginApi` → `Pick<PluginApi, "list">`【breaking（类型面）】
+
+插件上下文只能列插件，不能再经 `ctx.plugin` 触发安装/更新等管理操作。本插件未使用，无迁移。
+
+### 3. 全部注册域 `*Draft` 重命名为 `*Editor`【breaking（重命名）】
+
+`AgentDraft/SkillDraft/CommandDraft/CatalogDraft/IntegrationDraft/MCPDraft/ReferenceDraft/ToolDraft/VcsDraft/WebSearchDraft` → 对应 `*Editor`（promise/effect 双层同步）。`transform: Transform<XxxEditor>`。附带增强：
+
+- `SkillEditor.get(id)` 新增（原 SkillDraft 无 get）。
+- `ReferenceEditor.get(name)` 新增。
+- `ToolEditor.namespace(namespace: Tool.Namespace)` 新增：可注册工具命名空间（`Tool.Namespace = { name, description }`，schema `tool.d.ts` 新增该接口）。
+- `VcsEditor` 增加显式 `default.get()/set()` 默认后端选择。
+
+对插件影响：`src/index.ts` 中 `ctx.agent.transform`/`ctx.tool.transform` 的回调参数类型名变化但结构兼容（`add/update/remove/list` 签名不变）；升级依赖后仅需类型层改名，逻辑零迁移。
+
+### 4. 新增 `ctx.worktree: WorktreeDomain`【新增】
+
+`promise|effect/worktree.d.ts` 新文件：`WorktreeEditor.add(WorktreeDefinition)` 注册 worktree 后端（`create/remove/list`，context 均含 `AbortSignal`），后注册者成为默认。`Context` 新增 `readonly worktree`。schema `worktree.d.ts`：`strategy`、`directory` 变 optional，`ListInput`（按 projectID）改为 `ListEntry`（`{ directory, type: "root" | "worktree" }`）——worktree 列表从项目维度改为目录维度。
+
+### 5. 插件源加载机制重构（宿主内部，新导出面）【新增/无关】
+
+plugin 包新增根级 `host.d.ts`（`resolve(target)/load(entrypoint)` 解析宿主入口）、`source.d.ts`（`createPluginSources`/`localSource`）及 `package.json` `imports` 字段 `#plugin-source`（bun/node 条件分发）；新增 `exports["./host"]`。属宿主加载器内部能力外移，插件作者一般不消费。
+
+### 6. TUI：`session.panel` 插槽 + `ui.panel` API【新增】
+
+- Slot tree 新增 `"session.panel": PanelInput`：`{ name, sessionID, width, presentation: "panel"|"fullscreen", focused, focus(), close(), toggleFullscreen() }`。
+- `TuiContext.ui.panel` 新增：`open(name, {presentation?}): boolean`、`close()`（只关自己插件的）、`current()`（Solid computation 内响应式）。
+- `PromptFooterInput` 新增 `showDetails: boolean`。
+- peerDeps 提升：`@opentui/core`/`@opentui/solid` `>=0.5.9` → `>=0.5.10`。
+
+对本插件 TUI sidebar 无直接影响，但为侧栏面板提供官方 panel 化路径（可评估把会话/模型面板迁往 `session.panel`）。
+
+### 7. Session 模型 hook 增加 `kind` 判别【新增】
+
+`SessionModelRequest/SessionHttpRequest/SessionHttpResponse` 新增 `readonly kind: SessionRequestKind`，`"primary" | "compaction" | "title" | "generate"`——辅助请求（压缩/标题生成）与主 agent loop 可区分，共享 hook 身份。对现按请求统一注入 headers/重写的插件需注意辅助请求也会命中 hook。
+
+### 8. schema：配置与事件面变化【新增/局部 breaking】
+
+- config 根：`autoupdate`（`boolean | "notify"`）移除，改为 `update: "disable" | "notify" | "auto"`；新增 `worktree: { directory }`。
+- `config/command`：命令新增 `subagent?: boolean`。
+- `config/provider`、`model`、`project` 新增 `canonical`（canonical provider ID / canonical 绝对路径），用于跨 worktree/规范名映射。
+- 事件：`plugin.added` 事件类型删除（保留 `plugin.updated`）；abort `reason` 联合扩为 `"user"|"shutdown"|"superseded"|"inactivity"`（新增 inactivity）。
+- `session-message`/`session-transfer`/`event-manifest` 的部分事件新增可选 `model: { id, providerID, variant? }` 字段。
+- `Plugin.Info`（schema plugin.d.ts）：`package` → `target`，新增可选 `version/outdated/updating/ref`（插件更新状态可观测）。
+- `token-usage` 新增 `total(tokens: Info): number` 辅助函数。
+- codemode 机制无变化：schema `tool.d.ts` 的 `Tool.Options.codemode` 联合结构与 18743 一致（本插件 `codemode: false` 注入策略继续有效）。
+
+### 适配结论
+
+本插件（`opencode-oceanus`，锁定 beta-18743）升级到 beta-19242 的实际迁移成本集中在**类型重命名层**（`*Draft` → `*Editor`、`Plugin.vcs` 删除、`ctx.plugin` 收窄），运行时逻辑零变化；codemode/transform 注册契约均向后兼容。建议升级时同步 bump `@opentui/*` peer 至 0.5.10 并全量跑 `bun run check`。
 
 ---
 

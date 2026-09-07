@@ -2,7 +2,7 @@
  *  六不变量：①审核对象为落盘 artifact（路径可寻址+白名单）②verdict 三档契约
  *  ③findings 统一分级+evidence+fix ④REJECT 受限循环 ⑤fresh-session 独立性 ⑥审核者只读。 */
 
-/** verdict 契约：gate 阻断式 / graded 三级 / advisory 不阻断。 */
+/** verdict 契约：gate 为历史兼容类型（当前按 advisory 处理）/ graded 三级 / advisory 不阻断。 */
 export type ReviewContract = 'gate' | 'graded' | 'advisory';
 /** 审核者角色（协议不感知具体 agent 实现，仅作标注与提示组装）。 */
 export type Reviewer = 'oracle' | 'observer';
@@ -40,7 +40,7 @@ export interface ReviewRequest {
 /** 审核结论：kind + 分级 findings；解析失败时 parseVerdict 返回 null 而非伪造结论。 */
 export interface ReviewVerdict { kind: VerdictKind; blockers: Finding[]; suggestions: Finding[]; }
 
-/** 重审循环规则文本：3 轮上限、只验前轮 BLOCKER+新引入、超限按统一模板上报、通过后计数清零。 */
+/** 重审循环规则文本：历史兼容场景仅作 advisory，不构成当前工作流门禁。 */
 export const REVIEW_LOOP_RULES = [
   '## 重审循环规则',
   '- REJECT 触发受限重审：每轮只验证前轮 BLOCKER 是否修复 + 修订新引入的问题，不追加旧问题。',
@@ -73,7 +73,7 @@ export function validateSubjectPath(scene: ReviewScene, subjectPath: string): bo
 /** 组装审核提示词：任务头 + 只读/独立性约束 + 检查清单 + 契约指令 + findings 格式 +（round>1 时）复审约束 + 循环规则。 */
 export function buildReviewPrompt(scene: ReviewScene, request: ReviewRequest): string {
   const contractRules: Record<ReviewContract, string> = {
-    gate: '必须且只能输出 **[OKAY]** 或 **[REJECT]**；输出 [REJECT] 时必须附 "Blocking Issues" 段，最多 3 条，每条包含具体问题与需要修改什么。',
+    gate: '历史兼容场景按 advisory 处理：输出分析与建议，不生成二元放行要求，也不阻断工作流。',
     graded: '必须在行首单独输出 PASS、WARN 或 FAIL 作为结论词，随后给出依据。',
     advisory: '输出建议即可，不输出任何 verdict 字面量（不出现 [OKAY]/[REJECT]，也不以行首 PASS/WARN/FAIL 作结论）。',
   };
@@ -84,6 +84,9 @@ export function buildReviewPrompt(scene: ReviewScene, request: ReviewRequest): s
     `- 审核对象: ${request.subjectPath}`,
     ...(request.contextPaths?.length ? [`- 参考上下文: ${request.contextPaths.join('、')}`] : []),
     `- 轮次: ${request.round}/${scene.maxRounds}`,
+    '## Oracle Brief 要求',
+    '- 委派方必须先提供结构化 Oracle Brief：目标、待辅助决策、需求范围、当前状态、影响面、方案权衡、证据索引、state_head、diff_scope、证据新鲜度和预期输出。',
+    '- 不得用聊天历史或未列出的隐含背景补齐缺失字段；缺失信息必须列为信息缺口，不得假设已确认。',
     '## 审核者约束',
     '- 只读审核：不得创建、修改、删除任何文件，不得执行任何写入类操作。',
     ...(scene.independence === 'fresh-session'
@@ -139,7 +142,7 @@ function parseBlockingIssues(text: string): Finding[] {
 export function parseVerdict(text: string, contract: ReviewContract): ReviewVerdict | null {
   if (contract === 'advisory') return { kind: 'ADVISORY', blockers: [], suggestions: [] };
   if (contract === 'gate') {
-    // 同时出现 [OKAY] 与 [REJECT] 时取 REJECT（fail-closed，阻断侧优先）
+    // 保留历史文本解析兼容；该结果不应被当前工作流用作门禁。
     if (/\[REJECT\]/.test(text)) return { kind: 'REJECT', blockers: parseBlockingIssues(text), suggestions: [] };
     if (/\[OKAY\]/.test(text)) return { kind: 'OKAY', blockers: [], suggestions: [] };
     return null;

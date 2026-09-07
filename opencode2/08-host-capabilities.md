@@ -2,6 +2,7 @@
 
 > 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零）；宿主实测基线为 `opencode2 v0.0.0-beta-18721`
 > 证据源：tarball `plugin/dist/tui/*.d.ts` 全量、schema `{worktree,workspace,location,form,question,pty}.d.ts`、宿主 CLI/路由实测；官方 server/sdk 页（标注处为文档口径）。
+> **beta-19242 变化**：slot tree 新增 `"session.panel": PanelInput`（`{ name, sessionID, width, presentation: "panel"|"fullscreen", focused, focus(), close(), toggleFullscreen() }`）；`ui.panel` 新增 `open(name, {presentation?})/close()/current()`（current 在 Solid computation 内响应式）；`PromptFooterInput` 新增 `showDetails: boolean`；peerDeps `@opentui/{core,solid}` 提升至 `>=0.5.10`。侧栏插件面板可评估迁移到 `session.panel` 官方路径。详见 `versions/changelog.md`。
 
 ## 1. TUI 插件上下文（`plugin/dist/tui/context.d.ts`）
 

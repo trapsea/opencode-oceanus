@@ -149,16 +149,15 @@ describe('buildReviewPrompt', () => {
     expect(prompt).toContain('文件归属是否清晰且不越界');
   });
 
-  test('gate 契约包含 **[OKAY]**/**[REJECT]** 指令与条目上限', () => {
+  test('历史 gate 场景兼容为 advisory，不生成放行 verdict', () => {
     const prompt = buildReviewPrompt(planGateScene, {
       scene: planGateScene.name,
       subjectPath: '.oceanus/plan/x.md',
       round: 1,
     });
-    expect(prompt).toContain('**[OKAY]**');
-    expect(prompt).toContain('**[REJECT]**');
-    expect(prompt).toContain('Blocking Issues');
-    expect(prompt).toContain('最多 3 条');
+    expect(prompt).toContain('历史兼容');
+    expect(prompt).not.toContain('**[OKAY]**');
+    expect(prompt).not.toContain('**[REJECT]**');
   });
 
   test('graded 契约包含 PASS/WARN/FAIL 指令且不含 gate 指令', () => {

@@ -26,13 +26,13 @@ ${cbmSection('explorer')}
 **输出格式（返回契约）**：
 - 对话回复只保留两部分：浓缩事实清单 + findings 文件路径。
 - 浓缩事实清单默认 ≤15 条；委派方在调研简报 \`返回\` 字段给出其他条数上限或格式要求时，以委派方要求为准。
-- 每条事实必须可直接定位：文件路径+行号（如 \`src/app.ts:42\`）或 qualified name，后接一句结论。
+- 每条结论必须固定包含七个字段：\`claim\`、\`evidence\`（文件路径+行号或 qualified name）、\`status\`（confirmed/unconfirmed/blocked）、\`source_version\`、\`impact\`、\`open_questions\`、\`negative_findings\`；不得以推测替代证据。
 - 不确定项明确标注「未确认」并说明缺失的证据；禁止把推测写成事实。
 - 不粘贴大段文件内容；引用路径+行号，让委派方按需读取。
 
 <results>
 <findings>
-- src/agents/oceanus.ts:67 - AGENT_DESCRIPTIONS 汇总全部 agent 调度描述
+- src/agents/oceanus.ts - Agent 常驻调度协议与委派边界
 - src/config/constants.ts:171 - WRITER_TOOL_PERMISSION 定义写权限结构（未确认：是否覆盖全部写入场景）
 </findings>
 <findings_file>
@@ -44,10 +44,10 @@ ${cbmSection('explorer')}
 - 完整调研发现必须写入 \`.oceanus/findings/<work-or-task-id>.md\`；目录不存在则创建——直接用 write 写入该路径，父目录由工具自动创建，不要用 shell \`mkdir\`。
 - work-or-task-id 优先使用委派方在调研简报中给出的任务/工作标识；缺省时用任务主题 slug（小写短横线）。
 - findings 文件固定四段结构：
-  1. \`## 结论摘要\`：≤15 条，每条 = 路径+行号或 qualified name + 一句结论
+  1. \`## 结论摘要\`：≤15 条，每条按七字段结构输出
   2. \`## 关键文件与符号表\`：涉及文件、qualified name 及一句话职责
   3. \`## 风险与未知项\`：未确认项、反例与隐藏成本
-  4. \`## 证据引用\`：路径+行号（或 qualified name）与对应结论的映射
+  4. \`## 证据引用\`：路径+行号（或 qualified name）与对应结论的映射，并记录 negative_findings
 - 本节是只读文件操作规则的唯一例外：除该 findings 文件外不得写入任何文件。权限层已为该路径放行 write（仅限 \`.oceanus/findings/*\`）。
 - 若 write 调用仍被权限拒绝（宿主回落的 fail-closed 情形），不要重试或换路径：改为在对话回复中完整附上 findings 文件全文（按上述四段结构），并在回复首行标注 \`STATUS: FINDINGS_UNAVAILABLE\`，交由委派方落盘。
 - 对话回复只保留结论摘要与 findings 文件路径；其余细节一律进入 findings 文件。

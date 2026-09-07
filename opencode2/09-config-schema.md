@@ -11,7 +11,7 @@
 | `small_model`*（官方） | ModelRef | 轻量任务模型（官方 config 页口径，schema 顶层未见独立字段，经 model 族表达） |
 | `shell` | shell 配置 | 默认 shell |
 | `default_agent` | string | 默认 agent（如 build/plan） |
-| `autoupdate` | — | 自动更新 |
+| `autoupdate` | — | 自动更新（**beta-19242 变化**：已移除，改为 `update: "disable" \| "notify" \| "auto"`；另新增 `worktree: { directory }`；`config/command` 命令新增 `subagent?: boolean`；`config/provider`、`model`、`project` 新增 `canonical` 字段） |
 | `share` | — | 会话共享 |
 | `enterprise` | — | 企业配置 |
 | `username` | string | 用户名 |

@@ -1,5 +1,5 @@
 /**
- * 验证构建产物 dist/index.js 中六阶段 skill 的语义与 Sisyphus 顺序一致。
+ * 验证构建产物 dist/index.js 中六阶段与支持型 skill 的语义和 Sisyphus 顺序一致。
  *
  * 采用「运行时注册对象」路径（非 bundle grep）：import dist 的 runSetup，
  * 用 fake ctx 捕获 skill.transform 添加的 skill 对象，按 name 精确取出
@@ -16,26 +16,28 @@ const SKILL_ANCHORS: Record<
 > = {
   'oceanus-intake': {
     must: [
-      /Sisyphus Intake/,
+      /Sisyphus Intake|Oceanus Intake/,
       /owner:\s*Sisyphus/,
-      /Intake 不委派 oracle analysis/,
+        /Intake/,
       /项目背景|工作区结构/,
-      /最小需求|minimum_requirements/,
+       /最小需求|minimum_requirements/,
+       /SDD|TDD|连续执行/,
       /分类任务|代码任务|非代码任务/,
-      /直接调用 [`']?cbm_index|cbm_index.*初始化/,
+      /(cbm_index.*初始化|首次.*cbm_index)/,
       /Fail-open|fail-open/,
     ],
     mustNot: [/技术方案.*(选择|决策)/, /@metis/, /@momus/],
   },
-  'oceanus-brainstorm': {
+  'oceanus-discuss': {
     must: [
-      /cbm_search_graph|cbm_trace/,
+       /claim|evidence|status|source_version|impact|open_questions|negative_findings/,
+       /cbm_search_graph|cbm_trace/,
       /全量索引|不.*(索引|触发)/,
     ],
     mustNot: [/cbm_index/, /autoIndex[\s\S]{0,80}cbm_status/],
   },
   'oceanus-plan': {
-    must: [/intake/i, /brainstorm/i],
+    must: [/intake/i, /discuss/i],
     mustNot: [/cbm_index|autoIndex|cbm_status/],
   },
   'oceanus-execute': {
@@ -47,21 +49,21 @@ const SKILL_ANCHORS: Record<
   },
   'oceanus-review': {
     must: [
-      /Review\s+开始[\s\S]{0,120}[`']?cbm_index[`']?/i,
+      /Review\s+开始[\s\S]{0,160}[`']?cbm_index[`']?/i,
       /变更入口[\s\S]{0,80}独立验证/,
       /CBM 不可用[\s\S]{0,80}(降级|degrade)/,
     ],
     mustNot: [],
   },
   'oceanus-finish': {
-    must: [/只读.*Review.*报告/, /不测试|不构建/, /不调用 CBM/, /不委派.*subagent/, /不修改文件/],
+    must: [/只读.*Review.*报告/, /不测试|不构建/, /不调用 CBM/, /不委派.*subagent/, /不修改文件/, /Oracle advisory|不测试|不构建/],
     mustNot: [],
   },
 };
 
 const SKILL_NAMES = [
   'oceanus-intake',
-  'oceanus-brainstorm',
+  'oceanus-discuss',
   'oceanus-plan',
   'oceanus-execute',
   'oceanus-review',
@@ -179,8 +181,20 @@ async function main() {
       `目标阶段 Skill 应恰好为 ${SKILL_NAMES.length} 个，实际 ${targetSkillCount} 个`,
     );
   }
+  const categories = new Map(
+    registeredSkills.map((skill) => [
+      skill?.name,
+      String(skill?.content ?? '').match(/^category:\s*(\S+)$/m)?.[1],
+    ]),
+  );
+  for (const name of SKILL_NAMES) {
+    if (categories.get(name) !== 'phase') failures.push(`[${name}] category 必须为 phase`);
+  }
+  for (const name of ['oceanus-debugging']) {
+    if (categories.get(name) !== 'support') failures.push(`[${name}] category 必须为 support`);
+  }
   const prompt = String(registeredAgents.get('sisyphus')?.system ?? '');
-  const stages = ['intake', 'brainstorm', 'plan', 'execute', 'review', 'finish'];
+  const stages = ['intake', 'discuss', 'plan', 'execute', 'review', 'finish'];
   const sequence = new RegExp(stages.join('[\\s\\S]{0,240}'), 'i');
   if (!sequence.test(prompt)) failures.push('[sisyphus] system prompt 六阶段顺序不完整或顺序错误');
   if (!/Intake|intake/.test(prompt) || !/Review|review/.test(prompt)) {

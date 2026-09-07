@@ -555,7 +555,7 @@ export async function runSetup(
  *   oracle 为统一分析顾问，三场景 consult/analysis/gate 见 src/review/scenes.ts）
  *
  * 同时通过 ctx.skill.transform 注入 sisyphus 工作流的六个阶段 Skill
- * （oceanus-intake / oceanus-brainstorm / oceanus-plan / oceanus-execute /
+ * （oceanus-intake / oceanus-discuss / oceanus-plan / oceanus-execute /
  * oceanus-review），
  * 安装插件即可使用，无需拷贝任何 skill 文件。
  *

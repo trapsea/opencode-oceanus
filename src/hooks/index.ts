@@ -22,6 +22,8 @@ import { applyJsonErrorRecovery } from './json-error-recovery';
 import { createToolOutputTruncator } from './tool-output-truncator';
 import { createToolLoopGuardHook } from './tool-loop-guard';
 import { createCbmGuidanceHook } from './cbm-guidance';
+import { createSecretReadGuardHook } from './secret-read-guard';
+import { createPlanningWriteGuardHook } from './planning-write-guard';
 import { registerImageMaterializer } from './image-materializer';
 import { registerImageErrorHint } from './image-error-hint';
 import {
@@ -126,6 +128,36 @@ export async function registerOceanusHooks(
       await ctx.tool.hook('execute.before', loopGuard['tool.execute.before'] as never);
     } catch (e) {
       log('[oceanus] 注册 tool-loop-guard.before 失败', { error: messageOf(e) });
+    }
+  }
+
+  // ── secret-read-guard：阻断 .env / .secrets 进入对话（fail-closed on match） ──
+  if (isHookEnabled(config, 'secret_read_guard')) {
+    try {
+      const guard = createSecretReadGuardHook({
+        onStatus: (status, data) => log(`[oceanus] secret-read-guard:${status}`, data),
+      });
+      await ctx.tool.hook('execute.before', guard['tool.execute.before'] as never);
+    } catch (e) {
+      log('[oceanus] 注册 secret-read-guard hook 失败', { error: messageOf(e) });
+    }
+  }
+
+  // ── planning-write-guard：阻断对 .oceanus curated 文档的灾难性缩减覆盖 ──
+  if (isHookEnabled(config, 'planning_write_guard')) {
+    try {
+      await ctx.tool.hook('execute.before', async (event: any) => {
+        if (event?.tool !== 'write') return;
+        const root = await resolveWorkspaceRoot(ctx.session, event.sessionID);
+        if (!root) return; // 无法解析工作区根 → fail-open
+        const guard = createPlanningWriteGuardHook({
+          root,
+          onStatus: (status, data) => log(`[oceanus] planning-write-guard:${status}`, data),
+        });
+        await guard['tool.execute.before'](event as never);
+      });
+    } catch (e) {
+      log('[oceanus] 注册 planning-write-guard hook 失败', { error: messageOf(e) });
     }
   }
 

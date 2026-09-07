@@ -14,16 +14,13 @@ describe('REVIEW_SCENES 注册表', () => {
     ]);
   });
 
-  test('plan-gate：oracle 计划门禁（gate/fresh-session/revise-plan/maxRounds=3）', () => {
+  test('plan-gate：保留历史协议兼容注册', () => {
     const scene = REVIEW_SCENES['plan-gate']!;
     expect(scene.name).toBe('plan-gate');
     expect(scene.reviewer).toBe('oracle');
     expect(scene.subjectType).toBe('plan');
     expect(scene.subjectGlobs).toEqual(['.oceanus/plan/*.md', '.omo/plans/*.md']);
-    expect(scene.contract).toBe('gate');
-    expect(scene.independence).toBe('fresh-session');
-    expect(scene.onReject).toBe('revise-plan');
-    expect(scene.maxRounds).toBe(3);
+    expect(scene.contract).toBe('advisory');
   });
 
   test('solution-analysis：oracle 方案分析（advisory/reusable/escalate/maxRounds=3）', () => {
@@ -50,13 +47,13 @@ describe('REVIEW_SCENES 注册表', () => {
     expect(scene.maxRounds).toBe(3);
   });
 
-  test('completion-audit：oracle 完成度门禁（gate/fresh-session/return-execute）', () => {
+  test('completion-audit：Review 主流程完成矩阵（advisory/fresh-session）', () => {
     const scene = REVIEW_SCENES['completion-audit']!;
     expect(scene.name).toBe('completion-audit');
     expect(scene.reviewer).toBe('oracle');
     expect(scene.subjectType).toBe('completion');
     expect(scene.subjectGlobs).toEqual(['.oceanus/progress/*.md', '.oceanus/review/*.md', '.omo/**/*.md']);
-    expect(scene.contract).toBe('gate');
+    expect(scene.contract).toBe('advisory');
     expect(scene.independence).toBe('fresh-session');
     expect(scene.onReject).toBe('return-execute');
     expect(scene.maxRounds).toBe(3);
@@ -97,15 +94,13 @@ describe('plan-gate · momus 契约迁移', () => {
   });
   const checks = scene!.checks;
 
-  test('保留 momus 输出契约锚点（BLOCKER/SUGGESTION/最多 3 条/最小修订集/[OKAY]/[REJECT]/不伪造）', () => {
+  test('保留历史检查清单与影响面上下文（不作为工作流门禁）', () => {
     for (const anchor of [
       'BLOCKER',
       'SUGGESTION',
       '最多 3 条',
       '最小修订集',
       'impact_estimate',
-      '[OKAY]',
-      '[REJECT]',
       '不伪造',
     ]) {
       expect(checks).toContain(anchor);
@@ -134,10 +129,8 @@ describe('plan-gate · momus 契约迁移', () => {
     expect(checks).toContain('抽查集');
   });
 
-  test('复审只验前轮 BLOCKER 与修订新引入问题，不追加旧问题', () => {
-    expect(checks).toContain('复审轮');
-    expect(checks).toContain('前轮 BLOCKER');
-    expect(checks).toContain('不追加');
+  test('历史场景明确可由协议兼容保留', () => {
+    expect(scene!.name).toBe('plan-gate');
   });
 });
 
@@ -163,22 +156,16 @@ describe('solution-analysis · metis 契约迁移', () => {
 });
 
 describe('buildReviewPrompt 集成冒烟（plan-gate）', () => {
-  test('round=2 注入前轮 BLOCKER 清单与复审约束', () => {
+  test('必附上下文仍注入审核提示', () => {
     const scene = getReviewScene('plan-gate');
     expect(scene).toBeDefined();
     const prompt = buildReviewPrompt(scene!, {
       scene: 'plan-gate',
       subjectPath: '.oceanus/plan/x.md',
-      round: 2,
-      priorBlockers: [{ severity: 'BLOCKER', evidence: 'a', fix: 'b' }],
+      round: 1,
     });
     expect(prompt).toContain('plan-gate');
     expect(prompt).toContain('.oceanus/plan/x.md');
-    expect(prompt).toContain('复审约束');
-    expect(prompt).toContain('第 2 轮');
-    expect(prompt).toContain('[BLOCKER]');
-    expect(prompt).toContain('a');
-    expect(prompt).toContain('b');
     // 检查清单随场景注入
     expect(prompt).toContain('impact_estimate');
     expect(prompt).toContain('最小修订集');
@@ -231,9 +218,9 @@ describe('requiredContext · 委派必附上下文（单一来源）', () => {
     expect(ctx).toContain('round=N、前轮 BLOCKER');
   });
 
-  test('sisyphus 门禁文本注入必附上下文清单', () => {
+  test('sisyphus Oracle advisory 边界明确', () => {
     const system = createSisyphusAgent().system!;
-    expect(system).toContain('按场景必附上下文清单附齐材料') ;
-    expect(system).toContain('spec / intake 报告路径');
+    expect(system).toContain('Oracle 顾问');
+    expect(system).toContain('spec/plan advisory');
   });
 });

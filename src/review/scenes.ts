@@ -1,7 +1,7 @@
 /** 审核场景注册表：在协议核心（./protocol）之上提供具体场景实例。
  *
  *  语义来源（全部以文本形式内嵌于 checks，不 import 任何 agent 定义文件）：
- *  - plan-gate：迁移自原 momus 执行前门禁——依赖/范围/测试策略/可执行性四维检查、
+ *  - plan-gate：历史兼容注册项（不可作为当前工作流门禁）——依赖/范围/测试策略/可执行性四维检查、
  *    BLOCKER/SUGGESTION 分级、Blocking Issues 上限、最小修订集与复审收敛；
  *    影响面校验继承 CBM MOMUS_SECTION 的 impact_estimate 覆盖语义；
  *    验收绑定语义对应 src/agents/protocol.ts 的 PLAN_ACCEPTANCE_RUBRIC。
@@ -13,7 +13,7 @@
 import { defineScene } from './protocol';
 import type { ReviewScene } from './protocol';
 
-/** plan-gate 检查清单：原 momus 门禁语义的场景指令文本改写。 */
+/** plan-gate 历史兼容检查清单：仅供 advisory 参考，不是当前工作流门禁。 */
 const PLAN_GATE_CHECKS = `### 检查维度（第 1 轮必须一次性穷尽全部维度，含 SUGGESTION 级发现，避免后续轮补漏）
 - 依赖：依赖是否齐全、顺序是否合理、是否引入未声明的外部依赖；每条任务是否有可用的起点（前置产物与输入已就绪）。
 - 范围：是否含未授权/越界改动；声明的 Files 与任务是否对齐。
@@ -22,18 +22,18 @@ const PLAN_GATE_CHECKS = `### 检查维度（第 1 轮必须一次性穷尽全�
 - 验收标准绑定可执行验证：每条验收标准必须绑定一条可直接执行的验证命令或明确的机械检查步骤（命令 + 预期输出/退出码），不得停留在"通过/符合"级别的口头描述；文档类任务必须有行级或文件级锚点目标（具体到目标行/目标段落/文件清单）；涉及一致性比对的验收必须固化抽查集（文件 + 断言清单），复审与 review 按同一清单复对。
 
 ### 输出契约与分级
-- 必须且只能输出 **[OKAY]** 或 **[REJECT]**。
+ - 历史检查结果仅作为 advisory 参考，不输出或要求二元放行结论。
 - 问题分级：BLOCKER（依赖错误、范围越界、测试/验收缺失、步骤不可执行、影响面遗漏、未决阻塞决策）→ 必须修订才能过审；SUGGESTION（表述、措辞、清单格式、断言细节等文档级细节）→ 不阻塞，随结论一并给出但不计入最小修订集。
-- 仅 BLOCKER 触发 REJECT；REJECT 时附 Blocking Issues，最多 3 条，每条包含具体文件/任务定位与需要修改什么（可直接落地的修订文本，不留给修订者猜测）。
+ - BLOCKER/SUGGESTION 仅用于标注风险与建议，不触发放行或退回；可附最多 3 条重点问题和改进建议。
 - REJECT 必须附最小修订集：逐条列出满足即可过审的修订项（逐条修改建议 + 解决该问题的验证方式），修订者按其逐条落实、不自行发挥。
 
 ### 复审与诚信
-- 复审轮（N>1）只验证前轮 BLOCKER 是否按建议解决、以及修订是否新引入 BLOCKER，不追加前轮已存在但未列出的旧问题；SUGGESTION 级新发现不阻塞、只作备注。
-- 不伪造 verdict：依据不足时不虚构通过结论；仅评判提供的计划，不臆造需求、不重新设计；若用户澄清或批准尚未完成，以计划尚未准备好为由 REJECT。`;
+ - 复审轮（N>1）可对照前轮 BLOCKER 与新增风险提供 advisory，不追加固定放行语义。
+ - 不伪造结论：依据不足时标注不确定性；仅评判提供的计划，不臆造需求、不重新设计。`;
 
 /** solution-analysis 检查清单：原 metis 双模式语义的场景指令文本改写。 */
 const SOLUTION_ANALYSIS_CHECKS = `### 模式（请求必须准确选择其一；不得默默执行 Intake）
-- BACKGROUND_RESEARCH（背景研究）：在 Brainstorm 开始、Intake 分类之后使用。扫描代码库与上下文生成 research_brief，使后续阶段无需重新扫描已知内容：①现状——相关模块/文件的现有实现与结构；②关键符号——qualified name、文件路径、行号；③约束与依赖——影响方案选择的既有契约、配置、调用关系；④可直接复用的已有事实结论（符号/调用链/影响面查询结果）。只做调研：不做方案对比、不给推荐。
+- BACKGROUND_RESEARCH（背景研究）：在 discuss 开始、Intake 分类之后使用。扫描代码库与上下文生成 research_brief，使后续阶段无需重新扫描已知内容：①现状——相关模块/文件的现有实现与结构；②关键符号——qualified name、文件路径、行号；③约束与依赖——影响方案选择的既有契约、配置、调用关系；④可直接复用的已有事实结论（符号/调用链/影响面查询结果）。只做调研：不做方案对比、不给推荐。
 - SOLUTION_ANALYSIS（候选方案对比）：仅当已有 Intake 报告、用户澄清完成、且候选方案之间确有未决选择需要独立分析时使用（复杂度本身不是触发条件）。比较各候选方案的 trade-off（权衡）、依赖、迁移/回滚事项、风险、边界情况和可测试的决策标准；有充分依据时给出推荐方向及理由，但不执行实现；前置条件缺失（未指定模式、缺少 Intake、仍需用户澄清）时先指出前置条件缺失，不猜测。
 - 若本会话此前执行过 BACKGROUND_RESEARCH：直接复用已有背景，只对候选方案做增量验证与挑错，不重新扫描代码库。
 
@@ -57,10 +57,10 @@ const COMPLETION_AUDIT_CHECKS = `- 逐项执行 Completion Audit 六项判定矩
   ① review 完成：review 阶段的审核结论已存在且覆盖全部交付物；
   ② completion 矩阵无缺口：计划中每条任务与验收标准均有对应完成记录，无未闭合项；
   ③ ledger 全部终态：任务账本所有条目均为 completed/failed/blocked 等终态，无遗留 pending/in_progress；
-  ④ 门禁状态有效：plan 门禁结论为 OKAY，或存在记录在案的有效豁免（含理由与批准来源）；
+ ④ 影响面与 diff 复查完成：Review 主流程已记录实际 diff 的检查结果；
   ⑤ 人工批准存在：需要用户批准的决策点均有明确的批准记录；
   ⑥ 证据可审计：每项完成声明均可追溯到可复现证据（命令/输出/文件路径/审核产物）。
-- 任一判定项存在缺口 → 输出 **[REJECT]**，逐条列出缺口（引用具体文件/条目）与退回 execute 的具体动作（改什么、怎么验证）；六项全部通过才输出 **[OKAY]**。
+ - 任一判定项存在缺口 → 在完成矩阵中记录缺口与建议动作；不生成放行 verdict，是否继续由主 agent 按 Review 结果决定。
 - 不得伪造完成：证据缺失即缺口；不把口头声明、mock、skip 或降级结果记为已验证完成，验证不了的项目一律按缺口处理。`;
 
 /** visual-acceptance 检查清单：L5 取证 diff 视觉验收。 */
@@ -75,16 +75,19 @@ const planGateScene = defineScene({
   reviewer: 'oracle',
   subjectType: 'plan',
   subjectGlobs: ['.oceanus/plan/*.md', '.omo/plans/*.md'],
-  contract: 'gate',
+  contract: 'advisory',
   checks: PLAN_GATE_CHECKS,
   requiredContext: [
+    '结构化 Oracle Brief（objective/decisionNeeded/recommendationStatus）',
+    'requirements_context、assumptions、edge_coverage、truths、prohibitions 与 D-ID',
+    '候选方案、已选方向、权衡、排除项和可验证的决策标准',
     '落盘 plan 文件路径（唯一审核对象，会话内转述不可替代）',
     'spec / intake 报告路径（SDD 开启时；需求背景与验收标准的来源）',
     'research_brief 或 .oceanus/findings/ 路径（若存在；调研事实，避免重新侦察）',
     '复审时：round=N、前轮 BLOCKER 清单与逐条落实证据（文件引用优先）',
   ],
   independence: 'fresh-session',
-  onReject: 'revise-plan',
+  onReject: 'escalate',
   maxRounds: 3,
 });
 
@@ -96,6 +99,8 @@ const solutionAnalysisScene = defineScene({
   contract: 'advisory',
   checks: SOLUTION_ANALYSIS_CHECKS,
   requiredContext: [
+    '结构化 Oracle Brief（objective/decisionNeeded/recommendationStatus）',
+    'requirements_context、assumptions、edge_coverage、truths、prohibitions 与 D-ID',
     'spec / intake 报告路径（需求、约束与未决问题清单的来源）',
     '候选方案描述（或已落盘方案文档路径）；多方案时逐个列出关键差异点',
     '已有的 research_brief / findings（若存在；增量验证，不重新侦察）',
@@ -113,6 +118,8 @@ const diffReviewScene = defineScene({
   contract: 'graded',
   checks: DIFF_REVIEW_CHECKS,
   requiredContext: [
+    '结构化 Oracle Brief（objective/currentState/changedFiles/impact/evidenceFreshness）',
+    '最终 state_head、diff_scope、实际变更文件与影响面摘要',
     'diff 产物路径或变更文件清单（落盘 artifact）',
     'plan 路径（对照声明的 Files 范围与任务边界）',
     '验收标准来源（spec 对应节或 plan 任务验收清单）',
@@ -127,13 +134,15 @@ const completionAuditScene = defineScene({
   reviewer: 'oracle',
   subjectType: 'completion',
   subjectGlobs: ['.oceanus/progress/*.md', '.oceanus/review/*.md', '.omo/**/*.md'],
-  contract: 'gate',
+  contract: 'advisory',
   checks: COMPLETION_AUDIT_CHECKS,
   requiredContext: [
+    '结构化 Oracle Brief（objective/acceptanceCriteria/evidence/priorFindings）',
+    '完成矩阵、ledger、验收覆盖、未闭合项和证据新鲜度',
     'progress ledger 路径（任务终态与证据记录）',
     'review 报告 / completion matrix 路径（若已生成）',
     'spec 验收标准（逐条对照来源）',
-    'plan 门禁状态与豁免记录（若有）',
+    'Review 主流程完成矩阵与实际 diff 影响面复查记录',
   ],
   independence: 'fresh-session',
   onReject: 'return-execute',

@@ -5,9 +5,11 @@ import { createExplorerAgent } from './explorer';
 import { createOracleAgent } from './oracle';
 import { createLibrarianAgent } from './librarian';
 import { createFixerAgent } from './fixer';
-import { OCEANUS_BRAINSTORM_SKILL } from '../skills/oceanus-brainstorm';
+import { OCEANUS_DISCUSS_SKILL } from '../skills/oceanus-discuss';
+import { OCEANUS_INTAKE_SKILL } from '../skills/oceanus-intake';
 import { OCEANUS_REVIEW_SKILL } from '../skills/oceanus-review';
 import { CBM_LIFECYCLE, CBM_TOOLS, cbmSection } from '../cbm/registry';
+import { SISYPHUS_WORKFLOW_PROTOCOL } from './protocol';
 
 /** 注册工具名来自注册表单一来源（src/cbm/registry.ts）。 */
 const registered = CBM_TOOLS;
@@ -18,14 +20,30 @@ describe('CBM-GATE-01 静态提示词契约', () => {
   });
   test('sisyphus prompt 声明五阶段并包含 finish', () => {
     const prompt = createSisyphusAgent().system!;
-    expect(prompt).toMatch(/intake[\s\S]*brainstorm[\s\S]*plan[\s\S]*execute[\s\S]*review[\s\S]*finish/i);
+    expect(prompt).toMatch(/intake[\s\S]*discuss[\s\S]*plan[\s\S]*execute[\s\S]*review[\s\S]*finish/i);
+  });
+
+  test('Sisyphus system 内置 workflow 总契约且不依赖加载 workflow Skill', () => {
+    const prompt = createSisyphusAgent().system!;
+    expect(prompt).toContain(SISYPHUS_WORKFLOW_PROTOCOL.trim());
+    expect(prompt).toContain('阶段 Skill 是详细操作手册，不是遵守本总契约的前置条件');
+    expect(prompt).not.toContain('加载 oceanus-workflow Skill 获取六阶段顺序');
+    expect(prompt.indexOf('<Role>')).toBeLessThan(prompt.indexOf('<Agents>'));
+    expect(prompt.indexOf('<Agents>')).toBeLessThan(prompt.indexOf('<Workflow>'));
+    expect(prompt.indexOf('<Workflow>')).toBeLessThan(prompt.indexOf('<Communication>'));
+  });
+
+  test('Oceanus 不泄漏 Sisyphus 六阶段详细契约', () => {
+    const prompt = buildOceanusPrompt();
+    expect(prompt).not.toContain('## Sisyphus 六阶段总契约');
+    expect(prompt).toContain('CBM 生命周期：');
   });
 
   test('Sisyphus 直接完成 Intake，代码/混合任务只尝试一次并 fail-open', () => {
-    const prompt = `${createSisyphusAgent().system!}\n${OCEANUS_BRAINSTORM_SKILL.content}`;
+    const prompt = `${createSisyphusAgent().system!}\n${OCEANUS_INTAKE_SKILL.content}`;
     expect(prompt).toMatch(/Intake/);
     expect(prompt).toContain('cbm_index');
-    expect(prompt).toMatch(/failure[\s\S]*timeout[\s\S]*(starting|stale)|失败[\s\S]*超时[\s\S]*(starting|stale)/i);
+    expect(prompt).toMatch(/failure[\s\S]*超时|失败[\s\S]*超时/i);
     expect(prompt).toMatch(/fail-open/i);
     expect(prompt).toMatch(/code\/mixed|代码\/混合/);
   });
@@ -35,36 +53,35 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(prompt).toMatch(/主 Agent.*澄清|owns clarification|user clarification/i);
     expect(prompt).toMatch(/approval|批准/);
     expect(prompt).toMatch(/delegate when|委派|按需/);
-    expect(prompt).toMatch(/Finish/);
+    expect(prompt).toMatch(/finish/i);
   });
 
-  test('Plan 必须经过 oracle 场景 gate OKAY，并保留人工批准门禁', () => {
+  test('Plan 自查影响面，Oracle advisory 可选且不构成门禁', () => {
     const prompt = createSisyphusAgent().system!;
-    expect(prompt).toMatch(/@oracle[\s\S]*OKAY[\s\S]*execute/i);
-    expect(prompt).toMatch(/REJECT[\s\S]*(back to plan|回.*plan)/i);
-    expect(prompt).toMatch(/human approval|人工批准|approval/i);
-    expect(prompt).toMatch(/both|双|two gates|两个门禁/i);
+    expect(prompt).toContain('impact_estimate');
+    expect(prompt).toContain('Oracle 顾问只按需提供 spec/plan advisory');
+    expect(prompt).toContain('不授予批准');
   });
 
-  test('Review 的 subagent、oracle gate 场景、Sisyphus 证据边界明确', () => {
+  test('Review 主流程与 Oracle advisory 边界明确', () => {
     const review = OCEANUS_REVIEW_SKILL.content;
     expect(review).toMatch(/Review subagent.*只读.*不修改代码.*不运行 task/i);
-    expect(review).toContain('代码审查走 diff-review 场景（条件触发）');
+    expect(review).toContain('Oracle 仅条件委派');
     expect(review).toMatch(/Sisyphus.*负责 spec\/plan\/diff 审查、测试验证和完成审计/);
-    expect(review).toMatch(/@oracle.*独立代码审查/);
+    expect(review).toMatch(/@oracle.*高风险架构审查/);
     expect(review).toMatch(/不确定性.*未达成/);
     expect(review).toContain('核查 evidence、tests 与 completionMatrix');
   });
 
   test('Finish 只接受阶段输入且声明禁止动作', () => {
     const prompt = `${createSisyphusAgent().system!}\n${OCEANUS_REVIEW_SKILL.content}`;
-    expect(prompt).toMatch(/Finish/);
+    expect(prompt).toMatch(/Finish/i);
     expect(prompt).toMatch(/input|输入/i);
     expect(prompt).toMatch(/禁止|不得|must not|do not/i);
   });
 
   test('仅引用已注册 CBM 工具并包含初始化规则', () => {
-    const prompts = [buildOceanusPrompt(), createSisyphusAgent().system!, OCEANUS_BRAINSTORM_SKILL.content, OCEANUS_REVIEW_SKILL.content];
+    const prompts = [buildOceanusPrompt(), createSisyphusAgent().system!, OCEANUS_DISCUSS_SKILL.content, OCEANUS_REVIEW_SKILL.content];
     for (const prompt of prompts) {
       expect(prompt).not.toContain('trace_path');
       for (const match of prompt.matchAll(/\bcbm_[a-z_]+\b/g)) expect(registered).toContain(match[0]);
@@ -93,23 +110,66 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(createFixerAgent().system).toContain(cbmSection('fixer'));
   });
 
-  test('CBM_LIFECYCLE.full 只注入 sisyphus 一次，oceanus 基座不重复注入', () => {
+  test('完整 CBM 生命周期下沉到 Skill，主 prompt 只保留摘要', () => {
     expect(buildOceanusPrompt()).not.toContain(CBM_LIFECYCLE.full);
     const sys = createSisyphusAgent().system!;
-    expect(sys).toContain(CBM_LIFECYCLE.full);
-    expect(sys.split(CBM_LIFECYCLE.full).length - 1).toBe(1);
+    expect(sys).not.toContain(CBM_LIFECYCLE.full);
+    expect(sys).toContain('CBM 生命周期');
   });
 
-  test('CBM 主线句单一来源：oceanus 用注册表 brief，"唯一初始化点"两个 prompt 各至多一次', () => {
+  test('agent 路由描述常驻于 Oceanus/Sisyphus prompt，不依赖调度 Skill', () => {
+    const oceanus = buildOceanusPrompt();
+    const sys = createSisyphusAgent().system!;
+    for (const prompt of [oceanus, sys]) {
+      for (const name of ['@explorer', '@librarian', '@oracle', '@designer', '@fixer', '@observer']) {
+        expect(prompt).toContain(name);
+      }
+      expect(prompt).toContain('大范围侦察');
+      expect(prompt).toContain('不委派');
+      expect(prompt).toContain('完全不相交且机械同构');
+      expect(prompt).toContain('Wave');
+      expect(prompt).not.toContain('oceanus-orchestration');
+    }
+  });
+
+  test('主 agent prompt 包含可执行的委派收益判断与调度生命周期', () => {
+    const prompts = [buildOceanusPrompt(), createSisyphusAgent().system!];
+    for (const prompt of prompts) {
+      expect(prompt).toContain('强制直做');
+      expect(prompt).toContain('委派收益信号');
+      expect(prompt).toContain('收益/成本检查');
+      expect(prompt).toContain('“任务复杂”“可能更快”“存在可用 agent”不是拒绝理由');
+      expect(prompt).toContain('调度生命周期');
+      expect(prompt).toContain('声明 Files/依赖/验证');
+      expect(prompt).toContain('主 Agent 整合 → 主 Agent 最终验证');
+      expect(prompt).toContain('默认必须委派');
+      expect(prompt).toContain('若决定不委派，必须');
+      expect(prompt).toContain('触发器到调用的直接映射');
+      expect(prompt).toContain('正向调用示例');
+      expect(prompt).toContain('委派 prompt 格式硬门');
+      expect(prompt).toContain('禁止把“目标：… 背景：… 范围：… 非目标：…”等多个字段压在同一行');
+      expect(prompt).toContain('prompt 字符串必须实际包含换行');
+    }
+  });
+
+  test('Sisyphus 不再把调度协议归因于 Skill', () => {
+    const prompt = createSisyphusAgent().system!;
+    expect(prompt).toContain('六阶段总契约与 subagent 调度规则以本 Agent 常驻提示词为准');
+    expect(prompt).not.toContain('Skill 承载阶段专属流程、调度协议与门禁细节');
+  });
+
+  test('CBM 主线句单一来源：oceanus 用注册表 brief，首次初始化与 Review 刷新边界明确', () => {
     expect(buildOceanusPrompt()).toContain(CBM_LIFECYCLE.brief);
-    expect(buildOceanusPrompt().split('唯一初始化点').length - 1).toBe(0);
+    expect(buildOceanusPrompt()).toContain('首次初始化');
     const sys = createSisyphusAgent().system!;
-    expect(sys.split('唯一初始化点').length - 1).toBe(1);
+    expect(sys).toContain('首次初始化');
+    expect(sys).toContain('Review');
   });
 
-  test('sisyphus system 含 oracle 场景 gate 影响面预估与 REJECT 门禁', () => {
+  test('sisyphus system 含 Plan 自查与可选 Oracle advisory', () => {
     const sys = createSisyphusAgent().system!;
-    expect(sys).toContain('plan-gate');
-    expect(sys).toMatch(/REJECT/);
+    expect(sys).toContain('impact_estimate');
+    expect(sys).toContain('Oracle 顾问只按需提供 spec/plan advisory');
+    expect(sys).not.toContain('plan-gate 的预估');
   });
 });

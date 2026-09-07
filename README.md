@@ -13,25 +13,25 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 | Agent | 角色 | mode |
 |-------|------|------|
 | `oceanus` | AI 编码编排器（颜色 `#0FFFFF`） | primary |
-| `sisyphus` | 六阶段工作流主导（intake → brainstorm → plan → execute → review → finish） | primary |
+| `sisyphus` | 六阶段工作流主导（intake → discuss → plan → execute → review → finish） | primary |
 | `explorer` | 快速代码库检索 | subagent |
 | `librarian` | 外部文档 / 库研究 | subagent |
-| `oracle` | 统一分析顾问（三场景：consult 咨询 / analysis 方案分析 / gate 计划门禁） | subagent |
+| `oracle` | 按需分析顾问（复杂架构或高风险业务 advisory） | subagent |
 | `designer` | 视觉设计迭代（样式 / 布局 / 动效开发与润色） | subagent |
 | `fixer` | 逃生舱执行（大批量并行机械实现，需满足逃生舱三条件） | subagent |
 | `observer` | 视觉 / 多媒体分析（**默认禁用**，需要视觉模型） | subagent |
 
 `explorer`、`librarian`、`oracle` **只读**，不写代码文件、不委派、不执行 task（`explorer` 仅有 `.oceanus/findings/*` 的落盘例外）；`observer` 默认禁用（需要视觉模型）。
 
-### 复杂任务门禁：oracle(analysis) → oracle(plan-gate) → execute
+### 复杂任务按需咨询：Oracle advisory
 
 对复杂任务（需求模糊、风险高、多文件、方案未定型），`sisyphus` / `oceanus` 工作流遵循以下协议：
 
-1. 上下文优先：Sisyphus 直接完成 Intake、澄清目标与验收；仅当 Intake 已有、澄清完成后仍有未决方案，且主 Agent 明确需要独立分析时，才条件委派 `@oracle`（analysis 场景）做方案分析。
-2. `@oracle`（plan-gate 场景，执行前方案质量检查）：方案形成后、进入 execute 前检查依赖、范围、测试与可执行性，输出 `[OKAY]` 或 `[REJECT]`；问题按 BLOCKER/SUGGESTION 分级，仅 BLOCKER 触发 `REJECT` 且附最小修订集（逐条修改建议 + 验证方式），`REJECT` 时按最小修订集回到 plan 修订后以新会话重新检查，`OKAY` 才放行 execute。
-3. 简单任务（单文件、低风险、方案明确）可明确跳过该门禁，并说明跳过理由。
+1. Sisyphus 直接完成 Intake、澄清目标与验收，并在 Intake 配置 SDD/TDD/连续执行选项。
+2. 仅在复杂架构或高风险业务仍有关键未知时按需委派 `@oracle`，针对已落盘的 spec/plan 提供 advisory；简单任务不调用并记录理由。
+3. 该 advisory 不构成执行门禁，最终决策由 Sisyphus / orchestrator 负责。
 
-> **重要**：该门禁是 **prompt 工作流门禁**，由 `sisyphus` / `oceanus` 的提示词与工作流约定强制执行，**不是**插件注册的自动运行时 supervisor——插件不会在运行时自动硬拦截执行路径。`oracle` 只负责分析与判定，最终决策与放行由 orchestrator / sisyphus 决定。
+> **重要**：这是 prompt/skill 层约定，**不是**插件注册的自动运行时 supervisor；插件不会在运行时自动拦截执行路径。Oracle 输出仅为 advisory。
 
 ### 默认只读权限
 
@@ -39,7 +39,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 
 ### CBM 调度约定
 
-CBM 沿六阶段工作流形成三阶段主线。**Intake 初始化**：代码或混合任务由 Sisyphus 直接调用一次 `cbm_index`（非代码任务跳过），失败、超时或 in-progress 均 fail-open 并记录；这是全工作流唯一初始化点，Brainstorm/Plan 不重复初始化。**plan-gate 场景影响面预估**：plan 门禁审查时，`@oracle`（plan-gate 场景）对计划声明的修改文件/公共符号用查询型 CBM（`cbm_search_graph` → `cbm_trace` → 必要时 `cbm_code`）排查影响面，发现计划未声明的受影响调用方/契约则 REJECT，预估结论记入 plan status。**Review 影响面复查**：开始即 `cbm_index` 重建索引（execute 已修改代码），再对实际 diff 用 `cbm_trace`/`cbm_detect_changes` 再次排查并与 plan-gate 场景预估对比——一致记为验证证据，不一致则解释或退回 execute；CBM 不可用时记录降级证据。查询型工具可由需要的 agent 使用，finish 阶段不调用 CBM。详见 `docs/codebase-memory-mcp.md`。
+CBM 沿六阶段工作流形成三阶段主线。**Intake 首次初始化**：代码或混合任务由 Sisyphus 直接尝试一次首次 `cbm_index`（非代码任务跳过），失败、超时或 in-progress 均 fail-open 并记录；discuss/Plan 不重复首次初始化。**Plan 自查**：Plan 根据 spec 自查修改文件、公共符号、依赖和验证方式；复杂架构或高风险业务仍有关键未知时，Sisyphus 可按需咨询 Oracle advisory。**Review 影响面复查**：按最终 diff 需要时刷新索引，再用 `cbm_trace`/`cbm_detect_changes` 排查并记录证据；CBM 不可用时记录 `cbm: stale`、降级工具、覆盖范围和残余风险。查询型工具可由需要的 agent 使用，finish 阶段不调用 CBM。详见 `docs/codebase-memory-mcp.md`。
 
 ## 安装
 
@@ -153,32 +153,37 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 
 ### 内置 skill
 
-插件在启动时通过 `ctx.skill.transform` 注入 Oceanus 配置 skill 和 sisyphus 工作流的六个阶段 skill，**安装插件即可使用，无需拷贝任何 skill 文件**：
+插件在启动时通过 `ctx.skill.transform` 注入 Oceanus 配置、六个阶段和支持型 Skill，**安装插件即可使用，无需拷贝任何 skill 文件**：
 
 | Skill | 作用 |
 |-------|------|
 | `opencode-oceanus` | 说明 Oceanus 配置、preset 优先级、v2 限制及 `/preset` 命令 |
-| `oceanus-brainstorm` | 读取 Intake 已确认的执行配置、研究优先澄清需求、按复杂度分层呈现方案（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）、再以方案总批准单问完成方向批准；SDD 开启时保存设计 spec 到 `.oceanus/spec/` |
-| `oceanus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、Oracle 审查=开时经 `@oracle`（plan-gate）门禁（关闭时记录 `SKIPPED_BY_USER` 仅保留人工门禁）、消费执行配置批问中的 Oracle 审查/SDD/TDD 决策（不重复提问） |
-| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类、执行配置批问（三项默认全关；仅实现类任务批问，调研/查询/方案设计类跳过并按默认关闭记录）与 CBM 初始化 |
-| `oceanus-execute` | 按计划实现、后台并行委派 `task(run_in_background=true)`、同步 todo 状态 |
-| `oceanus-review` | 阶段间证据化评审、重评审转交 @oracle、验证发现后才接受 |
+| Agent 常驻调度协议 | agent 路由、OpenCode v2 `subagent` child session、委派边界与并行规则，内置于 Oceanus/Sisyphus system prompt |
+| `oceanus-debugging` | 根因调查、单一假设验证和三轮失败升级 |
+| `clipboard-image-observer` | 图片/PDF 路径处理、L1-L5 分级与 observer 视觉验收流程 |
+| `oceanus-discuss` | 读取 Intake 已确认的执行配置、研究优先澄清需求、按复杂度分层呈现方案（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）、再以方案总批准单问完成方向批准；SDD 开启时保存设计 spec 到 `.oceanus/spec/` |
+| `oceanus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、依据 spec 自查影响面，并消费 Intake 的 Oracle 按需/SDD/TDD 决策（不重复提问） |
+| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类、SDD/TDD 两项执行配置批问与 CBM 首次初始化 |
+| `oceanus-execute` | 按计划实现；默认主 agent 执行，只有三条件同时满足时才并行 fixer，并同步 todo 状态 |
+| `oceanus-review` | Execute 后的最终 diff、影响面和证据化评审；按需转交 @oracle，验证发现后才接受 |
 
 `sisyphus` agent 会按阶段自动加载对应 skill。
+
+OpenCode v2 的官方模型是：主 agent 通过 `subagent` 工具启动 child session；agent 是否可作为 subagent 由 `mode` 和权限决定，后台执行由调用层的 `background` 控制。本项目在 prompt 中统一采用结构化约定 `subagent({ agent, description, prompt, background })`，这是 Oceanus 的编排约定，不是额外的宿主 API。
 
 Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/输出与禁止事项，不能替代运行时权限或 supervisor。Ledger 记录进度而非宿主事实；Review 报告记录证据和结论，Finish 只能只读该报告。
 
 ### Sisyphus 六阶段工作流
 
-`sisyphus` 执行六阶段工作流（`intake → brainstorm → plan → execute → review → finish`），各阶段职责与产物如下：
+`sisyphus` 执行六阶段工作流（`intake → discuss → plan → execute → review → finish`），各阶段职责与产物如下：
 
 | 阶段 | 职责 | 产物 / 落点 |
 |------|------|-------------|
 | **Intake** | `Sisyphus 直接了解背景、完成最小需求 intake、分类任务，并在代码任务中初始化 CBM；不做方案决策 | Intake 结构化摘要 |
-| **Brainstorm** | Sisyphus 消费 Intake 已确认的执行配置，负责研究、澄清与方案决策；调研按分层规则条件委派 `@oracle`（analysis）（Oracle 审查=开时 Architecture 默认、Standard 两波自查后仍有未知才委派、Trivial 不委派）；澄清完成后以方案总批准单问完成方向批准 | `.oceanus/spec/` |
-| **Plan** | Sisyphus 负责拆分任务并维护进度台账；Oracle 审查=开时 `@oracle`（plan-gate）做方案质量门禁（人工批准由 Brainstorm 方案总批准覆盖，不重复提问），输出 `[OKAY]` / `[REJECT]`；关闭时记录 `SKIPPED_BY_USER` 仅保留人工门禁 | `.oceanus/plan/` + 批准记录 |
-| **Execute** | 主 agent 按计划顺序直接执行（读代码/编辑/测试），上下文缺口委派 `@explorer` 补侦察；批量机械任务满足逃生舱三条件（文件集完全不相交 + 机械同构 + 任务数 ≥3）时并行 `@fixer`；视觉迭代任务 `@designer`；重规划回 Plan 重新过 oracle 门禁 | 代码变更 + 更新后的计划 |
-| **Review** | 主 agent 复查：先刷新当前项目 CBM 索引，再做证据化影响面复查与 Completion Audit；高风险变更条件触发 `@oracle` diff-review / completion-audit 场景审查 | 审查结论 |
+| **discuss** | Sisyphus 消费 Intake 已确认的执行配置，负责研究、澄清与方案决策；复杂架构或高风险业务取舍可按需委派 `@oracle`（analysis）提供 advisory；澄清完成后以方案总批准单问完成方向批准 | `.oceanus/spec/` |
+| **Plan** | Sisyphus 负责拆分任务、依据 spec 自查依赖/范围/验证并维护进度台账；复杂架构或高风险业务可按需咨询 Oracle advisory | `.oceanus/plan/` + 批准记录 |
+| **Execute** | 主 agent 按计划顺序直接执行（读代码/编辑/测试），上下文缺口委派 `@explorer` 补侦察；批量机械任务满足逃生舱三条件（文件集完全不相交 + 机械同构 + 任务数 ≥3）时并行 `@fixer`；视觉迭代任务 `@designer`；需求变化回 discuss，结构变化回 Plan | 代码变更 + 更新后的计划 |
+| **Review** | Execute 后主 agent 复查最终 diff、影响面和 Completion Audit；CBM 可刷新最终索引但 fail-open；高风险变更按需触发 Oracle advisory | 审查结论 |
 | **Finish** | Sisyphus 只读 Review 报告并收口，不测试、不构建、不调用 CBM、不委派、不修改文件 | 交付总结 |
 
 要点：该工作流是 **prompt / skill 层面的约束**，由 `sisyphus` 的提示词与 `sisyphus-*` skill 约定强制执行，**不是**运行时自动 supervisor——插件不会在运行时自动拦截或强制各阶段。禁用相关 Agent 时不得伪造阶段性结果，应如实说明能力缺失。
@@ -373,7 +378,7 @@ bun run typecheck # 类型检查
 │   ├── hooks/          # 运行时保护 Hook（apply-patch / json-error-recovery / tool-output-truncator / tool-loop-guard / task-registry-observer）
 │   ├── runtime/        # task registry、workspace 解析等运行时支撑
 │   ├── smoke/          # ast-grep CLI 探测与 v2 host smoke
-│   └── skills/         # sisyphus 四个阶段 skill（插件注入，安装无需拷贝）
+│   └── skills/         # sisyphus 六个阶段与支持型 skill（插件注入，安装无需拷贝）
 └── dist/               # 构建产物
 ```
 

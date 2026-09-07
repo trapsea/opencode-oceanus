@@ -3,100 +3,187 @@ import type { SkillDefinition } from './types';
 
 const OCEANUS_PLAN_SKILL: SkillDefinition = {
   name: 'oceanus-plan',
-  description:
-    '第 3 阶段 — 计划：读取 Intake 与已批准的 brainstorm spec，映射文件，合理划分任务，保存计划，在 execute 前通过 oracle 场景 gate（plan-gate）审查，并使用配置决策而不重复询问用户。由 sisyphus agent 在计划阶段开始时加载。',
+  category: 'phase',
+  description: '第 3 阶段 — 计划：读取已批准 spec，映射文件结构、拆分细粒度任务（含真实代码与逐步验证）、维护 ledger 并完成计划自查；复杂架构可按需请求 Oracle advisory。',
   slash: true,
   content: `---
 name: oceanus-plan
-input: intake_report 与 spec
-owner: Sisyphus（主 Agent；oracle plan-gate 场景仅条件委派并只读审查）
-output: plan 与 oracle plan-gate verdict
+category: phase
+input: 已批准 spec
+owner: Sisyphus 主 Agent（复杂架构场景可按需咨询 Oracle）
+output: plan 与 impact_estimate
 entry: spec 已批准
-exit: Oracle 审查=开时 oracle plan-gate OKAY 且方案总批准有效；关闭时仅方案总批准有效
-failure: REJECT 不得进入 execute
+exit: 计划自查完成
+failure: 记录缺口并修订计划
 verification: 计划状态可审计
 humanReview: required
-description: Sisyphus 工作流第 3 阶段 — 计划。读取 Intake 与已批准的 brainstorm spec，映射文件，合理划分任务，保存计划，在 execute 前通过 oracle 场景 gate（plan-gate）审查，并使用配置决策而不重复询问用户。
+description: 第 3 阶段 — 计划：读取已批准 spec，映射文件结构、拆分细粒度任务（含真实代码与逐步验证）、维护 ledger 并完成计划自查；复杂架构可按需请求 Oracle advisory。
 ---
 
 # Sisyphus 第 3 阶段 — 计划
 
-Sisyphus 在进入 oracle 门禁前先完成 \`impact_estimate\`，并处理影响面缺失或覆盖不足；plan-gate 场景只检查已有覆盖，不代替计算。
-
 ## 目标
-Sisyphus 主 Agent 持有 Intake/spec 上下文与计划写入权；仅按复杂计划门禁条件委派 @oracle 场景 gate（plan-gate）。
 
-将已批准的 spec 转化为小而可执行、感知依赖关系的实现计划，并在任何复杂任务进入 execute 前通过独立的 @oracle 场景 gate（plan-gate）审查。
+把已批准 spec 转化为一份**零上下文可执行**的实现计划：假设执行者完全没有本仓库上下文，只读自己的 Task 就能动手。每个任务包含确切文件路径与行号、真实代码块、逐步 checkbox 和带预期输出的验证命令。
 
 ## 步骤
-1. **读取 Intake 与 brainstorm 输出** — 加载 Intake 交接内容与已批准的 spec；保留其中的目标、范围、验收标准、风险、约束和决策，并将其转化为可执行任务。
-2. **映射文件** — 确定所有必须修改的文件及其关系。
-3. **任务粒度适当（行数/文件数粒度）** — 按功能边界与依赖顺序拆分任务，一个任务应对应一个完整功能切片、可独立完成并验证，带唯一 Task ID、明确所有权、依赖、文件范围、验证方式。
-4. **初始化任务台账（仅 SDD 模式）** — SDD 开启时创建 \`.oceanus/progress/<plan-name>.md\`，每个任务一行、初始 \`pending\`，记录 Task ID、Wave、Depends on、Files、Worker/Session、Validation、Updated。SDD 关闭时不创建任何文件，任务状态用会话内 todo（\`todowrite\`）维护。
-5. **编写计划（仅 SDD 模式）** — SDD 开启时保存到 \`.oceanus/plan/\`，记录每任务的目标、文件、依赖与预期验证证据；SDD 关闭时计划只在会话内呈现，不落盘。
-6. **验收自查（机械自查，先于 oracle 门禁）** — 委派门禁前按下列 rubric 逐条自查，缺口当场补齐，不得留给门禁首轮拦截（rubric 与 plan-gate 场景 checklist 的验收维度同源，场景文本见 src/review/scenes.ts）：
-   ${PLAN_ACCEPTANCE_RUBRIC.split('\n').filter((l) => l.trim().length > 0).join('\n   ')}
-    - **依赖顺序** — 所有依赖是否都位于被依赖任务之前、无环且已具备终态条件？
-    - **范围越界** — 每个任务的 \`Files\` 范围是否都在其所有权内且避免冲突？
-    - **测试 / 验收覆盖** — 每个任务是否都有可测试的成功标准及覆盖它的验证证据？
-    - **步骤可执行性** — 每一步是否足够小、可独立完成并能由 worker 具体执行？
-    - **未决策事项** — 是否仍有会阻塞或改变任务方向的关键未决策？
-   - **影响面（影响面预估）** — 对计划声明的修改文件/公共符号排查计划外受影响面：先复用 @oracle(analysis) research_brief 与 plan 中已记录的 CBM 事实结论（符号/调用链），只对未覆盖的符号做增量查询**（cbm_search_graph 定位 → cbm_trace 查调用方/被调用方 → 必要时 cbm_code 读源码）；发现计划未声明的受影响调用方/契约 → REJECT 并列出具体符号；预估结论（受影响符号与差异）记入 plan status 供 Review 对比。plan-gate 场景只查询、不重建索引；CBM 不可用时标注不确定性，不虚构影响面。复用已有结论不损害 gate 场景判断独立性——复用的是事实查询结果，不是评估结论。
-  记录 oracle plan-gate 的 verdict（\`OKAY\` 或 \`REJECT\`）、问题清单、修订轮次、验证时间戳和影响面预估结论（受影响符号与差异）。SDD 开启时记入 \`.oceanus/plan/<name>.md\`（或对应 plan status）；SDD 关闭时在会话内向用户呈现 verdict 与问题清单即可。Oracle 审查=开时，oracle plan-gate \`OKAY\` 是必要但不充分的条件：人工批准沿用 Brainstorm 方案总批准（consolidated approval，plan 阶段不重复提问），gate status 记录 human: { status: 'APPROVED', via: 'consolidated' }；oracle plan-gate OKAY 与有效方案总批准两个门禁（both gates）齐备才进 execute（Trivial 任务除外）。Oracle 审查=关时仅有效方案总批准即进 execute（skipped 已记录）。
- 7. **重新分析变更后的输入** — 如果 Plan 在批准后发生变化：需求或验收标准变化 → 配置批问与方案总批准一并失效、重新执行两问（先经 @oracle(analysis) 重析新需求（Oracle 审查=开时；关闭时跳过并记录）、重新计算 \`impact_estimate\`、修订 plan，再次运行 oracle 门禁与 human \`question\`（开启时））；仅 Files/依赖/任务结构变化或失败重规划 → 不重新提问用户，仅重走 oracle 门禁（analysis 与 gate 各计入 3 轮上限，且仅在 Oracle 审查=开时适用）。
- 8. **使用配置问题的决策** — Oracle 审查/TDD 与当前目录执行沿用 Intake 批问中的用户抉择，不再单独提问、不补问：
-   - **TDD 推荐规则**（配置批问呈现时依据）：预估拆分 >12 个任务 → 推荐 TDD（测试先行，配合 execute 阶段 Failing-First 纪律）；≤12 个 → 不推荐（先开发功能，完成后再补测试验证）。plan 实际拆分任务数与 brainstorm 预估跨阈值（>12）偏差时记入 plan status，不重新提问。
-   - **当前目录执行**：所有 orchestrator 和 worker 始终在当前目录；并行仅在 Wave 内 Files 完全不重叠且无共享状态/生成目录时进行。worker 禁止 git add/commit/reset、分支和隔离工作区操作。
-  遵循配置批问中记录的用户明确选择。
 
-## Oracle 审查门禁
-- **复杂任务必须通过审查（Oracle 审查=开时）**：任何触及多个文件、存在跨任务依赖或具有实际风险的任务，都必须经过 \`@oracle\` 场景 gate（plan-gate）审查后才能进入 execute。Sisyphus 必须在完成任务拆分、依赖、Files 范围、验证和台账后委派 \`@oracle\` 场景 gate：prompt 前置 \`<oracle_scene name="gate">\` 场景指令与 plan 文件路径，复审必须用新会话。**用户在配置批问中关闭 Oracle 审查时本节降级**：不执行 oracle 门禁审查，plan status 记录 SKIPPED_BY_USER 与残余风险（open issue），人工门禁沿用方案总批准；不伪造 verdict。
-- **记录 verdict**：将 \`OKAY\`/\`REJECT\` verdict、提出的问题、修订轮次和验证时间写入 \`.oceanus/plan/<name>.md\`（或对应的 plan status），以便 execute 和 review 审计。
-  - **REJECT 必须返回修订（≤3 轮）**：收到 \`REJECT\` 时不得进入 execute。返回修订 plan，按最小修订集逐条落实 oracle 门禁的修改建议（不自行发挥），然后再次委派 \`@oracle(plan-gate)\` 复审（复审用新会话、携带 round=N 与前轮 BLOCKER 清单，只验证前轮 BLOCKER 与修订新引入的 BLOCKER）— 每轮审查尽量全面，避免反复返工。最多 3 轮：第 3 轮仍为 \`REJECT\` 时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）。轮内通过则 human 状态沿用方案总批准（APPROVED, via consolidated）；两个门禁均满足时允许计划通过（Trivial 任务除外）。
-- **简单任务可以跳过，但必须记录原因**：如果任务极其简单而跳过审查，则在 plan status 中记录跳过原因和跳过验证的时间。
-- **绝不伪造审查**：如果 Oracle 审查被用户关闭或 oracle 被禁用，不得虚构 \`OKAY\`。在任何 execute 继续前，记录审查未执行，并在 plan status 中将风险记为 open issue。
+1. 读取 Intake 与已批准 spec，保留目标、范围、验收标准、风险、约束和决策。
+2. **范围检查**：spec 覆盖多个独立子系统时，建议按子系统拆成多份 plan；每份 plan 独立交付可工作、可验证的软件。
+2b. **调研深度分级**：按风险确定计划前的补充调研量——**L0 跳过**（纯内部工作、grep 证实全部沿用既有模式、无新依赖）；**L1 快速验证**（单一已知库，确认语法/版本即可）；**L2 标准调研**（2-3 个候选选型、新外部集成，两波内收敛）；**L3 深潜**（架构级长期影响、全新领域，委派 @librarian/@explorer 并允许更长周期）。升级指标：出现新库/外部 API/"选型评估"字样至少 L2；涉及"架构/系统设计"、多外部服务、数据建模至少 L3。分级和理由记入 plan 头部。
+3. **文件结构先行**：定义任务前先映射文件——创建/修改哪些文件、各文件职责、模块边界与接口。按职责而非技术层拆分；变更耦合的文件放同一任务。已有代码库遵循既有模式，不擅自重构；但被修改的文件已过度膨胀时，可把拆分纳入计划。
+4. **任务切分**：
+   - 任务是携带独立测试周期的最小单元，每个任务结束于一个可独立验证的交付物。
+   - **Tracer-First 垂直切片**：首个任务默认为 tracer——穿过本轮要修改的每一层的最薄端到端路径，带真实可运行的单路径验证（端到端检查而非分层单测）。tracer 是生产质量不是原型：功能缺口允许 stub，架构缺口不允许。其余任务是在已验证切片上的横向扩展；只"打地基"而不交付用户可感知能力的任务要重排。架构已被先前工作证明时可不设 tracer，但须记录理由。
+   - 搭建、配置、脚手架、文档步骤折叠进需要它的交付任务，不单独立任务。
+   - 只有"审阅者可能拒绝 A 任务而批准相邻 B 任务"时才拆分。
+   - 任务按依赖排序，依赖无环；建议每任务 ≤5 文件，超出即考虑再拆。
+5. **步骤粒度（极细）**：每个任务内逐步 checkbox，一步一个动作（2-5 分钟可完成）；代码步骤必须附带真实代码块。
+6. SDD 开启时初始化 progress ledger 并把计划保存到 \`.oceanus/plan/\`；关闭时使用会话内 todo（结构不变）。ledger 头部初始化 frontmatter 摘要：current_phase / next_action / progress（0/N）/ state_head（计划时点的 git HEAD 短 sha）/ stopped_at（null），供跨会话恢复与证据状态核验。
+7. 按下列 rubric 与自审清单完成计划自查，缺口当场补齐：
+   ${PLAN_ACCEPTANCE_RUBRIC.split('\\n').filter((l) => l.trim().length > 0).join('\\n   ')}
+   - 依赖顺序无环且满足前置条件。
+   - Files 范围在所有权内且无冲突。
+   - 每个任务有可测试成功标准和验证证据。
+   - 影响面使用 CBM/grep/read 自查，记录受影响符号与差异到 impact_estimate，供 Review 复查；工具不可用时标注不确定性。
+   - **关键字段 schema 门禁**：校验 requirements_context、assumptions、edge_coverage、truths、prohibitions、D-ID 和每条任务的 acceptance/validation。缺失关键字段、非法状态、无证据假设或无 required_property 的 finding 一律 fail-closed；非关键扩展字段可记录 WARNING。
+   - **独立 Oracle advisory**：Standard 仅在存在架构取舍、复杂影响面或高代价错误风险时调用 Oracle analysis；Architecture 默认评估是否需要调用。调用时必须提供完整 Oracle Brief，并要求其只返回结构化 findings（dimension、severity、required_property、description、evidence、fix_hint），不返回放行 verdict。主 Agent 必须核实每条 finding，并保留最终门禁责任。
+   - **三轮修订闭环**：发现 BLOCKER/WARNING 后最多执行三轮“核实 → 修订 → 复查”；第三轮仍未解决时停止自动推进，使用 question 请求用户决定补任务、拆分计划或延期。
+8. 需求或验收标准变化时返回 discuss/Plan，重新确认并修订 spec/plan；仅 Files、依赖、任务结构变化或失败重规划时，只修订计划并重新自查。
 
-## 计划固定输出模板
-计划必须绑定唯一 Spec 路径，执行者必须同时读取二者；冲突时以 Spec 的设计约束为准。
-\`\`\`markdown
-# <标题>
-## 目标
-## 架构
-## 技术栈
-## Spec: .oceanus/spec/<唯一文件>.md
+## 计划文档头（固定）
+
+~~~markdown
+# <标题> 实现计划
+
+**目标**：<一句话>
+**架构**：<2-3 句>
+**技术栈**：<关键技术/库>
+**Spec**：.oceanus/spec/<唯一文件>.md
+
 ## 全局约束
-## 文件变更地图
-## 依赖 / 假设
-## 门禁状态
-## 影响面预估
-## Task 1（按依赖顺序）
-Task ID / 目标 / Context / Files（Create, Modify, Test） / Interfaces（Consumes, Produces） / Dependencies / Preconditions
-- [ ] 具体文件、符号与动作
-Validation: \`<command>\`；Expected: \`<预期输出>\`
+
+<逐行列出 spec 的项目级要求——版本下限、依赖限制、命名/文案规则、平台要求；
+从 spec 逐字复制确切值。每个任务的需求默认包含本节。>
+
+## 可观察行为（truths）
+
+<目标反推：目标达成为真时，哪些行为可观察、哪些文件必须存在、哪些连接必须接通。
+每条一行、可被 review 独立核验；这是 Completion Audit 的逐条锚点，不是泛泛的验收重述。>
+~~~
+
+## 任务结构（固定模板）
+
+每个任务必须包含以下全部区块：
+
+~~~markdown
+### Task N：<组件名>
+
+**Files**：
+- Create: \`exact/path/to/file.ts\`
+- Modify: \`exact/path/existing.ts:123-145\`
+- Test: \`tests/exact/path/file.test.ts\`
+
+**Interfaces**：
+- Consumes: <引用前序任务的确切签名>
+- Produces: <后续任务依赖的确切函数名、参数与返回类型>
+
+**步骤**（TDD 开启时）：
+- [ ] **步骤 1：编写失败测试**
+  <真实测试代码块>
+- [ ] **步骤 2：运行测试确认失败**
+  Run: \`bun test tests/path/file.test.ts -t "name"\`
+  Expected: FAIL —— <具体错误信息>
+- [ ] **步骤 3：编写最小实现**
+  <真实实现代码块>
+- [ ] **步骤 4：运行测试确认通过**
+  Run: 同上
+  Expected: PASS
+- [ ] **步骤 5：运行表面验证（如适用）**
+  <命令与预期输出>
+
+**步骤**（TDD 关闭时）：
+- [ ] **步骤 1：编写 characterization 基线测试固定现有行为**
+- [ ] **步骤 2：运行基线确认通过**（现状快照）
+- [ ] **步骤 3：实现变更**（真实代码块）
+- [ ] **步骤 4：运行测试确认通过**
+- [ ] **步骤 5：运行表面验证（如适用）**
+
+Task ID / Dependencies / Preconditions（可选：执行前必须为真的外部事实——环境已配好、前置产物存在、环境变量就绪；不满足即停止上报而非自行猜测）
+Decisions: <覆盖的锁定决策 D-ID 列表；无则写 none；实现 one-way 决策的任务前置用户确认检查点>
+Validation: <command>；Expected: <预期输出>
 验收标准 / 风险与回滚 / status / owner / wave / updated / 预估 diff 行数
-\`\`\`
-每个 Task 必须独立可理解，2-5 分钟仅为粒度指导，不得拆成空步骤；禁止 TBD/TODO/later、未定义引用和占位符。计划末尾必须自检：Spec 唯一路径存在且已批准；文件地图与任务一致；依赖无环；每步含具体文件/符号/动作；验证命令带预期结果；验收可证；门禁状态真实；风险有回滚；无禁止占位符。
+~~~
+
+TDD 步骤选择遵循 Intake 执行配置批问的 TDD 开关；未批问时按默认关闭（characterization 基线路径）。
+
+## 无占位符（计划失败项）
+
+以下写法是计划失败，绝不出现：
+- "TBD"、"TODO"、"待补充"、"后续实现"。
+- "添加适当的错误处理"、"添加校验"、"处理边界情况"（不展示怎么做）。
+- "为上述内容编写测试"（不附真实测试代码）。
+- "与 Task N 类似"（重复代码——执行者可能乱序阅读任务）。
+- 描述做什么但不展示怎么做的步骤；代码步骤必须带代码块。
+- 引用任何任务中未定义的类型、函数或方法。
+
+## 范围缩减禁令（语义级）
+
+无占位符管格式，本节管语义偷工减料。以下削减语出现在任务动作/步骤正文即计划失败：
+
+- "v1 先…"、"简化版"、"暂时静态"、"暂时硬编码"、"占位实现"、"先跳过"、"后续再接"、"未来增强"、"最小版本"。
+
+**规则**：锁定决策（D-ID）说了交付什么，任务就必须原量交付什么——计划者无权以"复杂/困难/非平凡"为由简化用户决策。只有三个合法的拆分或缺项理由：
+
+1. **上下文成本**：实现将占用单个执行者上下文预算的过大比例；
+2. **信息缺失**：所需数据不存在于任何输入产物；
+3. **依赖冲突**：功能依赖另一个未交付的变更。
+
+确实无法覆盖时，显式返回"未覆盖项发现"并给三个选项（补任务 / 拆分子计划 / 请用户确认延期），**绝不静默带缺口定稿**。研究建议与锁定决策冲突时遵守用户决策，并在任务中注明"按用户决策使用 X（研究建议 Y）"。
+
+## 验证命令接地规则
+
+- **复用已验证命令**：执行环境里已经成功运行过的命令原样复用（含工作目录前缀，如 \`npm --prefix <dir> run <script>\`）；自造的命令必须能在本仓库实际解析。
+- **grep 卫生**：\`grep -c\` 会把注释行计入计数，含注释的文件必须先 \`grep -v '^\s*//'\`（或对应注释前缀）再计数；禁止对未过滤文件使用裸"计数 == 0"门禁——计划自身的说明文字就可能让它自噬。
+- **注释文本纪律**：验收标准若用"不得包含字面 X"做反向检查，则字面 X 不得出现在任务的步骤/动作正文里，否则计划文档自己触发验收失败；确需引用时用变体描述并注明。
+- 每个验证命令标明预期输出/退出码；运行时长超过一分钟的命令降级为分段验证并注明。
+
+## 自审（写完计划后立即执行，不委派）
+
+**对抗性视角：计划描述意图，自审验证交付。** 起始假设是"这份计划有缺陷"，逐条证明它确实覆盖 spec 的每个目标后再放行；自查者最容易变软的方式是接受"貌似合理的任务列表"而不逐条回溯到需求。
+
+1. **四源覆盖审计**：对四类输入源逐项映射到任务——**目标**（spec 的目标与非目标）、**需求**（每条验收标准）、**研究**（调研发现的功能/约束/负向结论）、**决策**（D-ID 锁定决策）。每个条目必须能指向至少一个实现它的任务；存在决策登记表时逐条核验 D-ID 被任务的 Decisions 字段引用且任务动作覆盖决策全量范围（引用 D-ID 不等于交付决策）；排除项不出现在任何任务中。发现未覆盖项时按"范围缩减禁令"的三选项处理，绝不静默定稿；缺失决策登记表时记录"无 D-ID 可追溯"并按前三源执行。
+2. **削减语扫描**：按"范围缩减禁令"的清单搜索任务正文并修复或补理由。
+3. **占位符扫描**：按"无占位符"清单逐条搜索并修复。
+4. **类型一致性**：后置任务使用的类型、签名、属性名与前置任务定义完全一致（\`clearLayers()\` 与 \`clearFullLayers()\` 并存即为 bug）。
+5. **行号时效**：Modify 路径的行号基于计划时点；执行者动手前须重新定位，行号漂移不算执行失败。
+6. 发现问题就地修复后继续，不重复自审；spec 需求无对应任务时补任务。
+
+### 独立计划分析输入
+
+Standard 与 Architecture 计划应提供给 Oracle analysis：已批准的 requirements_context、assumptions、edge_coverage、truths、prohibitions、D-ID、文件映射、任务依赖和验证命令。要求 Oracle 采用 goal-backward 方式检查：每条需求/边界/真值/禁止项是否有实际任务和接线证据，是否存在未声明的时序耦合、失效条件或不可验证命令。Oracle 只给 advisory；主 Agent 需逐条核实后决定是否修订。
+
+## Oracle 按需咨询
+
+复杂架构或高风险场景可按需委派 @oracle(analysis) 提供 advisory。Oracle 不输出门禁 verdict，不阻断 execute，也不参与完成判定。
+
 ## 检查清单
-- [ ] 文件已映射且关联
-- [ ] 任务粒度适当（行数/文件数粒度：普通 ≤2000 行且 ≤8 文件、高风险 ≤500 行，每任务含预估实现 diff 行数）并按依赖排序
-- [ ] SDD 开启：task ledger 已初始化且所有任务 \`pending\`；SDD 关闭：使用会话内 todo、无文件落盘
-- [ ] SDD 开启：plan 已保存到 \`.oceanus/plan/\`
-- [ ] \`@oracle(plan-gate)\` 复杂任务在 execute 前运行审查（Oracle 审查=关时：SKIPPED_BY_USER 与残余风险已记录，未伪造 verdict）
-- [ ] OKAY / REJECT verdict、问题、修订轮次和验证时间已记录在 plan status
-- [ ] 影响面预估与 plan-gate 校验结论（受影响符号与差异）已记入 plan status，供 Review 复查对比（Oracle 审查=关时记 SKIPPED_BY_USER）
-- [ ] REJECT 已返回修订并重新审查；仅 OKAY 可进入 execute
-- [ ] TDD 策略已随 Intake 执行配置批问确认（plan 阶段不单独提问；漏答已回落推荐值，不补问）
-- [ ] 当前目录执行约束已确认：所有 worker 使用当前目录，禁止隔离工作区、分支及 git 操作
+
+- [ ] 文件结构先行：每个文件的职责与边界已明确
+- [ ] 任务按独立测试周期切分，搭建/配置折叠进交付任务
+- [ ] 每任务逐步 checkbox，代码步骤附真实代码块
+- [ ] 每步验证命令带预期输出
+- [ ] 无占位符（按清单扫描）
+- [ ] 自审六项完成：四源覆盖审计 / 削减语扫描 / 占位符 / 类型一致 / 行号时效 / 修复闭环
+- [ ] ledger 或会话内 todo 已初始化
+- [ ] 计划已保存（SDD 开启时）
+- [ ] impact_estimate 已用 CBM/grep/read 自查并记录
+- [ ] TDD 步骤模式与 Intake 执行配置一致
+- [ ] 当前目录执行约束沿用：不加 commit 步骤，worker 禁 git 操作
 
 ## 规则
-门禁状态（Gate Status）: \`gate: { verdict, round, verifiedAt }\`；\`human: { status, reason, verifiedAt, via }\`（via 默认 'consolidated'，表示批准来源为 Brainstorm 方案总批准；配置批问与方案总批准失效重新执行时更新 verifiedAt）。
-Human status 只能是 \`APPROVED\`、\`NEEDS_CHANGES\`、\`CANCELLED\` 或 \`PENDING\`，通过 \`question\` 获取；沉默时保持为 \`PENDING\`。\`NEEDS_CHANGES\` 与 \`CANCELLED\` 必须记录 reason。计划变更后按步骤 7 边界处理：需求或验收标准变化才使配置批问与方案总批准失效并重新执行两问（analysis/gate 场景仅在 Oracle 审查=开时重走）；仅 Files/依赖/任务结构变化或失败重规划不重新提问，仅重走 oracle 门禁（开启时）。
-- 任务粒度按预估实现代码 diff 行数与文件数双约束：普通任务 ≤2000 行且 ≤8 个文件；触及公共符号、跨模块契约或核心算法的高风险任务 ≤500 行；测试代码不计入上限但单独说明。超限按功能再拆，相邻同依赖小任务可合并，不可验证的任务仍需拆分。每个任务记录预估行数，execute 记录实际行数、review 对比偏差（显著偏差如 >50% 记为 plan 质量信号）。
-- 为每个任务记录 \`Wave\`、\`Depends on\` 和 \`Files\`，以便 execute 阶段安全调度并行后台工作。
-- Oracle 审查=开时，缺少以下两者不得进入 execute：来自 @oracle(plan-gate) 的 \`OKAY\` 与明确的人工 \`APPROVED\`（方案总批准）；REJECT 时不得进入 execute。Oracle 审查=关时，有效方案总批准即可进入，但 SKIPPED_BY_USER 与残余风险必须已记录。
-- 如果 Oracle 审查被用户关闭或 oracle 被禁用，不得伪造检查结果；记录已跳过的审查及其风险作为 open issue。
-- 始终遵循 Intake 配置问题中关于 oracle 门禁、TDD、当前目录执行和进度台账的决策。
-`,
+
+计划自查完成即可进入 execute。Oracle advisory 是可选建议，不是 gate；不记录、不伪造任何门禁结果。所有 worker 使用当前目录，禁止隔离工作区、分支及 git 操作；每任务以"验证通过 + ledger 终态记录"替代提交步骤。需求或验收标准变化返回 discuss/Plan 并重新确认，修订 spec/plan 后重新自查。`,
 };
 
 export { OCEANUS_PLAN_SKILL };

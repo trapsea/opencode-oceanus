@@ -124,7 +124,7 @@ cbm_index 一次 + 最多一次重试；in-progress/超时/失败 → 降级为 
 统一 `<task_id>` / `<stable-key>` / `<plan-name>` 风格；grep 清零 `…`/`某某`/`xxx`；规则改精确："工具调用示例与参数对象内禁止全角标点；说明性正文不受限"。
 
 ### 14. 编号修复 + lint 断言
-逐文件修 brainstorm（两个 "2."、` 3.` 前导空格）、plan（6/7/8 前导空格）、intake（缩进）；`stages.test.ts` 加正则断言 `## Steps` 有序列号严格递增、无异常前导空格。根治见 D-4。
+逐文件修 discuss（两个 "2."、` 3.` 前导空格）、plan（6/7/8 前导空格）、intake（缩进）；`stages.test.ts` 加正则断言 `## Steps` 有序列号严格递增、无异常前导空格。根治见 D-4。
 
 ### 15. 禁用过滤参数化
 Dispatch 效率的 sisyphus 行、CBM 段 oracle 行、Session Reuse 第 4 条改为按 `disabledAgents` 插值的模板；metis 卡片 Modes 行改为“仅限 SOLUTION_ANALYSIS 模式（Intake 后候选方案比较）”，不可见分隔符换 `/`。测试：全禁用组合下 prompt 不含对应 `@name`。

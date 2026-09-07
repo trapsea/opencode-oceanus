@@ -96,6 +96,7 @@ interface VcsDiffInput extends VcsScope { mode: Vcs.Mode; base?: string; context
 ```
 
 - 插件可注册完整自定义 VCS 后端（配合 `Plugin.vcs: VcsDiscovery = { id?, markers }` 声明目录标记命中）。
+  - **beta-19242 变化**：`Plugin.vcs` 字段已移除（根级 `vcs.d.ts`/`VcsDiscovery` 删除）；`VcsDraft` 更名 `VcsEditor` 并新增 `default.get()/set()` 显式默认后端选择；worktree 管理拆分到新 `ctx.worktree: WorktreeDomain`（`WorktreeEditor.add(WorktreeDefinition)`，create/remove/list + AbortSignal；schema `worktree.d.ts` 的 `strategy`/`directory` 变 optional，`ListInput` 改为 `ListEntry { directory, type: "root"|"worktree" }`）。
 - `diff` 的 `base?` 与 `base()` 方法为 beta-18721 新增（基准 ref 查询/对比）。
 - HTTP 路由：`/api/vcs`、`/api/vcs/{base,branches,diff,status}`（实测存在）。
 

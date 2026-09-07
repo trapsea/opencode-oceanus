@@ -1,8 +1,8 @@
 /**
  * CBM 规则注册表契约测试（RED→GREEN）。
  *
- * 单一来源收敛：工具名清单、共享示例、三阶段生命周期主线（intake 初始化 →
- * oracle plan-gate 影响面预估 → review 影响面复查）、各角色 CBM 段落与公共边界句。
+ * 单一来源收敛：工具名清单、共享示例、三阶段生命周期主线（intake 首次初始化 →
+ * plan 自查影响面 → review 刷新并复查）、各角色 CBM 段落与公共边界句。
  */
 import { describe, expect, test } from 'bun:test';
 import {
@@ -75,28 +75,28 @@ describe('共享示例与公共边界句', () => {
 describe('CBM_LIFECYCLE 三阶段主线', () => {
   const lifecycle = typeof CBM_LIFECYCLE === 'string' ? CBM_LIFECYCLE : CBM_LIFECYCLE.full;
 
-  test('阶段条目齐全（intake/brainstorm/plan/execute/review/finish）', () => {
-    for (const phase of ['intake', 'brainstorm', 'plan', 'execute', 'review', 'finish']) {
+  test('阶段条目齐全（intake/discuss/plan/execute/review/finish）', () => {
+    for (const phase of ['intake', 'discuss', 'plan', 'execute', 'review', 'finish']) {
       expect(lifecycle).toMatch(new RegExp(`- ${phase}:`));
     }
   });
 
-  test('阶段一：intake 是唯一初始化点且 fail-open', () => {
+  test('阶段一：intake 负责首次初始化且 fail-open', () => {
     expect(lifecycle).toMatch(/- intake:[\s\S]{0,160}cbm_index/);
-    expect(lifecycle).toMatch(/唯一初始化|只.*一次|仅尝试一次/);
+    expect(lifecycle).toMatch(/首次初始化|仅尝试一次/);
     expect(lifecycle).toMatch(/fail-open/i);
   });
 
-  test('阶段二：oracle plan-gate 影响面预估（查询型排查、REJECT 判定、结论记录）', () => {
-    expect(lifecycle).toMatch(/oracle[\s\S]{0,400}影响面/);
+  test('阶段二：Plan 自查 impact_estimate，Oracle advisory 可选', () => {
+    expect(lifecycle).toMatch(/plan[\s\S]{0,400}impact_estimate/);
     expect(lifecycle).toMatch(/cbm_search_graph[\s\S]{0,80}cbm_trace/);
-    expect(lifecycle).toMatch(/REJECT/);
+    expect(lifecycle).toMatch(/advisory/);
     expect(lifecycle).toMatch(/plan status|plan 状态/);
     expect(lifecycle).toMatch(/不重建索引|只.*查询|仅.*查询/);
     expect(lifecycle).toMatch(/不确定性/);
   });
 
-  test('阶段三：review 影响面复查（重建索引 → 再次排查 → 与预估对比 → 降级证据）', () => {
+  test('阶段三：review 按需刷新并复查影响面（刷新 → 排查 → 对比 → 降级证据）', () => {
     expect(lifecycle).toMatch(/- review:[\s\S]{0,400}cbm_index/);
     expect(lifecycle).toMatch(/再次排查|重新排查/);
     expect(lifecycle).toMatch(/cbm_detect_changes/);

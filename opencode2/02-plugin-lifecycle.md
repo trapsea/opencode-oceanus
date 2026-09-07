@@ -35,13 +35,15 @@ export const myPlugin = Plugin.define({
 ```ts
 export interface Plugin {
   readonly id: string
-  readonly vcs?: VcsDiscovery   // beta-18230 此处是 tui?: boolean，已移除
+  readonly vcs?: VcsDiscovery   // beta-18230 此处是 tui?: boolean，已移除；**beta-19242 变化：vcs 字段已删除，Plugin 回归 { id, setup }**
   readonly setup: (context: Context) => Promise<Cleanup | void> | Cleanup | void
 }
 export type Cleanup = () => Promise<void> | void
 ```
 
 **适配注意**：`tui?: boolean` 字段在 beta-18721 已移除（breaking，详见 `versions/changelog.md`）。同一 npm 包不再通过该字段声明"同时提供 TUI 入口"；TUI 与 server 插件是两个独立入口文件，由宿主分别加载。
+
+**beta-19242 变化**：除 `Plugin.vcs` 删除外，`Context.plugin` 类型从 `PluginApi` 收窄为 `Pick<PluginApi, "list">`（插件上下文只能列插件，不能安装/更新）；`Context` 新增 `readonly worktree: WorktreeDomain`；plugin 包新增根级 `host` / `source`（bun/node 条件分发）导出，属宿主加载器内部能力外移，插件作者一般不消费。详见 `versions/changelog.md`。
 
 ### 1.2 Effect 入口
 
@@ -50,7 +52,7 @@ export type Cleanup = () => Promise<void> | void
 ```ts
 export interface Plugin<R = Scope.Scope> {
   readonly id: string
-  readonly vcs?: VcsDiscovery
+  readonly vcs?: VcsDiscovery   // beta-19242 变化：vcs 字段已删除
   readonly effect: (context: Context) => Effect.Effect<void, never, R>
 }
 ```

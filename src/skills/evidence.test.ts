@@ -33,10 +33,10 @@ describe('Execute evidence tier 契约', () => {
     expect(content).toMatch(/代码证明（TDD on：同一测试的 RED 输出 \+ GREEN 输出；TDD off：characterization 基线 \+ 最终状态 GREEN）/);
   });
 
-  test('Plan-Change 使门禁失效并要求重审', () => {
+  test('Plan-Change 仅在需求或验收变化时回到规划', () => {
     const content = execute?.content ?? '';
-    expect(content).toMatch(/Plan-Change[\s\S]*配置批问\/方案总批准均失效/);
-    expect(content).toMatch(/旧的.*失效/);
+    expect(content).toMatch(/Plan-Change[\s\S]*需求或验收标准变化/);
+    expect(content).not.toMatch(/必须.*plan-gate.*OKAY/);
   });
 
   test('frontmatter 与 TypeScript description 各自唯一且一致', () => {

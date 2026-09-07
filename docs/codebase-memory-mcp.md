@@ -73,9 +73,9 @@ Windows 支持下载 `.zip`、`.exe` 二进制及缓存路径；若 Windows 上 
 
 CBM 沿六阶段工作流形成三阶段主线：
 
-1. **Intake 初始化**：代码或混合任务由 Sisyphus 直接调用一次 `cbm_index`（非代码任务跳过）；失败、超时或 in-progress 均 fail-open 并记录。这是全工作流唯一初始化点，Brainstorm/Plan 不重复初始化，普通文本探索不触发全量索引。Brainstorm 阶段 `@oracle`（analysis 场景）BACKGROUND_RESEARCH 按分层规则条件触发：Architecture 默认委派，Standard 主 Agent 自查、两波研究后仍存在未知依赖才委派，Trivial 不委派并记录跳过理由；analysis 场景只用查询型 CBM，不初始化索引。
-2. **plan-gate 场景影响面预估（plan 门禁）**：`@oracle`（plan-gate 场景）审查计划时，对计划声明的修改文件/公共符号用查询型 CBM 排查影响面——`cbm_search_graph` 定位符号 → `cbm_trace` 查调用方/被调用方 → 必要时 `cbm_code` 读源码；发现计划未声明的受影响调用方/契约 → REJECT 并列出具体符号。预估结论（受影响符号与差异）记入 plan status，供 Review 阶段对比。plan-gate 场景只做查询、不重建索引；CBM 不可用时标注不确定性、不虚构影响面，简单任务跳过预估需记录理由。
-3. **Review 影响面复查**：开始即调用 `cbm_index` 重建索引（execute 已修改代码），再对实际 diff 用 `cbm_trace`/`cbm_detect_changes` 再次排查影响面，并与 plan status 中 plan-gate 场景的预估对比：一致 → 记为验证证据；不一致（新调用方受影响/预估遗漏）→ 解释或退回 execute；CBM 不可用时明确记录降级证据。
+1. **Intake 首次初始化**：代码或混合任务由 Sisyphus 直接尝试一次首次 `cbm_index`（非代码任务跳过）；失败、超时或 in-progress 均 fail-open 并记录。discuss/Plan 不重复首次初始化，普通文本探索不触发全量索引。discuss 阶段 `@oracle`（analysis 场景）按复杂架构或高风险未知条件触发，只使用查询型 CBM，不初始化索引。
+2. **Plan 自查**：Plan 根据 spec 对修改文件、公共符号、依赖和验证方式做查询型 CBM 自查；复杂架构或高风险业务仍有未知时，Sisyphus 可按需咨询 Oracle advisory。CBM 不可用时标注不确定性，不虚构影响面。
+3. **Review 影响面复查**：开始时按实际 diff 判断是否刷新索引；需要时调用 `cbm_index` 刷新，再对实际 diff 用 `cbm_trace`/`cbm_detect_changes` 排查影响面并记录证据。CBM 失败时记录 `cbm: stale`、降级工具、覆盖范围和残余风险，继续使用 grep/read 与手工 diff 复查；发现遗漏时解释或退回 execute。
 
 查询型工具可由需要的 agent 使用；finish 阶段不调用 CBM，只读 Review 报告汇总。CBM 仅提供 advisory 证据，不是依赖门控、权限边界或完成事实；Ledger/Review schema 不得伪造宿主状态。
 
@@ -84,7 +84,7 @@ CBM 沿六阶段工作流形成三阶段主线：
 | `oceanus` / `sisyphus` | 编排复杂任务，要求检索证据 | 明确记录降级证据 |
 | `explorer` | 优先 `cbm_search_graph`、`cbm_trace`、`cbm_code` 等只读查询 | 回退 `read`/`grep`/`glob` |
 | `librarian` | 外部文档研究，不依赖 CBM | 使用 `webfetch`/`websearch` |
-| `oracle` | 三场景（consult 咨询 / analysis 方案分析 / gate 计划门禁）按需读取结构与调用链 | 静态检查并说明不确定性 |
+| `oracle` | 复杂架构或高风险业务按需读取结构与调用链，为 spec/plan 提供 advisory | 静态检查并说明不确定性 |
 | `fixer` | 逃生舱场景实现前按需查询，写入仍用受控编辑工具 | 依据原生检索工具实现 |
 | `designer` / `observer` | UI/视觉任务按需使用 | 使用现有上下文；`observer` 默认禁用 |
 

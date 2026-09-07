@@ -22,8 +22,8 @@ import {
 import { CHILD_BLOCKING_PROTOCOL } from './protocol';
 
 export type { AgentDefinition } from './oceanus';
-export { formatDelegationBrief } from './orchestrator-context';
-export type { DelegationBrief } from './orchestrator-context';
+export { formatDelegationBrief, formatOracleBrief, getMissingOracleBriefFields, getMissingOracleSceneFields } from './orchestrator-context';
+export type { DelegationBrief, OracleBrief, OracleScene } from './orchestrator-context';
 const CHILD_BLOCKING_RULE = `\n${CHILD_BLOCKING_PROTOCOL}\n`;
 
 /** 工厂可选项：当前仅写入策略（fixer/designer 消费，其余工厂忽略）。 */

@@ -3,12 +3,14 @@ import type { SkillDefinition } from './types';
 /** Oceanus 配置与 preset 使用说明，由插件运行时注入。 */
 const OPENCODE_OCEANUS_SKILL: SkillDefinition = {
   name: 'opencode-oceanus',
+  category: 'configuration',
   description:
     '配置 Oceanus agent 和 preset，了解配置优先级，并使用 /preset 选择 agent preset。',
   slash: true,
   content: `---
 name: opencode-oceanus
-description: 配置 opencode-oceanus agent 和 preset，包括配置优先级、v2 限制和 /preset 命令。
+category: configuration
+description: 配置 Oceanus agent 和 preset，了解配置优先级，并使用 /preset 选择 agent preset。
 ---
 
 # opencode-oceanus 配置

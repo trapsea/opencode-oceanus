@@ -7,12 +7,14 @@ import type { SkillDefinition } from './types';
  */
 const CLIPBOARD_IMAGE_OBSERVER_SKILL: SkillDefinition = {
   name: 'clipboard-image-observer',
+  category: 'media',
   description:
     '统一图片流程：将粘贴/截图图片落盘，按任务理解划分分析深度（L1-L5），使用匹配的输出模板委派 @observer，并整合结构化结果。前端还原任务还需遵循 designer/fixer 分工，以 L5 视觉验收作为完成门禁。',
   slash: true,
   content: `---
 name: clipboard-image-observer
- description: 统一图片流程——落盘到文件，划分分析深度（L1-L5），使用分级模板委派 @observer，并整合结果。用户粘贴或提到图片、出现“当前不支持图片输入”错误、存在 [oceanus] 已物化图片路径提示，或任何图片/截图/PDF 需要视觉分析时使用。
+category: media
+description: 统一图片流程：将粘贴/截图图片落盘，按任务理解划分分析深度（L1-L5），使用匹配的输出模板委派 @observer，并整合结构化结果。前端还原任务还需遵循 designer/fixer 分工，以 L5 视觉验收作为完成门禁。
 ---
 
 # 技能：clipboard-image-observer（图片落盘 + Observer 分级分析统一流程）

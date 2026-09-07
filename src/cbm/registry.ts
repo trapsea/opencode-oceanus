@@ -4,19 +4,17 @@
  * 收敛散落在各 agent prompt / skill / 测试中的 CBM 规则文本：
  * - `CBM_TOOLS`：注册工具名的唯一硬编码处（tools/cbm/builders.ts 与契约测试共用）；
  * - `CBM_QUERY_EXAMPLES`：共享查询示例族（OrderHandler）；
- * - `CBM_LIFECYCLE`：六阶段 CBM 主线（intake 初始化 → oracle plan-gate 场景校验
- *   impact_estimate → review 影响面复查），完整文本只注入 sisyphus 主 agent 一处；
+ * - `CBM_LIFECYCLE`：CBM 主线（intake 首次初始化 → plan 自查 impact_estimate → review
+ *   实际 diff 影响面复查），完整文本只注入 sisyphus 主 agent 一处；
  * - `cbmSection(role)`：explorer/oracle/fixer/librarian 的角色 CBM
  *   段落（差异化语义保留，工具名/示例/公共句从本模块拼装）。
  *
  * 主线语义（三阶段闭环）：
- * 1. Intake：代码/混合任务由 Sisyphus 直接 `cbm_index` 一次，fail-open，全工作流
- *    唯一初始化点；
- * 2. oracle gate 场景影响面预估校验：plan → execute 门禁审查时，校验 Plan 的
- *    impact_estimate 是否覆盖已知影响面；不要求该场景执行完整 trace；结论写入
- *    plan status 供 Review 对比；
- * 3. Review 影响面复查：`cbm_index` 重建索引后对实际 diff 再次排查，并与 plan-gate
- *    预估对比；CBM 不可用记录降级证据。
+ * 1. Intake：代码/混合任务由 Sisyphus 直接首次 `cbm_index` 一次，fail-open；
+ * 2. Plan 自查影响面预估：计划阶段校验 impact_estimate 是否覆盖已知影响面；
+ *    Oracle 仅按需提供 advisory，不承担门禁；
+ * 3. Review 影响面复查：按最终 diff 需要时刷新索引后再次排查，并与 Plan 自查预估
+ *    对比；CBM 不可用记录 stale、降级证据、覆盖范围和残余风险。
  *
  * 本模块是纯文本/常量模块，不依赖 agents 或 tools，避免循环引用。
  */
@@ -72,15 +70,15 @@ export const CBM_EVIDENCE_NOTE =
 export const CBM_LIFECYCLE = {
   /** 一句话摘要（供简要引用场景）。 */
   brief:
-    'Intake 唯一初始化（cbm_index 一次、故障开放）→ oracle plan-gate 场景校验 Plan impact_estimate 覆盖情况（建议性、故障开放）并记入 plan status → review 重建索引后对实际 diff 再次排查影响面并与预估对比。',
+    'Intake 首次初始化（cbm_index 一次、故障开放）→ Plan 自查 impact_estimate 覆盖情况（Oracle 仅按需 advisory）→ Review 按需刷新并对实际 diff 再次排查影响面。',
   /** 完整主线（`## CBM 阶段边界` 段正文）。 */
   full: [
-      '- intake: Sisyphus 直接完成边界收集；代码/混合任务仅尝试一次 cbm_index，失败/超时/starting 必须故障开放并记录。这是全工作流唯一初始化点，后续阶段不重复初始化。',
-    '- brainstorm: 复用 Intake 报告与已建索引，仅做必要的架构/符号定位（cbm_search_graph/cbm_trace），不重复初始化 CBM，不因普通文本探索触发全量索引。',
+      '- intake: Sisyphus 直接完成边界收集；代码/混合任务仅尝试一次首次 cbm_index，失败/超时/starting 必须故障开放并记录。',
+    '- discuss: 复用 Intake 报告与已建索引，仅做必要的架构/符号定位（cbm_search_graph/cbm_trace），不重复初始化 CBM，不因普通文本探索触发全量索引。',
     '- plan: 复用 Intake 报告与已建索引，仅做必要的架构/符号定位（cbm_search_graph/cbm_trace），不重复初始化 CBM。',
-    '- oracle 影响面预估校验（plan 门禁）: oracle plan-gate 场景审查计划时，校验 Plan 的 impact_estimate 是否覆盖计划声明的修改文件/公共符号及已知受影响调用方/契约；必要时用 cbm_search_graph/cbm_trace/cbm_code 对关键点抽查，但不要求、不执行全量 trace。发现 impact_estimate 覆盖不足 → REJECT 并列出具体缺口；校验结论记入 plan status 供 Review 对比。oracle gate 场景仅提供 advisory 建议，不授予权限或替代完成事实；只做查询、不重建索引；CBM 不可用时 fail-open，标注不确定性，不虚构影响面；简单任务跳过校验需记录理由。',
+      '- plan 影响面预估自查: 计划阶段校验 Plan 的 impact_estimate 是否覆盖计划声明的修改文件/公共符号及已知受影响调用方/契约；必要时用 cbm_search_graph/cbm_trace/cbm_code 对关键点抽查，不要求全量 trace。记录缺口供 Review 对比并写入 plan status；Oracle 仅按需提供 advisory 建议，不授予权限、不输出放行 verdict；只做查询、不重建索引；CBM 不可用时 fail-open，标注不确定性，不虚构影响面；简单任务跳过校验需记录理由。',
       '- execute: 高风险公共符号修改前做 trace/impact（cbm_trace / cbm_query）；普通机械修改不强制查询。',
-      '- review: 影响面复查——开始即调用已注册的 cbm_index 工具重建索引（execute 已修改代码），再对实际 diff 用 cbm_trace/cbm_detect_changes 再次排查影响面，并与 plan status 中 plan-gate 的预估对比：一致 → 记为验证证据；不一致（新调用方受影响/预估遗漏）→ 解释或退回 execute；CBM 不可用时明确记录降级证据。',
+      '- review: 影响面复查——按最终 diff 需要时调用已注册的 cbm_index 工具刷新索引，再对实际 diff 用 cbm_trace/cbm_detect_changes 再次排查影响面，并与 Plan 自查的预估对比；CBM 不可用时记录 cbm: stale、降级工具、覆盖范围和残余风险。',
      '- finish: 不调用 CBM，只读 Review 报告汇总。',
     '- 阶段 skill 只能补充工作流步骤，不能覆盖上述 CBM 调度边界或把 CBM 强制用于不适合的文本/AST 任务。',
   ].join('\n'),
@@ -130,7 +128,7 @@ const LIBRARIAN_SECTION = `**本地交叉验证（CBM）**:
 
 ${CBM_QUERY_EXAMPLES}`;
 
-// metis/momus 角色段已迁移至 src/review/scenes.ts 的 solution-analysis/plan-gate 场景 checks。
+// metis/momus 角色段已迁移至 src/review/scenes.ts 的历史兼容场景 checks。
 
 const SECTIONS: Record<CbmRole, string> = {
   explorer: EXPLORER_SECTION,

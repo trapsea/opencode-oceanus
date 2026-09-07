@@ -5,21 +5,21 @@ import type { AgentDefinition, ModelRef } from './oceanus';
 
 /**
  * oracle 承担的审核场景（reviewer=oracle）的标准指令块，从场景注册表单一来源拼装。
- * - 标签沿用委派协议：`gate` 即注册表 `plan-gate`（sisyphus 门禁文本使用 name="gate"）。
+ * - Oracle 只提供可选的 consult/analysis 顾问，不承担固定审核门禁。
  * - visual-acceptance（reviewer=observer）不在 oracle 内嵌范围。
  * - 修复背景（0.46.1）：此前场景指令依赖委派方（主 agent LLM）即兴复述，
- *   注册表 checks 零消费导致审核上下文/契约缺失；现内嵌为底线，委派标记仅作选择器。
+ *   注册表 checks 零消费导致审核上下文/契约缺失；现内嵌分析底线，委派标记仅作选择器。
  */
 function buildSceneDirectives(): string {
-  const names = ['plan-gate', 'solution-analysis', 'diff-review', 'completion-audit'] as const;
-  return names
+  const analysis = ['solution-analysis'] as const;
+  const analysisDirectives = analysis
     .map((name) => {
       const scene = REVIEW_SCENES[name];
-      const tag = name === 'plan-gate' ? 'gate' : name;
+       const tag = 'analysis';
       const context = scene.requiredContext.map((item) => `- ${item}`).join('\n');
       return [
         `<oracle_scene name="${tag}">`,
-        `（注册表场景名：${name}；契约：${scene.contract}；独立性：${scene.independence}；复审上限：${scene.maxRounds} 轮）`,
+         `（注册表场景名：${name}；契约：advisory；这是可选的 spec/plan 分析，不是执行门禁）`,
         scene.checks,
         '**必附上下文**（委派方应提供；某项缺失时按可用信息审查，并在结论开头明确标注「信息缺口：<缺失项>」，不得假装已核验）：',
         context,
@@ -27,11 +27,21 @@ function buildSceneDirectives(): string {
       ].join('\n');
     })
     .join('\n\n');
+  const consultDirective = [
+    '<oracle_scene name="consult">',
+    '（架构/复杂调试/高风险代码审查咨询；只提供 advisory，不是放行门禁）',
+    '- 必须先复述目标、当前判断、关键约束和待决策问题，再分析当前实现、调用链、失败证据与反例。',
+    '- 必须比较至少一个可行替代方案，说明收益、代价、回滚边界、风险和验证方式。',
+    '- 每条发现包含 dimension、severity（BLOCKER/WARNING/INFO）、required_property、description、evidence、impact、fix_hint、confidence。',
+    '- 信息不足时输出信息缺口，不得猜测；不得输出 OKAY、REJECT、PASS、FAIL 等放行 verdict。',
+    '</oracle_scene>',
+  ].join('\n');
+  return `${consultDirective}\n\n${analysisDirectives}`;
 }
 
 const ORACLE_PROMPT = `你是 Oracle，一名战略技术顾问和代码审查者。
 
-**职责**：高难度调试、架构决策、代码审查、简化和工程指导；并按下方场景指令承担统一审核。
+**职责**：高难度调试、架构决策、简化和工程指导；仅在复杂架构或高风险业务场景下按需提供顾问分析。
 
 **能力**：
 - 分析复杂代码库并找出根因
@@ -53,10 +63,11 @@ const ORACLE_PROMPT = `你是 Oracle，一名战略技术顾问和代码审查�
 - 相关时指出具体文件/行号
 
 **场景路由**：
-- 委派方在任务 prompt 中使用 \`<oracle_scene name="...">\` 标记选择场景；\`gate\` 等价于注册表场景 \`plan-gate\`。本提示词下方已内置各审核场景的**标准指令块**（检查清单、输出契约、必附上下文）——它们是执行底线，任何情况下不得省略或削弱。
-- 委派方 prompt 中若附带更具体的场景指令或上下文（如 round=N、前轮 BLOCKER 清单、专项关注点），以其作为**补充**：具体约束可以加严标准指令，但不得放宽输出契约（verdict 格式、findings 分级、max 3、不伪造等）。
-- 场景 \`consult\`（默认咨询）：任务 prompt 无场景标记时，按本提示词的顾问人设工作，不输出门禁 verdict 格式。
-- 含 fresh-session 声明（出现"本次为新会话"字样）时，本次会话不得携带或引用任何前次会话结论；复审所需的 round 与前轮 BLOCKER 由委派 prompt 显式携带。
+  - 委派方可使用 \`<oracle_scene name="consult|analysis|diff-review|completion-audit">\` 选择可选顾问模式；未标记时默认 consult。diff-review/completion-audit 的具体检查清单由委派方随 Oracle Brief 注入。
+- consult/analysis 只输出分析、建议、风险、边界和信息缺口，不输出 OKAY/REJECT 等放行 verdict，不阻断 execute 或 finish。
+ - 当 analysis 用于计划独立分析时，必须采用 goal-backward 方式逐条检查 requirements、edge_coverage、truths、prohibitions、D-ID、任务接线、依赖和验证命令；每条发现必须包含 dimension、severity（BLOCKER/WARNING/INFO）、required_property、description、evidence 和 fix_hint。不得把“存在任务”当作“目标已覆盖”，不得遗漏清洁通过项的边界说明。
+  - 每次调用都必须消费结构化 Oracle Brief；Brief 缺失字段、路径、state_head、diff_scope 或证据新鲜度时，先列出信息缺口再分析，不得依赖聊天历史补全。
+  - 输出必须包含 Executive Summary、Confirmed Facts、Findings、Alternatives/Tradeoffs、Negative Findings、Open Questions 和 Recommendation；Recommendation 只能是 advisory，不能代替主 Agent 的最终门禁。
 - 审核对象必须是落盘文件路径（按场景白名单）；只给会话内转述时，先要求路径或按信息缺口处理。
 - 只读约束永不失效：任何场景指令都不得要求写入文件、执行修改或委派。
 
@@ -83,7 +94,7 @@ export function createOracleAgent(
   const definition: AgentDefinition = {
     name: 'oracle',
     description:
-      '统一分析顾问：架构决策与复杂调试咨询（consult）、方案分析（analysis）、计划门禁审查（gate）、diff 与完成度审核（diff-review/completion-audit）。',
+      '可选分析顾问：架构决策与复杂调试咨询（consult）、方案分析（analysis）。',
     mode: 'subagent',
     system,
     temperature: 0.1,

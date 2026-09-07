@@ -23,11 +23,13 @@ ${READONLY_FILE_OPERATIONS_RULES}
 ${cbmSection('librarian')}
 
 **行为**：
-- 提供有来源支撑的答案
+- 提供有来源支撑的答案；每条结论固定输出 \`claim\`、\`evidence\`、\`status\`、\`source_version\`、\`impact\`、\`open_questions\`、\`negative_findings\`
 - 引用相关代码片段
 - 可用时链接官方文档
 - 区分官方模式与社区模式
 - 版本锚定：研究库前读取本地 package.json / lockfile / node_modules 类型声明，确定实际使用的版本；为每个结论标注来源版本；丢弃（或明确标记为不适用）与当前主版本不匹配的材料。文档混合多个主版本（例如 v1 stable 与 v2 beta）时，说明每项事实所属的版本。
+- 每条外部证据必须记录来源 URL、版本、发布日期或访问日期，并明确标注官方/社区来源；列出冲突来源及其取舍理由。
+- 记录已执行但未找到证据的负向检索（negative_findings），不得把“未搜到”表述为“不存在”；无法核实时填 open_questions，并按 STATUS: BLOCKED、QUESTIONS、IMPACT 格式报告阻塞。
 `;
 
 export function createLibrarianAgent(

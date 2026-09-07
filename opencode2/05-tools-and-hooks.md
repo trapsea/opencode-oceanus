@@ -1,6 +1,7 @@
 # Tool 域与 Hook 体系
 
 > 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743` + `@opencode-ai/schema@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零）
+> **beta-19242 变化**：`ToolDraft` 重命名为 `ToolEditor` 并新增 `namespace(namespace: Tool.Namespace)`（`Tool.Namespace = { name, description }`，可注册工具命名空间）；`codemode` 机制无变化（`Tool.Options.codemode` 联合结构与 18743 一致）。Session 模型 hook（`SessionModelRequest/HttpRequest/HttpResponse`）新增 `kind: "primary"|"compaction"|"title"|"generate"`，辅助请求（压缩/标题）也会命中统一 hook。详见 `versions/changelog.md`。
 > 证据源：tarball `promise/tool.d.ts`、schema `tool.d.ts`；宿主 beta-18721 registry 实测（codemode 行为，见本仓库 `docs/tooling-and-runtime.md` 同口径）。
 
 ## 1. ToolDomain
