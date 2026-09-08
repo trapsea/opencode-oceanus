@@ -73,7 +73,7 @@ Windows 支持下载 `.zip`、`.exe` 二进制及缓存路径；若 Windows 上 
 
 CBM 沿六阶段工作流形成三阶段主线：
 
-1. **Intake 首次初始化**：代码或混合任务由 Sisyphus 直接尝试一次首次 `cbm_index`（非代码任务跳过）；失败、超时或 in-progress 均 fail-open 并记录。discuss/Plan 不重复首次初始化，普通文本探索不触发全量索引。discuss 阶段 `@oracle`（analysis 场景）按复杂架构或高风险未知条件触发，只使用查询型 CBM，不初始化索引。
+1. **Intake 首次初始化**：在任何代码调研开始之前，Intake 基于用户请求预判代码相关性并立即触发首次 `cbm_index`（预判非代码不触发）；正式分类后修正偏差（漏判补触发、误判记录不回滚）；失败、超时或 in-progress 均 fail-open 并记录。discuss/Plan 不重复首次初始化，普通文本探索不触发全量索引。discuss 阶段 `@oracle`（analysis 场景）按复杂架构或高风险未知条件触发，只使用查询型 CBM，不初始化索引。
 2. **Plan 自查**：Plan 根据 spec 对修改文件、公共符号、依赖和验证方式做查询型 CBM 自查；复杂架构或高风险业务仍有未知时，Sisyphus 可按需咨询 Oracle advisory。CBM 不可用时标注不确定性，不虚构影响面。
 3. **Review 影响面复查**：开始时按实际 diff 判断是否刷新索引；需要时调用 `cbm_index` 刷新，再对实际 diff 用 `cbm_trace`/`cbm_detect_changes` 排查影响面并记录证据。CBM 失败时记录 `cbm: stale`、降级工具、覆盖范围和残余风险，继续使用 grep/read 与手工 diff 复查；发现遗漏时解释或退回 execute。
 

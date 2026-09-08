@@ -10,7 +10,7 @@ import { buildOceanusPrompt } from '../agents/oceanus';
 
 const content = OCEANUS_PLAN_SKILL.content;
 const intakeContent = OCEANUS_INTAKE_SKILL.content;
-const brainstormContent = OCEANUS_DISCUSS_SKILL.content;
+const discussContent = OCEANUS_DISCUSS_SKILL.content;
 const debuggingContent = OCEANUS_DEBUGGING_SKILL.content;
 const executeContent = OCEANUS_EXECUTE_SKILL.content;
 const reviewContent = OCEANUS_REVIEW_SKILL.content;
@@ -47,6 +47,16 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
     expect(reviewContent).toContain('worker 报告成功 ≠ 文件范围正确');
   });
 
+  test('SDD Review 报告使用带日期、需求名和版本的文件名', () => {
+    expect(reviewContent).toContain('.oceanus/review/<YYYY-MM-DD>-<需求名>-review-v1.md');
+    expect(reviewContent).not.toContain('.oceanus/review/Review v1.md');
+    expect(OCEANUS_FINISH_SKILL.content).toContain(
+      '.oceanus/review/<YYYY-MM-DD>-<需求名>-review-v1.md',
+    );
+    expect(OCEANUS_FINISH_SKILL.content).not.toContain('.oceanus/review/Review v1.md');
+    expect(OCEANUS_FINISH_SKILL.content).toContain('不得使用固定的 `Review v1.md` 文件名');
+  });
+
   test('Review 独立核验代码格式并要求格式证据', () => {
     expect(reviewContent).toContain('代码格式审查');
     expect(reviewContent).toContain('formatter 或 `format:check` 命令');
@@ -68,33 +78,33 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
   });
 
   test('决策 ID 追溯链：discuss 三分类登记，plan 任务标注与四源审计', () => {
-    expect(brainstormContent).toContain('决策 ID 化');
-    expect(brainstormContent).toContain('锁定决策');
-    expect(brainstormContent).toContain('自由裁量');
-    expect(brainstormContent).toContain('排除项（Deferred Ideas）');
+    expect(discussContent).toContain('决策 ID 化');
+    expect(discussContent).toContain('锁定决策');
+    expect(discussContent).toContain('自由裁量');
+    expect(discussContent).toContain('排除项（Deferred Ideas）');
     expect(content).toContain('Decisions: <覆盖的锁定决策 D-ID 列表');
     expect(content).toContain('四源覆盖审计');
     expect(content).toContain('无 D-ID 可追溯');
   });
 
   test('澄清协议：灰区识别、提问节奏与范围守卫', () => {
-    expect(brainstormContent).toContain('灰区识别与结构化澄清');
-    expect(brainstormContent).toContain('领域边界陈述');
-    expect(brainstormContent).toContain('已决查重');
-    expect(brainstormContent).toContain('代码上下文标注');
-    expect(brainstormContent).toContain('范围蔓延守卫');
-    expect(brainstormContent).toContain('canonical refs');
-    expect(brainstormContent).toContain('问前研究');
-    expect(brainstormContent).toContain('权衡伙伴');
-    expect(brainstormContent).toContain('可逆性评级');
-    expect(brainstormContent).toContain('one-way');
+    expect(discussContent).toContain('灰区识别与结构化澄清');
+    expect(discussContent).toContain('领域边界陈述');
+    expect(discussContent).toContain('已决查重');
+    expect(discussContent).toContain('代码上下文标注');
+    expect(discussContent).toContain('范围蔓延守卫');
+    expect(discussContent).toContain('canonical refs');
+    expect(discussContent).toContain('问前研究');
+    expect(discussContent).toContain('权衡伙伴');
+    expect(discussContent).toContain('可逆性评级');
+    expect(discussContent).toContain('one-way');
   });
 
   test('discuss 优先处理复杂灰区，并要求其他灰区先做方案对比', () => {
-    expect(brainstormContent).toMatch(/优先级排序[\s\S]*高优先级或复杂灰区/);
-    expect(brainstormContent).toMatch(/默认灰区先讨论[\s\S]*至少 2 个真实可行方案/);
-    expect(brainstormContent).toMatch(/选择其他灰区[\s\S]*多选/);
-    expect(brainstormContent).toMatch(/逐区讨论[\s\S]*歧义、2–3 个具体方案及对比/);
+    expect(discussContent).toMatch(/优先级排序[\s\S]*高优先级或复杂灰区/);
+    expect(discussContent).toMatch(/默认灰区先讨论[\s\S]*至少 2 个真实可行方案/);
+    expect(discussContent).toMatch(/选择其他灰区[\s\S]*多选/);
+    expect(discussContent).toMatch(/逐区讨论[\s\S]*歧义、2–3 个具体方案及对比/);
   });
 
   test('计划协议：范围缩减禁令、Tracer-First、verify 接地与 truths', () => {
@@ -123,7 +133,7 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
   });
 
   test('Discuss 与 Plan 入口必须先回收后台调研', () => {
-    for (const phaseContent of [brainstormContent, content]) {
+    for (const phaseContent of [discussContent, content]) {
       expect(phaseContent).toContain('阶段入口：回收后台调研');
       expect(phaseContent).toContain('session.wait({ sessionID })');
       expect(phaseContent).toContain('不得消费不完整调研');
@@ -136,14 +146,15 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
   });
 
   test('执行配置批问归属 Intake，discuss 只消费配置并执行方案批准', () => {
-    expect(intakeContent).toContain('执行配置批问（一问二项');
+    expect(intakeContent).toContain('执行配置批问（一问三项');
     expect(intakeContent).toContain('execution_config');
     expect(intakeContent).not.toContain('Oracle 审查');
     expect(intakeContent).toContain('SDD');
     expect(intakeContent).toContain('TDD');
-    expect(brainstormContent).toContain('主流程必须有 `intake_report`');
-    expect(brainstormContent).toContain('方案总批准');
-    expect(brainstormContent).not.toContain('执行配置批问');
+    expect(intakeContent).toContain('Review 循环执行');
+    expect(discussContent).toContain('主流程必须有 `intake_report`');
+    expect(discussContent).toContain('方案总批准');
+    expect(discussContent).not.toContain('执行配置批问');
   });
 
   test('批问默认全关，且非实现类任务跳过批问', () => {
@@ -151,12 +162,13 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
     expect(intakeContent).toContain('非实现类，**跳过批问**');
     expect(intakeContent).toContain('not_asked: non-implementation');
     expect(intakeContent).not.toContain('每阶段结束停顿汇报');
-    // 配置项名称不再使用「Oracle 门禁审核」。
+    // 配置项名称不再使用「Oracle 门禁审核」，也不残留已删除的「连续执行」。
     expect(intakeContent).not.toContain('Oracle 门禁审核');
+    expect(intakeContent).not.toContain('连续执行');
   });
 
   test('三个 Skill 文本不再引用 metis/momus', () => {
-    for (const text of [intakeContent, brainstormContent, content]) {
+    for (const text of [intakeContent, discussContent, content]) {
       expect(text).not.toContain('Metis');
       expect(text).not.toContain('Momus');
       expect(text).not.toContain('@metis');
@@ -188,6 +200,11 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
     expect(content).toMatch(/重新确认并修订 spec\/plan/);
   });
 
+  test('Plan 全局约束从 spec 章节双向锚定', () => {
+    expect(content).toContain('spec「全局约束」章节逐字复制');
+    expect(content).toContain('spec 无该章节时先回 Discuss 补齐');
+  });
+
   test('需求澄清包含结构化上下文、歧义评分与硬阻塞', () => {
     expect(intakeContent).toContain('requirements_context');
     expect(intakeContent).toContain('需求清晰度门禁');
@@ -197,12 +214,25 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
   });
 
   test('discuss 包含假设纠偏、边界探针与双向设计契约', () => {
-    expect(brainstormContent).toContain('结构化假设与边界探针');
-    expect(brainstormContent).toContain('specified');
-    expect(brainstormContent).toContain('backstop');
-    expect(brainstormContent).toContain('works_when');
-    expect(brainstormContent).toContain('fails_when');
-    expect(brainstormContent).toContain('prohibitions');
+    expect(discussContent).toContain('结构化假设与边界探针');
+    expect(discussContent).toContain('specified');
+    expect(discussContent).toContain('backstop');
+    expect(discussContent).toContain('works_when');
+    expect(discussContent).toContain('fails_when');
+    expect(discussContent).toContain('prohibitions');
+  });
+
+  test('discuss 设计报告含需求三字段、全局约束与 pass/fail 验收', () => {
+    expect(discussContent).toContain('## 需求（requirements）');
+    expect(discussContent).toContain('R-01');
+    expect(discussContent).toContain('- Current：');
+    expect(discussContent).toContain('- Target：');
+    expect(discussContent).toContain('- Acceptance：');
+    expect(discussContent).toContain('## 全局约束');
+    expect(discussContent).toContain('Plan 头「全局约束」节从本节逐字复制');
+    expect(discussContent).toContain('acceptance_criteria 落');
+    expect(discussContent).toContain('判据只有 pass/fail 两态');
+    expect(discussContent).toContain('每条 R 至少一条验收、每条验收回指 R-ID');
   });
 
   test('Plan 包含 Oracle advisory、schema 门禁和三轮修订闭环', () => {

@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { OCEANUS_SKILLS } from './index';
 import { OCEANUS_FINISH_SKILL, decideFinish, type FinishInput } from './oceanus-finish';
 import { createSisyphusAgent } from '../agents/sisyphus';
+import { createOracleAgent } from '../agents/oracle';
+import { REVIEW_SCENES } from '../review/scenes';
 
 const skill = (name: string) => OCEANUS_SKILLS.find((item) => item.name === name)!;
 
@@ -30,20 +32,75 @@ describe('Sisyphus 工作流澄清契约', () => {
     expect(prompt).toContain('next_action');
   });
 
-  test('Review BLOCKER 默认自动闭环到 Finish', () => {
+  test('Review BLOCKER 处置由 review_loop 双模式控制', () => {
     const review = skill('oceanus-review').content;
     const execute = skill('oceanus-execute').content;
-    expect(createSisyphusAgent().system).toContain('自动回退闭环');
+    const system = createSisyphusAgent().system!;
+    // 总契约声明双模式开关与默认快速路径
+    expect(system).toContain('BLOCKER 处置由执行配置 review_loop 控制');
+    expect(system).toContain('不重新 Review');
+    // Review：完整清单 + 循环/直通双分支
+    expect(review).toContain('BLOCKER 处置（执行配置 review_loop 控制）');
     expect(review).toContain('不得等待用户再次提示');
     expect(review).toContain('全部 blocker 任务');
+    expect(review).toContain('修复后直接 Finish');
+    expect(review).toContain('review_loop: off');
+    // Execute：双去向
     expect(execute).toContain('自动重新进入 Review');
     expect(execute).toContain('BLOCKER 清单');
+    expect(execute).toContain('不重新 Review');
+    // 循环上限、UNCERTAIN 全模式阻塞与 off 路径 accepted 显式映射
+    expect(review).toContain('最多自动运行三轮');
+    expect(system).toContain('任何模式下都阻塞');
+    expect(review).toContain('记为 accepted');
+  });
+
+  test('Review 分级路由契约：双信号路由 + Brief 路径化 + 底线不变量', () => {
+    const review = skill('oceanus-review').content;
+    const oracleSystem = createOracleAgent().system!;
+    const formalChecks = REVIEW_SCENES['review']!.checks;
+    const lightChecks = REVIEW_SCENES['diff-review']!.checks;
+    // 双信号路由：docs-only → light；trivial → scoped；standard/architecture → full
+    expect(review).toContain('分级路由正式委派给 @oracle');
+    expect(review).toContain('docs-only diff');
+    expect(review).toContain('intake complexity=trivial');
+    expect(review).toContain('review_intensity: light');
+    expect(review).toContain('review_intensity: scoped');
+    expect(review).toContain('review_intensity: full');
+    // 判据缺失回落 full（fail-safe）
+    expect(review).toContain('判据缺失/不可判定');
+    // 底线不变量：graded + fresh-session + 无零审查放行
+    expect(review).toContain('不存在零审查放行路径');
+    // 场景注册表与 oracle prompt 同步分级语义
+    expect(formalChecks).toContain('scoped（intake complexity=trivial 时）');
+    expect(lightChecks).toContain('review_intensity: light');
+    expect(oracleSystem).toContain('按分级路由使用场景');
+    // Brief 路径化三要素
+    expect(review).toContain('路径引用与不超过 3 行的短摘要');
+    expect(oracleSystem).toContain('内联每字段不超过 3 行');
+    // 全量口径不被削弱（full 路径仍禁止跳过维度）
+    expect(formalChecks).toContain('不得因某维度未在需求中明确提及而跳过');
   });
 
   test('CBM 区分 Intake 首次初始化与 Review 刷新', () => {
     expect(createSisyphusAgent().system).toContain('首次初始化');
+    expect(createSisyphusAgent().system).toContain('代码调研开始前');
     expect(createSisyphusAgent().system).toContain('刷新');
     expect(skill('oceanus-review').content).toContain('刷新');
+  });
+
+  test('Intake CBM 初始化先于代码调研：步骤 0 预判触发 + 步骤 5 分类修正', () => {
+    const intake = skill('oceanus-intake').content;
+    expect(intake).toContain('CBM 预判初始化');
+    expect(intake).toContain('先于任何代码调研');
+    expect(intake).toContain('触发后不等待完成');
+    expect(intake).toContain('补触发首次');
+    expect(intake).toContain('不回滚，如实记录偏差');
+    // 非代码任务不因普通文本工作触发索引的规则保留
+    expect(intake).toContain('非代码任务不索引');
+    // 步骤 8 核对语义与 cbm 字段触发时机枚举
+    expect(intake).toContain('核对 CBM 初始化与记录');
+    expect(intake).toContain('未触发及原因');
   });
 
   test('Finish 不要求人工批准且不写入经验文件', () => {

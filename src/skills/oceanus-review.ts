@@ -4,7 +4,7 @@ const OCEANUS_REVIEW_SKILL: SkillDefinition = {
   name: 'oceanus-review',
   category: 'phase',
   description:
-    '第 5 阶段——审查：Execute 完成后由 @oracle 执行独立全量审查，Sisyphus 负责上下文、证据和回退闭环。',
+    '第 5 阶段——审查：Execute 完成后由 @oracle 执行独立分级审查（docs-only 轻量 / trivial 维度映射 / 其余全量），Sisyphus 负责上下文、证据和 BLOCKER 处置。',
   slash: true,
   content: `---
 name: oceanus-review
@@ -17,13 +17,13 @@ exit: 验收证据齐全
 failure: 缺口退回 execute
 verification: 主流程测试与 evidence 审查
 humanReview: conditional
-description: 第 5 阶段——审查：Execute 完成后由 @oracle 执行独立全量审查，Sisyphus 负责上下文、证据和回退闭环。
+description: 第 5 阶段——审查：Execute 完成后由 @oracle 执行独立分级审查（docs-only 轻量 / trivial 维度映射 / 其余全量），Sisyphus 负责上下文、证据和 BLOCKER 处置。
 ---
 
 # Sisyphus 第 5 阶段——审查
 
 ## 目标
-Sisyphus 主 Agent 收集并验证 spec/plan/diff/evidence，必须将正式 Review 以完整 Oracle Brief 委派给 @oracle。Oracle 只读执行独立全量审查并返回 PASS/WARN/FAIL；Sisyphus 负责消费结论、核验证据、组织 Execute 回退和最终阶段推进。
+Sisyphus 主 Agent 收集并验证 spec/plan/diff/evidence，必须将正式 Review 以完整 Oracle Brief 委派给 @oracle，并按双信号分级路由审查强度（docs-only diff→diff-review 轻量；trivial→review 维度映射；standard/architecture→review 全量）。Oracle 只读执行独立分级审查并返回 PASS/WARN/FAIL；Sisyphus 负责消费结论、核验证据、组织 Execute 回退和最终阶段推进。
 
 Review 是 Execute 完成后的正式审查阶段；Intake、discuss、Plan 和 Execute 内部只做阶段内自查，不重复创建 Review/Completion Audit 门禁。
 
@@ -58,13 +58,14 @@ Review 是 Execute 完成后的正式审查阶段；Intake、discuss、Plan 和 
 - **WARNING**：质量或一致性受损，建议修复但可继续。
 - **INFO**：仅供参考，永不单独触发退回。
 
-无法用证据确认又无法证伪的准则 → UNCERTAIN：标注缺失的具体证据并请求用户决策，不得默认通过。矩阵状态为 VERIFIED / FAILED（BLOCKER）/ UNCERTAIN；BLOCKER 退回 Execute，WARNING 记录后可继续，UNCERTAIN 阻塞并请求用户决策，INFO 不阻塞。
+无法用证据确认又无法证伪的准则 → UNCERTAIN：标注缺失的具体证据并请求用户决策，不得默认通过。矩阵状态为 VERIFIED / FAILED（BLOCKER）/ UNCERTAIN；BLOCKER 按执行配置 review_loop 处置（见下节），WARNING 记录后可继续，UNCERTAIN 阻塞并请求用户决策，INFO 不阻塞。
 
-## BLOCKER 自动回退闭环
+## BLOCKER 处置（执行配置 review_loop 控制）
 
-发现 BLOCKER 后，Review 必须在报告中输出可执行的完整 BLOCKER 清单（每项包含准则、证据缺口、目标文件/任务、验证命令和验收标准），并立即把该清单交给 Execute。不得等待用户再次提示，也不得只报告“review failed”后停顿。Execute 完成**全部 blocker 任务**并取得当前状态的验证证据后，主流程自动重新进入 Review；只有新的 Review 全部通过，才自动进入 Finish。
+发现 BLOCKER 后，Review 必须在报告中输出可执行的完整 BLOCKER 清单（每项包含准则、证据缺口、目标文件/任务、验证命令和验收标准），并立即把该清单交给 Execute。不得等待用户再次提示，也不得只报告“review failed”后停顿。
 
-该闭环最多自动运行三轮。三轮内应合并处理本轮发现的全部 BLOCKER，不能修完一项就请求用户继续。第三轮仍有 BLOCKER，或发现属于 UNCERTAIN 的未决决策时，才使用 \`question\` 建立用户阻塞边界；WARNING 和 INFO 不得打断自动闭环。
+- **开启「Review 循环执行」——自动回退闭环**：Execute 完成**全部 blocker 任务**并取得当前状态的验证证据后，主流程自动重新进入 Review；只有新的 Review 全部通过，才自动进入 Finish。该闭环最多自动运行三轮，三轮内应合并处理本轮发现的全部 BLOCKER，不能修完一项就请求用户继续。发现属于 UNCERTAIN 的未决决策时立即使用 \`question\` 请求用户决策；第三轮仍有 BLOCKER 时才使用 \`question\` 建立用户阻塞边界；WARNING 和 INFO 不得打断自动闭环。
+- **关闭（默认）——修复后直接 Finish**：Execute 一次性修复全部 BLOCKER 并取得当前状态验证证据后，主流程直接自动进入 Finish，不重新 Review。完成矩阵中对应 BLOCKER 行更新为已修复并附验证证据，标注 \`review_loop: off（BLOCKER 已修复并验证，未做二次独立复审）\`，矩阵全绿后 Review 结论记为 accepted（附 review_loop: off 标注）；WARNING 和 INFO 仅记录不修复。修复持续失败或无法取得验证证据时，按 3 轮中断上报模板用 \`question\` 上报；UNCERTAIN 仍立即用 \`question\` 请求用户决策。
 
 ## 步骤
 0. **当前目录范围**——审查始终针对当前目录中的实际 diff 执行；不创建或合并隔离工作区。
@@ -74,7 +75,11 @@ Review 是 Execute 完成后的正式审查阶段；Intake、discuss、Plan 和 
 4. **执行最终审查门禁**——在进入 Finish 前，根据 spec 和 plan 审查最终实际输出。
    - **代码格式审查**——对实际代码 diff（不含无关文件）识别并执行项目已有的 formatter 或 \`format:check\` 命令；读取完整输出与退出码，并确认修改区域的换行、import、声明、方法和控制流符合仓库风格。若仓库没有格式化命令，必须明确记录“无可用 formatter”，并以 \`git diff --check\` 和人工结构检查作为降级证据；已有格式检查失败或代码仍明显难以审查时，作为 **BLOCKER** 列入回退清单，不得仅以测试通过替代格式证据。
 5. **接受前验证**——对于任何发现，在采取行动前用证据（阅读代码、运行检查）确认它。
-6. **正式委派给 @oracle**——每次 Review 都必须使用 \`review\` 场景；不得因任务简单而跳过性能、安全、边界、可靠性或兼容性审查。
+6. **分级路由正式委派给 @oracle**——按双信号路由审查强度，并把路由判据与 \`review_intensity\` 标注写入 review 报告：
+   - **docs-only diff**（沿用步骤 1 判定：仅 Markdown、注释或文案且不影响代码契约）→ 委派 \`diff-review\` 场景（\`review_intensity: light\`）：范围核对、证据映射与文档底线（相对链接有效、与源码事实不矛盾、无计划外越界文件）；发现影响代码契约的内容时升级回 \`review\` 全量并说明依据。
+   - **intake complexity=trivial** → 委派 \`review\` 场景（\`review_intensity: scoped\`）：按场景注册表 scoped 维度映射执行——需求与计划、正确性与回归、验证与证据必查，其余维度按 diff 实际触及面映射，未触及维度在 Negative Findings 中单行说明依据。
+   - **standard/architecture，或任一判据缺失/不可判定** → 委派 \`review\` 场景（\`review_intensity: full\`）：9 维全量执行，不得因某维度未在需求中明确提及而跳过性能、安全、边界、可靠性或兼容性审查。
+   - 任何分级都保留 graded 契约（PASS/WARN/FAIL）、fresh-session 独立性与 BLOCKER/UNCERTAIN 处置语义；不存在零审查放行路径。
 7. **完成审计**——Review/Completion Audit 只在正式 Review 中执行；已知声明未经验证时，不得进入 Finish。
 
 ## 反馈与发现处理
@@ -91,7 +96,7 @@ Review 是 Execute 完成后的正式审查阶段；Intake、discuss、Plan 和 
 
 ## 审查职责
 
-Review 的正式审查由 Oracle 只读执行，不修改代码、不运行 task；测试和基础验证由 Review 主流程执行后作为证据交给 Oracle。Oracle 必须消费完整 Oracle Brief 与落盘审核对象；Sisyphus 不得以 Oracle 自报结论替代对证据、范围和回退清单的核验。SDD 开启时报告写入 \`.oceanus/review/Review v1.md\`；SDD 关闭时 review 结论在会话内呈现，不落盘。
+Review 的正式审查由 Oracle 只读执行，不修改代码、不运行 task；测试和基础验证由 Review 主流程执行后作为证据交给 Oracle。Oracle 必须消费完整 Oracle Brief（以路径引用与不超过 3 行的短摘要为主，内联不承载长文本）与落盘审核对象；Sisyphus 不得以 Oracle 自报结论替代对证据、范围和回退清单的核验。SDD 开启时报告写入 \`.oceanus/review/<YYYY-MM-DD>-<需求名>-review-v1.md\`（时间、需求名和 Review 版本均沿用本轮任务标识）；SDD 关闭时 review 结论在会话内呈现，不落盘。
 
 - **Sisyphus** 负责准备 Brief、运行基础验证、核对 Oracle 证据、组织 BLOCKER 回退和阶段交接。
 - **@oracle** 负责每次 Review 的独立正式审查，必须覆盖正确性、边界、性能、安全、可靠性、兼容性、可维护性和证据质量。
@@ -113,7 +118,7 @@ Review 的正式审查由 Oracle 只读执行，不修改代码、不运行 task
 1. **构建矩阵**——对于每个计划中的任务/场景，列出其成功标准（行）和收集到的证据（测试、人工 QA、CLI/实时输出、代码审查、构建产物）；从 discuss 复用 requirements、edge_coverage、truths、prohibitions 和 D-ID，不重新发明验收口径。
 2. **要求覆盖**——每项准则至少必须由一条可验证证据覆盖。没有证据的准则就是缺口。
 3. **将不确定性视为未达成**——如果无法用证据确认某项准则，即使工作看似完成，也不能视为完成。绝不接受口头的“已完成”。
-4. **报告缺口**——BLOCKER 缺口不得将任务标记为完成，列出缺失准则并退回 Execute；WARNING 记录影响和建议动作后可继续；UNCERTAIN 暂停并用 \`question\` 请求用户决策。按 evidence tier 审计：Tier 1（可复现测试/构建输出）优先，Tier 2（绑定当前 diff 的人工代码审查/CLI 输出）可覆盖其余准则，Tier 3（口头或未绑定状态的声明）不计入证据。BLOCKER 退回最多 3 轮；第 3 轮仍有未覆盖准则时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）。
+4. **报告缺口**——BLOCKER 缺口不得将任务标记为完成，列出缺失准则并退回 Execute；WARNING 记录影响和建议动作后可继续；UNCERTAIN 暂停并用 \`question\` 请求用户决策。按 evidence tier 审计：Tier 1（可复现测试/构建输出）优先，Tier 2（绑定当前 diff 的人工代码审查/CLI 输出）可覆盖其余准则，Tier 3（口头或未绑定状态的声明）不计入证据。BLOCKER 退回最多 3 轮；第 3 轮仍有未覆盖准则时停止自动重试，按 3 轮中断上报模板用 \`question\` 上报（模板须含推荐项及理由）。review_loop 开启时适用上述 3 轮复审上限；review_loop 关闭时 BLOCKER 一次性修复并取得当前状态验证证据后按快速路径直接 Finish，修复持续失败时同样按 3 轮中断上报模板上报。
 5. **证据必须可审计**——优先将每条证据绑定到其时间点/git 状态；如果代码发生变化，旧证据即已过时，必须针对当前状态重新记录，绝不将其重新粘贴或生成后当作新证据。
 6. **矩阵全绿才算完成**——每项准则都有证据时，任务才真正完成；否则仍未完成。
 

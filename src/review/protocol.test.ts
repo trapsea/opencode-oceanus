@@ -149,6 +149,18 @@ describe('buildReviewPrompt', () => {
     expect(prompt).toContain('文件归属是否清晰且不越界');
   });
 
+  test('Brief 路径化三要素：路径引用、内联上限、读取优先级', () => {
+    const prompt = buildReviewPrompt(planGateScene, {
+      scene: planGateScene.name,
+      subjectPath: '.oceanus/plan/x.md',
+      round: 1,
+    });
+    expect(prompt).toContain('Brief 路径化');
+    expect(prompt).toContain('路径引用与不超过 3 行的短摘要');
+    expect(prompt).toContain('读取优先级');
+    expect(prompt).toContain('审核对象/diff > 验收标准 > plan > 其他上下文');
+  });
+
   test('历史 gate 场景兼容为 advisory，不生成放行 verdict', () => {
     const prompt = buildReviewPrompt(planGateScene, {
       scene: planGateScene.name,

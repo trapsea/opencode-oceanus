@@ -28,10 +28,10 @@ export const SISYPHUS_WORKFLOW_PROTOCOL = `
 - 不跳过阶段；Trivial 任务可以在阶段内压缩步骤，但必须记录 \`condensed_steps\` 与理由。
 - 需求、验收或范围变化返回 Discuss/Plan；结构性计划变化返回 Plan。
 - Oracle 在 Review 阶段执行正式只读审查并输出 graded 结论；Sisyphus 负责委派、证据核验、BLOCKER 回退和阶段推进。Oracle 顾问的 consult/analysis 仍是 advisory，不授予批准。
-- CBM 由 Intake 负责首次初始化并故障开放；Plan 复用并自查 \`impact_estimate\`；Review 可针对最终 diff 刷新索引并复查；Finish 不调用 CBM。
+- CBM 由 Intake 负责在代码调研开始前尽早首次初始化（预判触发 + 分类修正）并故障开放；Plan 复用并自查 \`impact_estimate\`；Review 可针对最终 diff 刷新索引并复查；Finish 不调用 CBM。
 - Review 是 Execute 后的正式审查阶段；其他阶段只做阶段内自查，不重复创建 Review/Completion Audit 门禁。
-- Review 发现 BLOCKER 时立即退回 Execute；WARNING 记录后可继续；UNCERTAIN 阻塞并请求用户决策；INFO 不阻塞。
-- **自动回退闭环**：Review 的 BLOCKER 必须立即退回 Execute：把完整清单交给 Execute，完成全部 blocker 后重新 Review；Review 通过后自动进入 Finish，不得在阶段交接处等待用户再次提示。仅 UNCERTAIN 或连续三轮仍未解决的 BLOCKER 才建立用户阻塞边界。
+- Review 发现 BLOCKER 时立即退回 Execute 修复；WARNING 记录后可继续；UNCERTAIN 在任何模式下都阻塞并请求用户决策；INFO 不阻塞。
+- **BLOCKER 处置由执行配置 review_loop 控制**：开启「Review 循环执行」时走自动回退闭环——把完整清单交给 Execute，完成全部 blocker 后重新 Review，Review 通过后自动进入 Finish，不得在阶段交接处等待用户再次提示，连续三轮仍未解决才建立用户阻塞边界；关闭（默认）时一次性修复全部 BLOCKER 并取得当前状态验证证据后直接进入 Finish，不重新 Review，同样不得等待用户再次提示。仅 UNCERTAIN、（循环模式下）连续三轮仍未解决的 BLOCKER、或修复持续失败触发 3 轮中断上报模板时，才建立用户阻塞边界。
 - 所有工作在当前目录完成；并行写入仅遵循常驻 Agent 调度协议的文件所有权规则。
 - 终态必须区分 \`completed\`、\`failed\`、\`blocked\` 和 \`pending\`，并附验证证据与更新时间。
 

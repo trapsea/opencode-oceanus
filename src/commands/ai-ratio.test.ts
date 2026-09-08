@@ -8,8 +8,14 @@ import { buildAiRatioInstruction, createAiRatioCommand, parseAiRatioArgument } f
  * 支持 --since/--branch；prompt 注入透传 delivery；失败降级回执。
  */
 describe('ai-ratio command', () => {
-  test('指令正文包含采集、判定、统计与报告流程，且不耦合 python 脚本', () => {
+  test('指令正文包含批量询问、采集、判定、统计与报告流程，且不耦合 python 脚本', () => {
     const text = buildAiRatioInstruction('');
+    expect(text).toContain('question 工具批量询问');
+    expect(text).toContain('最近 1 个月');
+    expect(text).toContain('最近 1 年');
+    expect(text).toContain('自定义输入起始日期');
+    expect(text).toContain('当前分支');
+    expect(text).toContain('一次调用、两个 questions');
     expect(text).toContain('--no-merges');
     expect(text).toContain('ai-gen@company.com');
     expect(text).toContain('[AI]');
@@ -30,9 +36,10 @@ describe('ai-ratio command', () => {
     expect(parsed.extra).toBe('只看后端模块');
   });
 
-  test('指令正文回显统计范围并附加补充要求', () => {
+  test('指令正文回显已指定范围（跳过对应询问）并附加补充要求', () => {
     const text = buildAiRatioInstruction('--since 2026-01-01 只看后端模块');
     expect(text).toContain('起始日期：2026-01-01');
+    expect(text).toContain('跳过时间范围询问');
     expect(text).toContain('补充要求');
     expect(text).toContain('只看后端模块');
   });

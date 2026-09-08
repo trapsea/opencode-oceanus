@@ -48,7 +48,7 @@ Sisyphus 主 Agent 持有最终交付上下文；不委派任何 agent。
 
 所有任务均在当前目录完成；finish 只做状态与交付证据汇总。
 
-  SDD 开启时读取固定路径 Review v1 报告、Ledger 与 workspaceRef；SDD 关闭时使用会话内的 review 结论与任务状态。Finish 必须调用并遵守导出的 decideFinish 纯函数，严格默认拒绝：仅当四类输入同时精确满足 Review（accepted）、Completion Matrix（green）、ledger（complete）、evidence（fresh）时才判定完成。Oracle advisory 不是完成条件；如曾调用 Oracle，应将其建议与采纳情况作为 Review 证据的一部分记录。任一条件不满足都必须明确输出缺口和不确定性。Finish 不测试、不构建、不调用 CBM、不委派 subagent、不修改文件，只做正常只读交付汇总。
+  SDD 开启时读取本轮 \`.oceanus/review/<YYYY-MM-DD>-<需求名>-review-v1.md\` 报告、Ledger 与 workspaceRef；不得使用固定的 \`Review v1.md\` 文件名。SDD 关闭时使用会话内的 review 结论与任务状态。Finish 必须调用并遵守导出的 decideFinish 纯函数，严格默认拒绝：仅当四类输入同时精确满足 Review（accepted）、Completion Matrix（green）、ledger（complete）、evidence（fresh）时才判定完成。Oracle advisory 不是完成条件；如曾调用 Oracle，应将其建议与采纳情况作为 Review 证据的一部分记录。任一条件不满足都必须明确输出缺口和不确定性。Finish 不测试、不构建、不调用 CBM、不委派 subagent、不修改文件，只做正常只读交付汇总。
 `,
 };
 

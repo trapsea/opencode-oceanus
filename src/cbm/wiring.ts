@@ -1,6 +1,10 @@
 import { getCodebaseMemoryConfig, type CodebaseMemoryResolvedConfig } from '../config/utils';
 import type { PluginConfig } from '../config/schema';
+import { existsSync } from 'node:fs';
 import { getCacheRoot } from './paths';
+import { resolveExpectedBinaryPath } from './mcp';
+import { prewarmDaemon } from './daemon';
+import { buildCbmEnv } from '../tools/cbm/args';
 import {
   ensureInstalled as provisionEnsureInstalled,
   repair as provisionRepair,
@@ -80,8 +84,63 @@ export function createFallbackIndexer(): IndexerHandle {
     isIndexed: () => false,
     isIndexing: () => false,
     getLastOutcome: () => undefined,
+    runExclusive: (_projectPath, _workspaceRoot, fn) => fn(),
     reset: () => {},
   };
+}
+
+/** {@link startDaemonPrewarm} 的可注入依赖（测试用）。 */
+export interface DaemonPrewarmInjections {
+  prewarm?: typeof prewarmDaemon;
+  exists?: (path: string) => boolean;
+}
+
+/**
+ * CBM daemon 常驻预热编排（setup 阶段 fire-and-forget 调用）。
+ *
+ * 门控语义（与 MCP 通道及自动下载配置对齐）：
+ * - `cm.binaryPath` 显式配置时直接用它预热，绝不触发 provision 下载；
+ * - `autoDownload=false` 时仅当缓存中的期望二进制已存在才预热（离线/禁下载
+ *   场景不得因预热发起网络下载）；
+ * - 其余情况经共享 `ensureInstalled`（缓存命中则瞬时返回路径）后预热。
+ *
+ * 任何失败均 fail-open：预热只是优化，CLI 调用时仍会 connect-or-start。
+ */
+export function startDaemonPrewarm(
+  shared: CbmSharedDeps,
+  log?: (message: string, extra?: Record<string, unknown>) => void,
+  injections: DaemonPrewarmInjections = {},
+): void {
+  const prewarm = injections.prewarm ?? prewarmDaemon;
+  const exists = injections.exists ?? existsSync;
+  if (!shared.cm.enabled) return;
+
+  const env = {
+    ...buildCbmEnv({}, process.env),
+    CBM_CACHE_DIR: shared.cacheRoot,
+  } as Record<string, string>;
+
+  const warm = (binaryPath: string | null | undefined): void => {
+    if (!binaryPath) return;
+    prewarm({ binaryPath, cacheRoot: shared.cacheRoot, env, log });
+  };
+
+  if (shared.cm.binaryPath) {
+    warm(shared.cm.binaryPath);
+    return;
+  }
+  if (!shared.cm.autoDownload) {
+    // 关闭自动下载：仅当缓存二进制已存在时预热，避免预热触发下载。
+    const expected = resolveExpectedBinaryPath(shared.cm, shared.cacheRoot);
+    if (exists(expected)) warm(expected);
+    return;
+  }
+  void shared
+    .ensureInstalled()
+    .then(warm)
+    .catch(() => {
+      // 预热失败不影响功能：CLI 调用时仍会 connect-or-start。
+    });
 }
 
 /**

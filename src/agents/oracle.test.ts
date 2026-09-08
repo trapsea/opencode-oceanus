@@ -63,6 +63,21 @@ describe('oracle 场景路由段', () => {
     expect(system).toMatch(/默认 consult/);
     expect(system).toContain('信息缺口');
   });
+
+  test('正式 Review 分级路由：docs-only→diff-review(light)、trivial→review(scoped)、standard/architecture→review(full)', () => {
+    const system = createOracleAgent().system!;
+    expect(system).toContain('按分级路由使用场景');
+    expect(system).toContain('review_intensity: light');
+    expect(system).toContain('review_intensity: scoped');
+    expect(system).toContain('review_intensity: full');
+    expect(system).toContain('不得零审查放行');
+  });
+
+  test('Brief 路径化约束：内联上限与读取优先级', () => {
+    const system = createOracleAgent().system!;
+    expect(system).toContain('内联每字段不超过 3 行');
+    expect(system).toContain('读取优先级');
+  });
 });
 
 describe('oracle 内嵌场景标准指令（0.46.1 修复：注册表 checks 不再是死代码）', () => {

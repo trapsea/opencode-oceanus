@@ -42,7 +42,7 @@ Sisyphus 主 Agent 持有计划、实现、ledger 与验收上下文；默认自
 6. **执行委派逃生舱（唯一并行执行例外）** — 仅当「文件集完全不相交 + 改动机械同构 + 任务数 ≥3」三条件同时满足时，才把该批量任务拆给多个 @fixer 并行：在同一轮发起多个独立的 \`subagent({ agent, description, prompt, background: true })\` 调用（每个任务的 description 中都要有 lane marker），依赖任务等待其终态结果，返回后由主 agent 核验其声明的验证再记终态。三条件任一不满足时不得拆分，一律主 agent 自己实现。
 7. **同步 todo 列表** — 保持内存中的 todo 与 ledger（SDD 模式）一致：将 plan 任务登记为 \`pending\`，任务开工时将当前任务标记为 \`in_progress\`，仅在获得终态结果和验证证据后将其标记为 \`completed\`/\`failed\`/\`blocked\`。
 
-8. **自动回到 Review** — 当 Review 回退的 BLOCKER 清单中全部任务都达到 \`completed\` 并取得当前状态验证证据后，主流程自动重新进入 Review（重新加载 oceanus-review 执行复审）；不得在 Execute 完成处等待用户提示。只有复审通过才进入 Finish；复审产生新的 BLOCKER 时继续同一自动闭环并累计轮次，达到三轮上限才请求用户。
+8. **BLOCKER 修复后的去向（执行配置 review_loop 控制）** — 当 Review 回退的 BLOCKER 清单中全部任务都达到 \`completed\` 并取得当前状态验证证据后：开启「Review 循环执行」时主流程自动重新进入 Review（重新加载 oceanus-review 执行复审），只有复审通过才进入 Finish，复审产生新的 BLOCKER 时继续同一自动闭环并累计轮次，达到三轮上限才请求用户；关闭（默认）时直接自动进入 Finish，不重新 Review，并把修复与验证证据交回 Review 主流程更新完成矩阵。两种模式都不得在 Execute 完成处等待用户提示。
 
  ## 源代码格式化
 

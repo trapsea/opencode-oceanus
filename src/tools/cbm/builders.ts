@@ -250,7 +250,11 @@ export function buildCbmIndexTool(
         root,
         { timeoutMs: cfg?.timeoutMs ?? CBM_INDEX_TIMEOUT_MS },
       );
-      const result = await env.run(opts, env.runDeps);
+      // 同一项目的并发 cbm_index 共享一次 index_repository（跨工具去重）；
+      // 完成后的再次调用仍会真实执行（保留 Review 阶段的显式刷新语义）。
+      const result = await env.indexer.runExclusive(root, root, () =>
+        env.run(opts, env.runDeps),
+      );
       return cbmResult(result);
     },
   });

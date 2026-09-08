@@ -10,7 +10,7 @@ import { createCommands } from './commands';
 import { registerCbmMcp } from './cbm/mcp';
 import { registerOceanusTools } from './tools';
 import { registerOceanusHooks } from './hooks';
-import { buildCbmSharedDeps, type CbmWiringInjections } from './cbm/wiring';
+import { buildCbmSharedDeps, startDaemonPrewarm, type CbmWiringInjections } from './cbm/wiring';
 import type { PluginSetupContext } from './runtime/types';
 import { registerAutoUpdate } from './update';
 import { installStaged, resolveOpenCodeInstallContext } from './update/cache';
@@ -393,6 +393,10 @@ export async function runSetup(
     {
       name: 'tools',
       run: async () => {
+        // CBM daemon 常驻预热：消除 CLI 短命进程的 connect-or-start 启停震荡
+        // （诊断结论：30s accept 超时的根因）。门控/环境构造在 wiring 层统一，
+        // 任何失败 fail-open，绝不阻塞工具注册。
+        startDaemonPrewarm(shared, log);
         // 注册 CLI fallback 工具：CBM 工具复用共享 runDeps / indexer
   //   （env=CBM_CACHE_DIR 由 tools 层经 config.codebaseMemory.cacheDir 推导）。
         await registerOceanusTools(ctx, config, {

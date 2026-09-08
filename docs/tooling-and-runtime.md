@@ -8,13 +8,23 @@
 
 六阶段工作流（Intake → discuss → Plan → Execute → Review → Finish）由 Agent/Skill 的
 prompt 契约驱动：Agent 负责编排与委派，Skill 规定阶段边界；工具和 Hook 只提供运行时
-能力，不是阶段 supervisor。执行配置（Oracle 按需咨询/SDD/TDD/连续执行）由
-Intake 前置的执行配置批问确认——一次 question 批量问四项，**四项默认推荐全部关闭**
+能力，不是阶段 supervisor。执行配置（SDD/TDD/Review 循环执行）由
+Intake 前置的执行配置批问确认——一次 question 批量问三项，**三项默认推荐全部关闭**
 （选项说明中可提示何种规模值得开启）；仅实现类任务批问，调研/查询/方案设计等非实现
 类任务跳过批问并按默认关闭记录（\`not_asked: non-implementation\`），漏答回落默认关闭
 并记录、不补问；方案方向由方案总批准单问覆盖。Oracle 仅在复杂架构或高风险业务场景按需咨询，
-并对落盘 spec/plan 提供 advisory。Review 由主 agent 复查并运行测试，高风险变更条件触发 oracle
-diff-review / completion-audit 场景。Finish 只读 Review 报告，不再测试、
+并对落盘 spec/plan 提供 advisory。Review 发现 BLOCKER 后按「Review 循环执行」开关分流：
+开启时自动修复并重新 Review（最多 3 轮复审闭环，通过才进入 Finish）；关闭（默认）时
+一次性修复全部 BLOCKER 并取得当前状态验证证据后直接进入 Finish，不重新 Review；
+UNCERTAIN 在任何模式下都阻塞并请求用户决策。Review 由主 agent 复查并运行测试，正式审查按双信号分级路由给 oracle：
+docs-only diff 走 `diff-review` 轻量场景（`review_intensity: light`：范围核对、
+证据映射与文档底线），trivial 任务走 `review` 场景的 scoped 维度映射（三维必查、
+其余按 diff 触及面映射），standard/architecture 保持 `review` 场景 9 维全量
+（`review_intensity: full`）；判据缺失或不可判定时回落 full，任何分级都保留
+graded 契约与 fresh-session 独立性，不存在零审查放行路径。Oracle Brief 以
+路径引用与不超过 3 行的短摘要为主（不内联长文本），Oracle 按读取优先级
+（审核对象/diff > 验收标准 > plan > 其他上下文）自行读取原始文件；
+completion-audit 场景仍作为完成矩阵审计的条件触发项。Finish 只读 Review 报告，不再测试、
 构建、调用 CBM、委派或写文件。
 
 Ledger 与 Review 报告是不同契约：Ledger 记录任务 id、状态、父子关系和时间等进度视图；

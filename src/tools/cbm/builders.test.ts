@@ -46,6 +46,7 @@ function okIndexer(calls?: { ensureIndexed: number }): IndexerHandle {
     isIndexed: () => true,
     isIndexing: () => false,
     getLastOutcome: () => undefined,
+    runExclusive: (_p, _w, fn) => fn(),
     reset: () => {},
   };
 }
@@ -59,6 +60,7 @@ function failIndexer(): IndexerHandle {
     isIndexed: () => false,
     isIndexing: () => false,
     getLastOutcome: () => undefined,
+    runExclusive: (_p, _w, fn) => fn(),
     reset: () => {},
   };
 }

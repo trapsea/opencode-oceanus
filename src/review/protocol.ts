@@ -96,6 +96,7 @@ export function buildReviewPrompt(scene: ReviewScene, request: ReviewRequest): s
     '## Oracle Brief 要求',
     '- 委派方必须先提供结构化 Oracle Brief：目标、待辅助决策、需求范围、当前状态、影响面、方案权衡、证据索引、state_head、diff_scope、证据新鲜度和预期输出。',
     '- 不得用聊天历史或未列出的隐含背景补齐缺失字段；缺失信息必须列为信息缺口，不得假设已确认。',
+    '- Brief 路径化：字段值以路径引用与不超过 3 行的短摘要为主，不内联长文本；Oracle 按读取优先级（审核对象/diff > 验收标准 > plan > 其他上下文）自行读取原始文件，不得因内联缺失假装已核验。',
     '## 审核者约束',
     '- 只读审核：不得创建、修改、删除任何文件，不得执行任何写入类操作。',
     ...(scene.independence === 'fresh-session'

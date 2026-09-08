@@ -46,8 +46,9 @@ const SOLUTION_ANALYSIS_CHECKS = `### 模式（请求必须准确选择其一；
 - 不授权、不替代用户决策：只做分析并给出结论，最终决策留给 orchestrator/sisyphus 与用户。
 - 不输出任何门禁 verdict 字面量：不以 OKAY/REJECT 二元判定、也不以行首 PASS/WARN/FAIL 作结论，避免下游误解析为门禁结果。`;
 
-/** diff-review 检查清单：交付 diff 的范围与证据映射审核。 */
-const DIFF_REVIEW_CHECKS = `- 范围核对：对照计划声明的 Files 逐项检查最终 diff；范围外变更（计划未声明、且不属于声明文件必要伴随改动的文件）判 FAIL 并列出文件与位置；计划声明但未落实的变更为缺口，需明确说明。
+/** diff-review 检查清单：轻量正式审查（docs-only 路由）+ 交付 diff 的范围与证据映射审核。 */
+const DIFF_REVIEW_CHECKS = `- 轻量定位（review_intensity: light，docs-only diff 路由至此）：除下列核对项外，纯文档 diff 必查文档底线——相对链接与锚点指向存在、文档声明与源码/类型事实不矛盾、无计划外文件越界；不要求代码维度深查，但发现影响代码契约的内容时必须标注并建议升级 full（review 场景全量）。
+- 范围核对：对照计划声明的 Files 逐项检查最终 diff；范围外变更（计划未声明、且不属于声明文件必要伴随改动的文件）判 FAIL 并列出文件与位置；计划声明但未落实的变更为缺口，需明确说明。
 - 验收证据映射：将计划中每条验收标准映射到可审计证据（命令及输出、测试结果、构建产物、文件引用）；证据缺失或不可复现的验收项列为 WARN。
 - 回归与测试缺口：对照计划目标与被改动符号的调用语义，发现的行为回归与缺失的测试按严重度分级列出（BLOCKER=行为回归或验收级缺失；SUGGESTION=覆盖增强建议），每条附 evidence 与 fix。
 - 结论分级：PASS=范围与证据齐全；WARN=存在证据缺失但不影响验收结论；FAIL=存在范围外变更或行为回归。结论词 PASS/WARN/FAIL 必须在行首单独输出，随后给出依据。`;
@@ -63,8 +64,11 @@ const COMPLETION_AUDIT_CHECKS = `- 逐项执行 Completion Audit 六项判定矩
  - 任一判定项存在缺口 → 在完成矩阵中记录缺口与建议动作；不生成放行 verdict，是否继续由主 agent 按 Review 结果决定。
   - 不得伪造完成：证据缺失即缺口；不把口头声明、mock、skip 或降级结果记为已验证完成，验证不了的项目一律按缺口处理。`;
 
-/** review 正式场景：由 Oracle 独立执行全量交付审查。 */
-const FORMAL_REVIEW_CHECKS = `### 全量审查维度（不得因某维度未在需求中明确提及而跳过）
+/** review 正式场景：由 Oracle 独立执行全量交付审查（standard/architecture 全量；trivial 按 scoped 维度映射）。 */
+const FORMAL_REVIEW_CHECKS = `### 全量审查维度（standard/architecture 全量执行；trivial 按 scoped 映射）
+### 审查强度分级（由委派方路由并在 Brief 标注 review_intensity）
+- full（standard/architecture 默认）：本清单 9 维全量执行，不得因某维度未在需求中明确提及而跳过。
+- scoped（intake complexity=trivial 时）：需求与计划、正确性与回归、验证与证据三维必查；边界/安全/性能/可靠性/兼容性/可维护性按 diff 实际触及面映射——触及才深查，未触及维度在 Negative Findings 中单行说明"未触及（依据：diff 性质）"，不得静默省略。
 - 需求与计划：逐条核对 requirements、acceptance criteria、non-goals、锁定决策与最终行为；识别需求遗漏、范围漂移和未授权改动。
 - 正确性与回归：检查主路径、调用链、状态转换、错误传播、并发/异步语义、幂等性、兼容性和现有调用方回归。
 - 边界与异常：检查空值、缺失值、类型错误、非法输入、极值、超大规模、重复请求、乱序、超时、取消、重试、部分失败、资源耗尽和恢复路径；每个边界必须有证据或明确标记缺口。
@@ -156,6 +160,7 @@ const diffReviewScene = defineScene({
   checks: DIFF_REVIEW_CHECKS,
   requiredContext: [
     '结构化 Oracle Brief（objective/currentState/changedFiles/impact/evidenceFreshness）',
+    '分级路由判据与 review_intensity 标注（docs-only 判定依据或 trivial 复杂度来源）',
     '最终 state_head、diff_scope、实际变更文件与影响面摘要',
     'diff 产物路径或变更文件清单（落盘 artifact）',
     'plan 路径（对照声明的 Files 范围与任务边界）',

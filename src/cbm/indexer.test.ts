@@ -60,6 +60,7 @@ function argsOf(opts: CbmExecOptions): Record<string, unknown> {
 describe('normalizeIndexStatus：list_projects/index_status 结果归一化', () => {
   test('indexed 状态', () => {
     expect(normalizeIndexStatus(okResult({ status: 'indexed' })).kind).toBe('indexed');
+    expect(normalizeIndexStatus(okResult({ status: 'ready' })).kind).toBe('indexed');
     expect(normalizeIndexStatus(okResult({ indexed: true })).kind).toBe('indexed');
   });
 
@@ -76,10 +77,14 @@ describe('normalizeIndexStatus：list_projects/index_status 结果归一化', ()
     expect(normalizeIndexStatus(okResult({ indexing: true })).kind).toBe('starting');
   });
 
-  test('无法解析 → unknown，不误报已索引', () => {
+  test('无法解析 → unknown，不误报已索引，并携带原始状态值供诊断', () => {
     expect(normalizeIndexStatus(okResult({ foo: 'bar' })).kind).toBe('unknown');
     expect(normalizeIndexStatus(okResult({})).kind).toBe('unknown');
     expect(normalizeIndexStatus(okResult(null)).kind).toBe('unknown');
+    const info = normalizeIndexStatus(okResult({ status: 'weird_new_status' }));
+    expect(info.kind).toBe('unknown');
+    expect(info.errorCode).toBe('unparsed_status');
+    expect(info.errorMessage).toContain('weird_new_status');
   });
 
   test('结构化错误 → unknown，保留错误码', () => {
@@ -308,5 +313,72 @@ describe('createIndexer：项目切换隔离', () => {
     expect(h.isIndexed('proj', ROOT)).toBe(true);
     h.reset();
     expect(h.isIndexed('proj', ROOT)).toBe(false);
+  });
+});
+
+describe('runExclusive：cbm_index 并发去重', () => {
+  test('同一项目并发调用只执行一次 fn，结果共享', async () => {
+    let executions = 0;
+    const h = createIndexer({ runCli: fakeRunCli(() => okResult({ status: 'indexed' })).runCli });
+    const fn = async () => {
+      executions += 1;
+      await new Promise((r) => setTimeout(r, 20));
+      return executions;
+    };
+    const [a, b, c] = await Promise.all([
+      h.runExclusive('/w/proj', '/w', fn),
+      h.runExclusive('/w/proj', '/w', fn),
+      h.runExclusive('/w/proj', '/w', fn),
+    ]);
+    expect(executions).toBe(1);
+    expect(a).toBe(1);
+    expect(b).toBe(1);
+    expect(c).toBe(1);
+  });
+
+  test('完成后再次调用重新执行（保留显式刷新语义）', async () => {
+    let executions = 0;
+    const h = createIndexer({ runCli: fakeRunCli(() => okResult({ status: 'indexed' })).runCli });
+    const fn = async () => {
+      executions += 1;
+      return executions;
+    };
+    await h.runExclusive('/w/proj', '/w', fn);
+    await h.runExclusive('/w/proj', '/w', fn);
+    expect(executions).toBe(2);
+  });
+
+  test('不同项目互不合并；项目键缺失时直接执行', async () => {
+    const runs: string[] = [];
+    const h = createIndexer({ runCli: fakeRunCli(() => okResult({ status: 'indexed' })).runCli });
+    await Promise.all([
+      h.runExclusive('/w/a', '/w', async () => {
+        runs.push('a');
+      }),
+      h.runExclusive('/w/b', '/w', async () => {
+        runs.push('b');
+      }),
+      h.runExclusive(undefined, '/w', async () => {
+        runs.push('none');
+      }),
+    ]);
+    expect(runs.sort()).toEqual(['a', 'b', 'none']);
+  });
+
+  test('fn 失败后锁被释放，后续调用可重试', async () => {
+    let attempts = 0;
+    const h = createIndexer({ runCli: fakeRunCli(() => okResult({ status: 'indexed' })).runCli });
+    await expect(
+      h.runExclusive('/w/proj', '/w', async () => {
+        attempts += 1;
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+    const ok = await h.runExclusive('/w/proj', '/w', async () => {
+      attempts += 1;
+      return 'recovered';
+    });
+    expect(ok).toBe('recovered');
+    expect(attempts).toBe(2);
   });
 });

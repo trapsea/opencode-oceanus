@@ -131,6 +131,9 @@ describe('formatOracleBrief Oracle 调度上下文', () => {
     expect(text).toContain('state_head: abc1234');
     expect(text).toContain('- read_only: true');
     expect(text).toContain('- no_verdict: true');
+    expect(text).toContain('### Brief 使用约束');
+    expect(text).toContain('不超过 3 行的短摘要');
+    expect(text).toContain('读取优先级');
     expect(getMissingOracleBriefFields(complete)).toEqual([]);
     expect(getMissingOracleSceneFields(complete)).toEqual([]);
   });

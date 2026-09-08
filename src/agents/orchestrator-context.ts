@@ -132,6 +132,9 @@ export function formatOracleBrief(brief: OracleBrief): string {
     `- expected_output: ${render(brief.expectedOutput)}`,
     '- read_only: true',
     ...(formalReview ? ['- verdict: PASS/WARN/FAIL（正式 Review）'] : ['- no_verdict: true']),
+    '',
+    '### Brief 使用约束',
+    '- 字段值以路径引用与不超过 3 行的短摘要为主，不内联长文本；按读取优先级（审核对象/diff > 验收标准 > plan > 其他上下文）自行读取原始文件。',
   ];
   if (missing.length > 0) lines.push('', `信息缺口: ${missing.join('、')}`, formalReview ? '缺失字段不得被假设为已确认；正式 Review 必须先报告缺口。' : '缺失字段不得被假设为已确认；Oracle 只能基于可确认材料给出 advisory。');
   return lines.join('\n');

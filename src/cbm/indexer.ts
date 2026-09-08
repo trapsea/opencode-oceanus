@@ -129,6 +129,15 @@ export interface IndexerHandle {
     projectPath: string | undefined,
     workspaceRoot: string,
   ): IndexerOutcome | undefined;
+  /**
+   * 同一项目的并发调用共享同一个 Promise（跨工具去重）；
+   * 不缓存已完成结果——完成后的再次调用会重新执行 fn（保留显式刷新语义）。
+   */
+  runExclusive<T>(
+    projectPath: string | undefined,
+    workspaceRoot: string,
+    fn: () => Promise<T>,
+  ): Promise<T>;
   /** 清空会话状态（新 session 复用同一句柄时）。 */
   reset(): void;
 }
@@ -164,7 +173,7 @@ export function normalizeIndexStatus(result: CbmCliResult): IndexStatusInfo {
   }
   if (status === 'stale') return { kind: 'stale' };
   if (status === 'degraded') return { kind: 'degraded' };
-  if (status === 'indexed' || d.indexed === true) return { kind: 'indexed' };
+  if (status === 'indexed' || status === 'ready' || d.indexed === true) return { kind: 'indexed' };
   if (
     status === 'unindexed' ||
     status === 'not_indexed' ||
@@ -174,7 +183,11 @@ export function normalizeIndexStatus(result: CbmCliResult): IndexStatusInfo {
   ) {
     return { kind: 'unindexed' };
   }
-  return { kind: 'unknown', errorCode: 'unparsed_status' };
+  return {
+    kind: 'unknown',
+    errorCode: 'unparsed_status',
+    errorMessage: status !== undefined ? `unrecognized index status: ${JSON.stringify(status)}` : undefined,
+  };
 }
 
 /** `list_projects` 结构化错误归一化。 */
@@ -213,6 +226,7 @@ export function createIndexer(options: IndexerOptions = {}): IndexerHandle {
   const run: IndexerRunCli = options.runCli ?? runCbmCli;
   const indexedProjects = new Set<string>();
   const inFlight = new Map<string, Promise<IndexerOutcome>>();
+  const exclusiveInFlight = new Map<string, Promise<unknown>>();
   const lastOutcomes = new Map<string, IndexerOutcome>();
   const startingState = new Map<string, { attempt: 1 | 2; startedAt: number }>();
   const buildEnv = (env?: Record<string, string | undefined>) => ({
@@ -361,6 +375,25 @@ export function createIndexer(options: IndexerOptions = {}): IndexerHandle {
       }
     },
 
+    async runExclusive<T>(
+      projectPath: string | undefined,
+      workspaceRoot: string,
+      fn: () => Promise<T>,
+    ) {
+      const key = projectKey(projectPath, workspaceRoot);
+      // 无法定位项目键时不做跨调用合并，直接执行（fail-open）。
+      if (!key) return fn();
+
+      const existing = exclusiveInFlight.get(key) as Promise<T> | undefined;
+      if (existing) return existing;
+
+      const runPromise = fn().finally(() => {
+        if (exclusiveInFlight.get(key) === runPromise) exclusiveInFlight.delete(key);
+      });
+      exclusiveInFlight.set(key, runPromise);
+      return runPromise;
+    },
+
     isIndexed(projectPath, workspaceRoot) {
       const key = projectKey(projectPath, workspaceRoot);
       return key ? indexedProjects.has(key) : false;
@@ -379,6 +412,7 @@ export function createIndexer(options: IndexerOptions = {}): IndexerHandle {
     reset() {
       indexedProjects.clear();
       inFlight.clear();
+      exclusiveInFlight.clear();
       lastOutcomes.clear();
       startingState.clear();
     },

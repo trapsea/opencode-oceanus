@@ -27,7 +27,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 
 对复杂任务（需求模糊、风险高、多文件、方案未定型），`sisyphus` / `oceanus` 工作流遵循以下协议：
 
-1. Sisyphus 直接完成 Intake、澄清目标与验收，并在 Intake 配置 SDD/TDD/连续执行选项。
+1. Sisyphus 直接完成 Intake、澄清目标与验收，并在 Intake 配置 SDD/TDD/Review 循环执行选项。
 2. 仅在复杂架构或高风险业务仍有关键未知时按需委派 `@oracle`，针对已落盘的 spec/plan 提供 advisory；简单任务不调用并记录理由。
 3. 该 advisory 不构成执行门禁，最终决策由 Sisyphus / orchestrator 负责。
 
@@ -39,7 +39,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 
 ### CBM 调度约定
 
-CBM 沿六阶段工作流形成三阶段主线。**Intake 首次初始化**：代码或混合任务由 Sisyphus 直接尝试一次首次 `cbm_index`（非代码任务跳过），失败、超时或 in-progress 均 fail-open 并记录；discuss/Plan 不重复首次初始化。**Plan 自查**：Plan 根据 spec 自查修改文件、公共符号、依赖和验证方式；复杂架构或高风险业务仍有关键未知时，Sisyphus 可按需咨询 Oracle advisory。**Review 影响面复查**：按最终 diff 需要时刷新索引，再用 `cbm_trace`/`cbm_detect_changes` 排查并记录证据；CBM 不可用时记录 `cbm: stale`、降级工具、覆盖范围和残余风险。查询型工具可由需要的 agent 使用，finish 阶段不调用 CBM。详见 `docs/codebase-memory-mcp.md`。
+CBM 沿六阶段工作流形成三阶段主线。**Intake 首次初始化**：在任何代码调研开始之前基于请求预判代码相关性并立即触发首次 `cbm_index`（预判非代码不触发），正式分类后修正偏差（漏判补触发、误判记录不回滚），失败、超时或 in-progress 均 fail-open 并记录；discuss/Plan 不重复首次初始化。**Plan 自查**：Plan 根据 spec 自查修改文件、公共符号、依赖和验证方式；复杂架构或高风险业务仍有关键未知时，Sisyphus 可按需咨询 Oracle advisory。**Review 影响面复查**：按最终 diff 需要时刷新索引，再用 `cbm_trace`/`cbm_detect_changes` 排查并记录证据；CBM 不可用时记录 `cbm: stale`、降级工具、覆盖范围和残余风险。查询型工具可由需要的 agent 使用，finish 阶段不调用 CBM。详见 `docs/codebase-memory-mcp.md`。
 
 ## 安装
 
@@ -162,8 +162,8 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 | `oceanus-debugging` | 根因调查、单一假设验证和三轮失败升级 |
 | `clipboard-image-observer` | 图片/PDF 路径处理、L1-L5 分级与 observer 视觉验收流程 |
 | `oceanus-discuss` | 读取 Intake 已确认的执行配置、研究优先澄清需求、按复杂度分层呈现方案（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）、再以方案总批准单问完成方向批准；SDD 开启时保存设计 spec 到 `.oceanus/spec/` |
-| `oceanus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、依据 spec 自查影响面，并消费 Intake 的 Oracle 按需/SDD/TDD 决策（不重复提问） |
-| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类、SDD/TDD 两项执行配置批问与 CBM 首次初始化 |
+| `oceanus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、依据 spec 自查影响面，并消费 Intake 的 SDD/TDD/Review 循环执行决策（不重复提问） |
+| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类、SDD/TDD/Review 循环执行三项执行配置批问与先于代码调研的 CBM 首次初始化（预判触发 + 分类修正） |
 | `oceanus-execute` | 按计划实现；默认主 agent 执行，只有三条件同时满足时才并行 fixer，并同步 todo 状态 |
 | `oceanus-review` | Execute 后的最终 diff、影响面和证据化评审；按需转交 @oracle，验证发现后才接受 |
 
@@ -179,7 +179,7 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 
 | 阶段 | 职责 | 产物 / 落点 |
 |------|------|-------------|
-| **Intake** | `Sisyphus 直接了解背景、完成最小需求 intake、分类任务，并在代码任务中初始化 CBM；不做方案决策 | Intake 结构化摘要 |
+| **Intake** | `Sisyphus 直接了解背景、完成最小需求 intake、分类任务，并在代码调研开始前预判触发 CBM 首次初始化（分类后修正偏差）；不做方案决策 | Intake 结构化摘要 |
 | **discuss** | Sisyphus 消费 Intake 已确认的执行配置，负责研究、澄清与方案决策；复杂架构或高风险业务取舍可按需委派 `@oracle`（analysis）提供 advisory；澄清完成后以方案总批准单问完成方向批准 | `.oceanus/spec/` |
 | **Plan** | Sisyphus 负责拆分任务、依据 spec 自查依赖/范围/验证并维护进度台账；复杂架构或高风险业务可按需咨询 Oracle advisory | `.oceanus/plan/` + 批准记录 |
 | **Execute** | 主 agent 按计划顺序直接执行（读代码/编辑/测试），上下文缺口委派 `@explorer` 补侦察；批量机械任务满足逃生舱三条件（文件集完全不相交 + 机械同构 + 任务数 ≥3）时并行 `@fixer`；视觉迭代任务 `@designer`；需求变化回 discuss，结构变化回 Plan | 代码变更 + 更新后的计划 |

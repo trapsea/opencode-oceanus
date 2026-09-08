@@ -66,7 +66,11 @@ describe('CBM-GATE-01 静态提示词契约', () => {
   test('Review 由 Oracle 正式审查且 Sisyphus 保留编排边界', () => {
     const review = OCEANUS_REVIEW_SKILL.content;
     expect(review).toMatch(/正式审查由 Oracle 只读执行.*不修改代码.*不运行 task/i);
-    expect(review).toContain('每次 Review 都必须使用 `review` 场景');
+    expect(review).toContain('分级路由正式委派给 @oracle');
+    expect(review).toContain('review_intensity: light');
+    expect(review).toContain('review_intensity: scoped');
+    expect(review).toContain('review_intensity: full');
+    expect(review).toContain('不存在零审查放行路径');
     expect(review).toContain('@oracle');
     expect(review).toContain('准备 Brief');
     expect(review).toMatch(/不确定性.*未达成/);

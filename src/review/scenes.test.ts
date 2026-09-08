@@ -48,6 +48,19 @@ describe('REVIEW_SCENES 注册表', () => {
     expect(scene.maxRounds).toBe(3);
   });
 
+  test('review/diff-review：分级审查强度与轻量路径底线', () => {
+    const formal = REVIEW_SCENES['review']!;
+    expect(formal.checks).toContain('审查强度分级');
+    expect(formal.checks).toContain('review_intensity');
+    expect(formal.checks).toContain('scoped（intake complexity=trivial 时）');
+    expect(formal.checks).toContain('standard/architecture 全量执行');
+    const light = REVIEW_SCENES['diff-review']!;
+    expect(light.checks).toContain('review_intensity: light');
+    expect(light.checks).toContain('文档底线');
+    expect(light.checks).toContain('升级 full');
+    expect(light.requiredContext.join('\n')).toContain('分级路由判据与 review_intensity 标注');
+  });
+
   test('completion-audit：Review 主流程完成矩阵（advisory/fresh-session）', () => {
     const scene = REVIEW_SCENES['completion-audit']!;
     expect(scene.name).toBe('completion-audit');

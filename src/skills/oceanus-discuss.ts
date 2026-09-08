@@ -12,7 +12,7 @@ category: phase
 description: 接收用户描述与背景调研，优先讨论高优先级或复杂灰区，再按用户选择继续其他灰区，最终通过一次方案总批准形成方向。
 input: 用户描述与背景调研（可选附带 intake_report 或 execution_config）
 owner: 调用方 Agent
-output: approved brainstorm_report
+output: approved discuss_report
 entry: 用户描述与背景调研就绪
 exit: 方案总批准完成
 failure: 暂停并记录未决问题
@@ -30,12 +30,12 @@ humanReview: required
 
 ## 目标
 
-在编写代码或任务计划前，把用户描述和背景调研转化为经过用户确认的设计方向与 \`brainstorm_report\`。Discuss 是通用的方案讨论与定向 Skill，不负责 Intake 配置批问、任务拆分、实现代码或 Plan 门禁。
+在编写代码或任务计划前，把用户描述和背景调研转化为经过用户确认的设计方向与 \`discuss_report\`。Discuss 是通用的方案讨论与定向 Skill，不负责 Intake 配置批问、任务拆分、实现代码或 Plan 门禁。
 
 ## 输入与输出
 
 - **输入**：用户描述与背景调研；Sisyphus 主流程必须附带 \`intake_report\`，standalone 调用可缺省但不得直接进入 Plan。
-- **输出**：\`brainstorm_report\`，至少包含 \`understanding_summary\`、\`open_questions\`、\`alternatives\`、\`recommended_approach\`、\`design\`、\`approval\` 和 \`uncertainties\`。
+- **输出**：\`discuss_report\`，至少包含 \`understanding_summary\`、\`open_questions\`、\`alternatives\`、\`recommended_approach\`、\`design\`、\`approval\` 和 \`uncertainties\`。
 - 主流程必须有 \`intake_report\`；standalone 调用缺少执行配置时不得擅自推测，也不得直接进入 Plan 或重新接管 Intake 的配置批问。
 - 是否写入 \`.oceanus/spec/\` 由调用方决定；Discuss 不自动创建 Plan、ledger 或实现任务。
 
@@ -110,13 +110,13 @@ humanReview: required
 
 ### 6. 形成最终报告与批准
 
-汇总已确认的理解摘要、方案选择、决策登记表（含三分类与 D-ID）、设计、验收标准、风险和不确定性，执行一次最终方案总批准 \`question\`。如果章节确认过程中发生影响方向的修改，重新检查候选方案和推荐理由；如果只是措辞或局部细节调整，不重复方向选择。
+汇总已确认的理解摘要、方案选择、需求清单（R-ID + Current/Target/Acceptance 三字段）、全局约束（带确切值）、决策登记表（含三分类与 D-ID）、设计、验收标准（checkbox + pass/fail 判据）、风险和不确定性，执行一次最终方案总批准 \`question\`。如果章节确认过程中发生影响方向的修改，重新检查候选方案和推荐理由；如果只是措辞或局部细节调整，不重复方向选择。
 
 只有用户明确批准后，\`approval.status\` 才能是 \`APPROVED\`；沉默、拒绝或仍有影响方向的未决问题必须保持 \`PENDING\` 或 \`NEEDS_CHANGES\`，不得进入 Plan 或实现。
 
 ### 7. 交付边界
 
-输出 \`brainstorm_report\` 给调用方
+输出 \`discuss_report\` 给调用方
 
 不得在 Discuss 中编写实现代码、拆分实现任务或调用写入 worker；允许委派 explorer/librarian 等只读调研 agent，不得伪造门禁结果。
 
@@ -129,6 +129,15 @@ humanReview: required
 状态: approved | draft | blocked
 ## 理解摘要
 ## 目标与非目标
+## 需求（requirements）
+<R-01、R-02… 逐条需求，每条一句话并附三字段：
+- Current：现状——来自代码/调研事实，不存在的能力明确写"不存在"，不许写"可能缺少"；
+- Target：目标态——达成后的可观察差异；
+- Acceptance：pass/fail 判据——可机械验证的检查，供 Plan 逐条映射任务。
+与 intake_report.requirements_context 对齐：goal/scope/non_goals 落「目标与非目标」，problem/users/triggers 落「背景与证据」，constraints 落「全局约束」，acceptance_criteria 落「测试与验收标准」（逐条回指 R-ID）。>
+## 全局约束
+<项目级要求逐条列出：版本下限、依赖限制、命名/文案规则、平台要求等，每条带确切值（如 "Node >= 20"），不许写"使用较新版本"。
+Plan 头「全局约束」节从本节逐字复制；本节缺失项目级约束即设计文档缺陷。>
 ## 背景与证据
 ## 候选方案与权衡
 ## 推荐方案
@@ -143,6 +152,9 @@ humanReview: required
 ## 数据流与接口
 ## 错误处理与失败模式
 ## 测试与验收标准
+<每条验收一个 checkbox：\`- [ ] R-01: <验证命令> → Expected: <预期输出/退出码>\`；
+与「需求」节的 Acceptance 一一对应（每条 R 至少一条验收、每条验收回指 R-ID）；
+判据只有 pass/fail 两态，禁止"符合/合理/质量良好"级别口头描述。>
 ## 风险与不确定性
 ## 批准状态
 \`\`\`

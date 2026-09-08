@@ -4,12 +4,12 @@ const OCEANUS_INTAKE_SKILL: SkillDefinition = {
   name: 'oceanus-intake',
   category: 'phase',
  description:
-     'Intake — 由 Sisyphus 直接收集并分类需求，完成执行配置批问；代码任务初始化 CBM 后输出 intake_report。',
+     'Intake — 由 Sisyphus 直接收集并分类需求，完成执行配置批问；代码相关任务在代码调研开始前触发 CBM 初始化后输出 intake_report。',
    slash: true,
   content: `---
 name: oceanus-intake
 category: phase
-description: Intake — 由 Sisyphus 直接收集并分类需求，完成执行配置批问；代码任务初始化 CBM 后输出 intake_report。
+description: Intake — 由 Sisyphus 直接收集并分类需求，完成执行配置批问；代码相关任务在代码调研开始前触发 CBM 初始化后输出 intake_report。
 input: 用户请求
 owner: Sisyphus
 output: intake_report
@@ -28,6 +28,7 @@ humanReview: required
 
 ## 步骤
 
+0. **CBM 预判初始化（先于任何代码调研）**：在读取项目背景、工作区结构等任何代码调研开始之前，基于用户请求文本做代码相关性快速预判——请求涉及修改、生成、删除、测试或分析仓库代码/配置 → 预判代码相关。预判代码相关时由 Sisyphus 立即触发一次首次 \`cbm_index\`，触发后不等待完成（索引与后续需求收集、批问并行），失败、超时或 in-progress 按 fail-open 处理；预判非代码时不触发，保持非代码任务不索引。预判结果与触发时机写入 intake_report 的 \`cbm\` 字段，并在步骤 5 正式分类后修正。
 1. **了解故事背景**：使用当前会话中已确认的用户上下文，并读取项目背景、工作区结构、当前分支/变更与相关入口；不凭空推断，也不把已知需求再次交给 subagent。
 2. **收集需求**：提炼并结构化记录 \`requirements_context\`：\`goal\`、\`problem\`、\`users\`、\`triggers\`、\`scope\`、\`non_goals\`、\`constraints\` 与可执行的 \`acceptance_criteria\`。只询问会阻塞后续工作的目标、边界、用户意图和验收问题，不在此阶段决定实现方法。
    - **会话能力预检（与需求收集同步完成）**：登记当前会话环境能力清单——headless 或有 TUI、剪贴板可用性、网络访问、CBM/ast-grep 等外部依赖。每条验收信号必须标注验证通道（会话内可执行 / 需真实环境 / 需人工）；标注为"需真实环境或人工"的项不得进入会话内验收标准，改判为外部人工步骤（收尾时以 wait_for_user 交还用户）或改写为可会话内验证的口径，并写入 intake_report 的 open_questions 或 risks。禁止到 review/finish 阶段才发现验收不可执行。
@@ -37,16 +38,18 @@ humanReview: required
    - **代码任务**：需要修改、生成、删除或测试仓库代码/配置；
    - **非代码任务**：仅文档、解释、研究、问答或外部操作，不改代码；
    - **混合任务**：同时包含代码变更与非代码交付。
+   分类确认后立即修正步骤 0 的 CBM 预判偏差：预判非代码但实际为代码/混合任务 → 立即补触发首次 \`cbm_index\`；预判代码但实际为非代码任务 → 不回滚，如实记录偏差。
 6. **复杂度分流**：将请求分为三档，写入 \`intake_report.complexity\`：
    - **Trivial**：单文件、低风险、方案明确，预估 ≤2 小时 → 后续走轻量路径。用户可显式要求升级单项质量保障（独立计划检查 / 完整 review 审计 / 补充调研），升级项按 Standard 对应环节执行并在报告中记录。
    - **Standard**：常规多文件/有依赖 → 完整六阶段流程。
    - **Architecture**：跨模块、高风险、方案未定型 → 完整流程；必要时由 Sisyphus 按需调用 @oracle(analysis) 提供 advisory。
-7. **执行配置批问（一问二项：SDD、TDD）**：
-   - **适用判定**：任务产出涉及代码或文件实现改动 → 实现类，执行批问；产出为调研报告、查询结果、方案设计、评审意见等且不产生实现 diff → 非实现类，**跳过批问**，二项按默认关闭记录并在 intake_report 标注 \`execution_config.not_asked: non-implementation\`。
-     - 实现类任务用一次 \`question\` 批量询问 SDD、TDD二项；默认推荐均关闭，漏答或含糊项回落关闭并记录，不补问；Trivial 实现任务也必须完成这次批问。
+7. **执行配置批问（一问三项：SDD、TDD、Review 循环执行）**：
+   - **适用判定**：任务产出涉及代码或文件实现改动 → 实现类，执行批问；产出为调研报告、查询结果、方案设计、评审意见等且不产生实现 diff → 非实现类，**跳过批问**，三项按默认关闭记录并在 intake_report 标注 \`execution_config.not_asked: non-implementation\`。
+     - 实现类任务用一次 \`question\` 批量询问 SDD、TDD、Review 循环执行三项；默认推荐均关闭，漏答或含糊项回落关闭并记录，不补问；Trivial 实现任务也必须完成这次批问。
     - **SDD**：开启则落盘 spec/plan/progress/review。
     - **TDD**：开启则采用 RED → GREEN。
-8. **首次初始化 CBM（代码相关任务）**：对代码任务和混合任务由 Sisyphus 直接尝试一次首次 \`cbm_index\`，以便后续阶段使用准确的项目上下文；Review 可在最终 diff 上按需刷新索引。
+    - **Review 循环执行（review_loop）**：开启则 Review 发现 BLOCKER 后自动修复并重新 Review（复审闭环，最多 3 轮，通过才进入 Finish）；关闭（默认）则一次性修复全部 BLOCKER 并取得当前状态验证证据后直接进入 Finish，不重新 Review。
+8. **核对 CBM 初始化与记录（代码相关任务）**：核对步骤 0 的预判初始化与步骤 5 的分类修正结果，确保代码/混合任务在 discuss 代码调研与 Plan 影响面自查开始前已尽早触发首次 \`cbm_index\`（fail-open 口径不变）；Review 可在最终 diff 上按需刷新索引。
 9. **Fail-open**：CBM 调用失败、超时或返回 \`in-progress\` 时不得阻塞 intake；记录状态、错误/超时信息和残余风险，继续使用可用的文件读取、grep 等方式完成报告。不得伪造索引成功。
 10. **交接**：输出结构化 \`intake_report\`，其中必须包含需求清晰度、硬阻塞项、结构化假设和执行配置，并交给调用方；Sisyphus 主流程将其交给 discuss。非代码任务也必须交接分类与交付要求。
 
@@ -63,15 +66,15 @@ humanReview: required
 - \`hard_blockers\`：缺失关键字段或未达门禁的具体原因；非空时不得进入 discuss 设计确认；
 - \`assumptions[]\`：每项包含 A-ID、证据、置信度、错误后果、处理阶段和状态；
 - \`open_questions\` 与风险；
-- \`execution_config\`：SDD/TDD 的选择、默认推荐（全关）、依据及回落记录；非实现类任务标注 \`not_asked: non-implementation\`；
-- \`cbm\`: 是否执行、结果（成功/失败/超时/in-progress/不适用）、证据及 fail-open 说明；
+- \`execution_config\`：SDD/TDD/Review 循环执行（review_loop）的选择、默认推荐（全关）、依据及回落记录；非实现类任务标注 \`not_asked: non-implementation\`；
+- \`cbm\`: 代码相关性预判结果、首次 \`cbm_index\` 触发时机（步骤 0 预判触发 / 步骤 5 分类补触发 / 未触发及原因）、分类修正动作、结果（成功/失败/超时/in-progress/不适用）、证据及 fail-open 说明；
 - \`handoff\`: 明确“交给 discuss”，以及 discuss 的下一步。
 
 ## 规则
 
 - 只做 intake；不得在 Intake 阶段写实现代码、方案 spec、plan、ledger。
 - 需求澄清不是“字段填满”检查：先确认 WHAT/WHY，再允许 discuss 讨论 HOW；评分和硬阻塞必须在报告中留下可审计依据。
-- 代码/混合任务必须尝试一次首次 \`cbm_index\`；非代码任务不因普通文本工作触发索引。Intake 不委派 oracle analysis；Intake 是主 agent 自己的阶段。
+- 代码/混合任务的首次 \`cbm_index\` 必须在任何代码调研开始前尽早触发（步骤 0 预判 + 步骤 5 分类修正保证）；非代码任务不因普通文本工作触发索引，预判误触发不回滚、如实记录。Intake 不委派 oracle analysis；Intake 是主 agent 自己的阶段。
 - CBM 失败、超时、in-progress 一律 fail-open，并诚实记录，不把失败标记为成功。
 - 报告完成后必须交给 discuss，不得跳过 discuss 的需求澄清与方案总批准（Trivial 为开工确认形式）；执行配置批问不得在 discuss 重复执行。
 `,
