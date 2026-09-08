@@ -18,7 +18,7 @@ const PLAN_GATE_CHECKS = `### 检查维度（第 1 轮必须一次性穷尽全�
 - 依赖：依赖是否齐全、顺序是否合理、是否引入未声明的外部依赖；每条任务是否有可用的起点（前置产物与输入已就绪）。
 - 范围：是否含未授权/越界改动；声明的 Files 与任务是否对齐。
 - 测试策略与可执行性：是否有可验证的测试策略与验收标准、是否覆盖关键边界；步骤是否明确、可被 executor 直接执行，是否遗留模糊决定或未决阻塞决策。
-- 影响面（impact_estimate 覆盖校验）：校验计划声明的每个修改文件/公共符号及已知受影响调用方、被调用方或契约是否被 impact_estimate 覆盖；必要时对关键点抽查（cbm_search_graph 定位，必要时 cbm_trace/cbm_code 核对并列出具体缺口与 qualified name），不要求、不执行完整 trace；发现覆盖不足 → REJECT 并列出具体缺口；校验结论记入 plan status，供 Review 阶段做影响面复查对比。只做查询型检索，不调用 cbm_index、不重建索引；CBM 不可用时 fail-open——标注不确定性并建议 Review 阶段补查，不虚构影响面；简单任务跳过校验需说明理由。
+- 影响面（impact_estimate 覆盖校验）：校验计划声明的每个修改文件/公共符号及已知受影响调用方、被调用方或契约是否被 impact_estimate 覆盖；必要时对关键点抽查：优先 codebase-memory-mcp 的 search_graph 定位（先 list_projects 确认唯一健康 project），再用 trace_path/get_code_snippet 核对；仅当 catalog 无 \`codebase-memory-mcp\` 或出现允许的通道错误（binary_missing、spawn_failed、timeout、daemon/传输、invalid_json 或明确协议错误）时，才回退 cbm_search_graph/cbm_trace/cbm_code。列出具体缺口与 qualified name，不要求、不执行完整 trace；发现覆盖不足 → REJECT 并列出具体缺口；校验结论记入 plan status，供 Review 阶段做影响面复查对比。只做查询型检索，不调用 cbm_index、不重建索引；CBM 不可用时 fail-open——标注不确定性并建议 Review 阶段补查，不虚构影响面；简单任务跳过校验需说明理由。
 - 验收标准绑定可执行验证：每条验收标准必须绑定一条可直接执行的验证命令或明确的机械检查步骤（命令 + 预期输出/退出码），不得停留在"通过/符合"级别的口头描述；文档类任务必须有行级或文件级锚点目标（具体到目标行/目标段落/文件清单）；涉及一致性比对的验收必须固化抽查集（文件 + 断言清单），复审与 review 按同一清单复对。
 
 ### 输出契约与分级
@@ -40,7 +40,7 @@ const SOLUTION_ANALYSIS_CHECKS = `### 模式（请求必须准确选择其一；
 ### 输出要求（简洁且具体）
 - 覆盖五类输出：需求缺口（spec/plan 未覆盖的目标、边界与验收标准）、风险（实现阶段最可能出错、成本最高的点）、边界（方案明确不做什么、不可触达的范围）、反例/边界条件（需要显式处理的输入、失败与空场景）、验收标准（可验证、可测的成功判据）。
 - 每个输出项除指出问题外，必须附可操作的建议处理方式（怎么补/怎么改/怎么规避），使消费方可直接落实而不需反向猜测。
-- 结论引用 qualified name、文件路径、行号等可定位证据；需要对照现有实现时仅用查询型检索（cbm_search_graph/cbm_code 定位相关符号与调用链），不初始化索引。
+- 结论引用 qualified name、文件路径、行号等可定位证据；需要对照现有实现时仅用查询型检索：优先 codebase-memory-mcp 的 search_graph/get_code_snippet 定位相关符号与调用链（先 list_projects 确认唯一健康 project）；仅当 catalog 无该 server 或出现允许的通道错误时才回退 cbm_search_graph/cbm_code；不初始化索引。
 
 ### 边界（advisory）
 - 不授权、不替代用户决策：只做分析并给出结论，最终决策留给 orchestrator/sisyphus 与用户。

@@ -8,7 +8,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { buildCbmMissingMessage, resolveCbmBinaryPath, runCbmCli } from './cli';
+import { buildCbmMissingMessage, normalizeCbmCliArgs, resolveCbmBinaryPath, runCbmCli } from './cli';
 import type { SpawnFn, SpawnOptions, SpawnProc } from '../../cbm/process';
 import type { CbmIndexer } from './types';
 
@@ -63,6 +63,15 @@ function procOf(
   };
 }
 
+/** procOf 的 stdin 记录变体：把写入 stdin 的 JSON 收集到 values。 */
+function capturingStdinProc(
+  values: string[],
+  stdout = '{"ok":true}',
+  opts: { stderr?: string; exitCode?: number } = {},
+): SpawnProc {
+  return { ...procOf(stdout, opts), stdin: (data) => values.push(data) };
+}
+
 const searchOpts = {
   tool: 'search_graph',
   args: { query: 'findMe' },
@@ -70,27 +79,31 @@ const searchOpts = {
 };
 
 describe('runCbmCli：命令构建（无 shell）', () => {
-  test('命令优先使用 `--args-file` 参数数组', async () => {
-    let fileContents = '';
+  test('默认经 args-file 传 JSON（--args-file 临时文件，stdin 不写入）', async () => {
+    const stdinValues: string[] = [];
+    let argsJson: string | undefined;
     const { spawn, calls } = capturingSpawn((command) => {
-      fileContents = readFileSync(command[4], 'utf8');
-      return procOf('{"ok":true}');
+      argsJson = readFileSync(command[4], 'utf8');
+      return capturingStdinProc(stdinValues);
     });
     const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
     expect(result.ok).toBe(true);
-    expect(Array.isArray(calls[0].command)).toBe(true);
-    expect(calls[0].command.slice(0, 4)).toEqual([FAKE_BIN, 'cli', 'search_graph', '--args-file']);
-    expect(fileContents).toBe('{"query":"findMe","project":"root"}');
-    expect(() => readFileSync(calls[0].command[4], 'utf8')).toThrow();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].command[0]).toBe(FAKE_BIN);
+    expect(calls[0].command[1]).toBe('cli');
+    expect(calls[0].command[2]).toBe('search_graph');
+    expect(calls[0].command[3]).toBe('--args-file');
+    expect(JSON.parse(argsJson ?? '')).toEqual({ project: 'root', query: 'findMe', format: 'json' });
+    expect(stdinValues).toHaveLength(0);
   });
 
-  test('真实 spawn：参数原样传递，不经过 shell 解释', async () => {
+  test('真实 spawn：JSON 经 --args-file 传递，不经过 shell 解释', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cbm-noshell-'));
     try {
       const script = join(dir, 'echo-args');
       writeFileSync(
         script,
-       '#!/bin/sh\nprintf "%s" "$(cat "$4")" > "$CBM_OUT"\n',
+       '#!/bin/sh\ncat "$4" > "$CBM_OUT"\n',
         { mode: 0o755 },
       );
       const out = join(dir, 'out.txt');
@@ -113,6 +126,112 @@ describe('runCbmCli：命令构建（无 shell）', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('runCbmCli：daemon 坏状态自愈', () => {
+  const STALE_STDERR =
+    'Error: CBM daemon is active or starting but could not accept this client within 30000 ms';
+
+  test('accept 超时特征触发 daemon stop 后重试一次，重试成功则返回成功', async () => {
+    let cliCalls = 0;
+    let stopCalls = 0;
+    const cliCommands: string[][] = [];
+    const { spawn } = capturingSpawn((command) => {
+      if (command[1] === 'daemon') {
+        stopCalls += 1;
+        return procOf('daemon: stopped', { exitCode: 0 });
+      }
+      cliCalls += 1;
+      cliCommands.push(command);
+      if (cliCalls === 1) return procOf('', { exitCode: 1, stderr: STALE_STDERR });
+      return procOf('{"ok":true}');
+    });
+    const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
+    expect(result.ok).toBe(true);
+    expect(stopCalls).toBe(1);
+    expect(cliCalls).toBe(2);
+    // 自愈重试同样以 args-file 默认传参（与主链路一致）。
+    expect(cliCommands[1][3]).toBe('--args-file');
+  });
+
+  test('版本冲突（fingerprint/build 不匹配）特征同样触发自愈', async () => {
+    let stopCalls = 0;
+    const { spawn } = capturingSpawn((command) => {
+      if (command[1] === 'daemon') {
+        stopCalls += 1;
+        return procOf('daemon: stopped', { exitCode: 0 });
+      }
+      return procOf('', {
+        exitCode: 1,
+        stderr: 'CBM daemon rejected this client: fingerprint_mismatch. The client binary must match',
+      });
+    });
+    // 首次与重试都失败（daemon stop 成功但查询仍坏）→ 返回重试结果，不无限循环
+    const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
+    expect(result.ok).toBe(false);
+    expect(stopCalls).toBe(1);
+  });
+
+  test('daemon stop 被拒绝（committed client 占用）时仍重试一次，瞬时拒绝场景可恢复', async () => {
+    let cliCalls = 0;
+    let stopCalls = 0;
+    const { spawn } = capturingSpawn((command) => {
+      if (command[1] === 'daemon') {
+        stopCalls += 1;
+        return procOf('daemon: NOT stopped — 1 committed client(s) still use it.', { exitCode: 1 });
+      }
+      cliCalls += 1;
+      if (cliCalls === 1) return procOf('', { exitCode: 1, stderr: STALE_STDERR });
+      return procOf('{"ok":true}');
+    });
+    const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
+    expect(result.ok).toBe(true);
+    expect(stopCalls).toBe(1);
+    expect(cliCalls).toBe(2);
+  });
+
+  test('stop 被拒且重试仍失败时，如实返回重试错误', async () => {
+    let cliCalls = 0;
+    const { spawn } = capturingSpawn((command) => {
+      if (command[1] === 'daemon') {
+        return procOf('daemon: NOT stopped', { exitCode: 1 });
+      }
+      cliCalls += 1;
+      return procOf('', { exitCode: 1, stderr: STALE_STDERR });
+    });
+    const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('exit_nonzero');
+    expect(result.error?.message).toContain('could not accept this client');
+    expect(cliCalls).toBe(2);
+  });
+
+  test('普通业务错误（非 daemon 坏状态）不触发自愈', async () => {
+    let cliCalls = 0;
+    const { spawn } = capturingSpawn(() => {
+      cliCalls += 1;
+      return procOf('', { exitCode: 1, stderr: 'Error: project not found or not indexed' });
+    });
+    const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe('exit_nonzero');
+    expect(cliCalls).toBe(1);
+  });
+});
+
+describe('runCbmCli：严格 payload 规范化', () => {
+  test('查询工具强制 JSON 输出，且路径别名不透传给 CLI', () => {
+    expect(normalizeCbmCliArgs('search_graph', { query: 'handler', project_path: '/tmp' }, ROOT)).toEqual({
+      project: 'root', query: 'handler', format: 'json',
+    });
+    expect(normalizeCbmCliArgs('detect_changes', {
+      since: 'HEAD~1', repository_path: '/tmp', direction: 'inbound', depth: 3,
+    }, ROOT)).toEqual({ project: 'root', since: 'HEAD~1', direction: 'inbound', depth: 3, format: 'json' });
+    expect(normalizeCbmCliArgs('index_status', { project_path: '/tmp' }, ROOT)).toEqual({ project: 'root' });
+    expect(normalizeCbmCliArgs('query_graph', { query: 'MATCH (n) RETURN n' }, ROOT)).toEqual({
+      project: 'root', query: 'MATCH (n) RETURN n', format: 'json',
+    });
   });
 });
 
@@ -286,17 +405,17 @@ describe('runCbmCli：路径越界', () => {
   });
 
   test('使用当前目录名作为 project', async () => {
-    let fileContents = '';
+    let argsJson = '';
     const { spawn, calls } = capturingSpawn((command) => {
-      fileContents = readFileSync(command[4], 'utf8');
+      argsJson = readFileSync(command[4], 'utf8');
       return procOf('{"ok":true}');
     });
     const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
     expect(result.ok).toBe(true);
     expect(calls).toHaveLength(1);
-      expect(calls[0].command[3]).toBe('--args-file');
-      const target = JSON.parse(fileContents) as Record<string, unknown>;
-      expect(target.project).toBe('root');
+    expect(calls[0].command[3]).toBe('--args-file');
+    const target = JSON.parse(argsJson) as Record<string, unknown>;
+    expect(target.project).toBe('root');
   });
 });
 
@@ -313,6 +432,7 @@ describe('runCbmCli：结构化错误', () => {
     const { spawn } = capturingSpawn(() => procOf('this is not json'));
     const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
     expect(result.error?.code).toBe('invalid_json');
+    expect(result.error?.stdoutPreview).toBe('this is not json');
   });
 
   test('超大输出 → output_oversize', async () => {
@@ -387,23 +507,22 @@ describe('runCbmCli：新旧输入协议兼容', () => {
     const stdinValues: string[] = [];
     const spawn: SpawnFn = (command, options) => {
       calls.push({ command, options });
+      // 前两次（args-file、stdin）都报「不支持该输入方式」，迫使逐级回退到 raw。
       if (calls.length < 3) {
         const proc = procOf('', { stderr: 'error: unknown option --args-file', exitCode: 2 });
         return { ...proc, stdin: (data: string) => stdinValues.push(data) };
       }
       return procOf('{"ok":true}');
     };
-    // 第二次调用代表 stdin，显式记录 fake stdin 表面。
-    const original = spawn;
-    const observed: SpawnFn = (command, options) => {
-      const proc = original(command, options);
-      return proc;
-    };
-    const result = await runCbmCli(searchOpts, { spawn: observed, resolveBinary: () => FAKE_BIN });
+    const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
     expect(result.ok).toBe(true);
-    expect(calls[0].command).toContain('--args-file');
+    // 首选 args-file：带 --args-file 临时文件。
+    expect(calls[0].command[3]).toBe('--args-file');
+    // 其次 stdin：无 --args-file 标志，JSON 走 stdin。
     expect(calls[1].command).toEqual([FAKE_BIN, 'cli', 'search_graph']);
-    expect(calls[2].command[3]).toBe('{"query":"findMe","project":"root"}');
+    // 最后 raw：JSON 作为位置参数。
+    expect(calls[2].command[3]).toBe('{"project":"root","query":"findMe","format":"json"}');
+    // 仅 stdin 第二次调用会写入 stdin。
     expect(stdinValues).toHaveLength(1);
   });
 

@@ -39,6 +39,14 @@ export const SISYPHUS_WORKFLOW_PROTOCOL = `
 
 每次阶段切换必须输出最小 \`phase_handoff\`：\`current_phase\`、\`input_sources\`、\`completed\`、\`open_questions\`、\`next_action\`、\`risks\`、\`evidence\`、\`status\`、\`updated\`；阶段可追加专属字段。阶段 Skill 是详细操作手册，不是遵守本总契约的前置条件；Skill 未加载或阶段输入不完整时，不得假设阶段已完成，必须停在当前阶段并报告具体缺口。
 
+### 自主续航与暂停边界
+
+- 阶段的 \`completed\` 不是等待下一条用户消息的信号。输出 \`phase_handoff\` 后，立即在同一工作流中加载并执行下一阶段；Intake → Discuss → Plan → Execute → Review → Finish 必须连续推进，不得仅汇报交接结果后无故停止。
+- 每次开始或恢复工作时，根据最近的 \`phase_handoff\`、计划/todo/ledger、用户决策和新鲜证据识别当前阶段与 \`next_action\`；从第一个未终态动作继续，不依赖聊天记忆，也不要求用户重复发出“继续”。
+- 仅当缺少会改变范围、验收、方案方向或不可逆操作的用户决策，必须由用户批准，必须由用户在真实环境完成操作，或触发既定的三轮失败/复审上限时，才可以暂停。证据缺口、可自行调研的代码事实、可按既定计划执行的任务和已定义的 BLOCKER 修复不得作为等待用户的理由。
+- 需要暂停时必须调用 \`question\` 工具建立阻塞边界；先简要说明原因，再给出互斥、可执行的选项，其中必须明确标注推荐项及理由，并提供“其他/自定义”入口。不得用普通文本提问、沉默等待，或把内部 \`phase_handoff\` 当作用户操作。
+- 用户回复后立即将决策写回当前阶段输入并从 \`next_action\` 自动续航；若用户没有可回答的决策，继续自主处理或如实标记 \`failed\`，不得长期保持无解释的 \`pending\`。
+
 ### 完成边界
 
 没有新鲜、完整且覆盖验收标准的证据，不得声称完成。Review 负责正式证据审查；Finish 只接受 Review、Completion Matrix、ledger 和 evidence 均满足要求的阶段输入，只做只读交付汇总，不测试、不构建、不调用 CBM、不修改文件、不委派 subagent。`;

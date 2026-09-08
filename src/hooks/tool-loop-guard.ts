@@ -23,7 +23,7 @@
  *
  * 范围刻意收窄以避免破坏合法的重复调用：
  * - 所有工具在 N 次确认相同的连续调用后告警。
- * - 只有只读文件分析工具硬阻塞：轮询类工具（task_*、wait_for_*）合法地重复
+ * - 只有只读文件分析工具硬阻塞：长时间任务监督和轮询工具合法地重复
  *   相同调用以等待长时间后台任务，绝不能拒绝。
  * - task 工具在两个维度上都被豁免；task-session-manager 拥有自己的重复派生
  *   保护。
@@ -47,7 +47,6 @@ export const LOOP_GUARD_BLOCK_AT = 5;
  */
 export const LOOP_GUARD_EXEMPT: Record<string, true> = {
   task: true,
-  wait_for_user: true,
   wait_for_background_tasks: true,
 };
 

@@ -96,6 +96,7 @@ function cbmResult(result: CbmCliResult): ToolResult {
   };
   if (result.error?.code) body.code = result.error.code;
   if (result.error?.exitCode !== undefined) body.exitCode = result.error.exitCode;
+  if (result.error?.stdoutPreview) body.stdoutPreview = result.error.stdoutPreview;
   if (result.truncated) body.truncated = true;
   if (result.truncatedReason) body.truncatedReason = result.truncatedReason;
   return contentResult(body);
@@ -305,6 +306,7 @@ export function buildCbmTraceTool(
       properties: {
         symbol: { type: 'string', description: '符号名（函数/类等）' },
         direction: { type: 'string', enum: ['inbound', 'outbound'], description: '追踪方向' },
+        depth: { type: 'number', description: '调用链深度；1-4，按场景显式指定' },
       },
       required: ['symbol'],
     },
@@ -315,10 +317,15 @@ export function buildCbmTraceTool(
       if (direction !== undefined && direction !== 'inbound' && direction !== 'outbound') {
         return errorResult('direction 必须是 inbound 或 outbound');
       }
+      const depth = asNumber(input?.depth);
+      if (depth !== undefined && (!Number.isInteger(depth) || depth < 1 || depth > 4)) {
+        return errorResult('depth 必须是 1 到 4 的整数');
+      }
       const root = await rootOf(wctx, tctx);
       if (!root) return errorResult('无法解析当前会话的工作区根目录');
       const args: Record<string, unknown> = { function_name: symbol };
       if (direction) args.direction = direction;
+      if (depth !== undefined) args.depth = depth;
       const opts = execOpts(env, config, 'cbm_trace', TRACE_PATH_TOOL, args, root);
       return runQuery(env, root, opts);
     },
@@ -400,7 +407,12 @@ export function buildCbmDetectChangesTool(
       type: 'object',
       properties: {
         since: { type: 'string', description: '变更起始参照（如 commit / 时间）' },
-        repository_path: { type: 'string', description: '可选；必须位于工作区内' },
+        repository_path: { type: 'string', description: '可选；仅用于 workspace 边界校验，不影响查询目标（最终查询 project 恒为当前 workspace）' },
+        scope: { type: 'string', enum: ['files', 'impact'], description: 'files 仅变更文件；impact 含影响面' },
+        direction: { type: 'string', enum: ['inbound', 'outbound', 'both'], description: '影响面遍历方向' },
+        depth: { type: 'number', description: '影响面深度；2-4，按场景显式指定' },
+        limit: { type: 'number', description: '每个变更符号的结果上限' },
+        base_branch: { type: 'string', description: '比较基线分支' },
       },
     },
     async execute(input, tctx) {
@@ -411,6 +423,20 @@ export function buildCbmDetectChangesTool(
       if (since) args.since = since;
       const repositoryPath = asString(input?.repository_path);
       if (repositoryPath) args.repository_path = repositoryPath;
+      for (const key of ['scope', 'direction', 'base_branch'] as const) {
+        const value = asString(input?.[key]);
+        if (value) args[key] = value;
+      }
+      const depth = asNumber(input?.depth);
+      if (depth !== undefined && (!Number.isInteger(depth) || depth < 2 || depth > 4)) {
+        return errorResult('depth 必须是 2 到 4 的整数');
+      }
+      if (depth !== undefined) args.depth = depth;
+      const limit = asNumber(input?.limit);
+      if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+        return errorResult('limit 必须是正整数');
+      }
+      if (limit !== undefined) args.limit = limit;
       const opts = execOpts(
         env,
         config,

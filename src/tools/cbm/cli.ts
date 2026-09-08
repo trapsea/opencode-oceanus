@@ -52,7 +52,43 @@ const TRACE_QUERY_TOOLS = new Set<string>([
   QUERY_GRAPH_TOOL,
   DETECT_CHANGES_TOOL,
 ]);
-const PROJECT_TOOLS = new Set([SEARCH_GRAPH_TOOL, TRACE_PATH_TOOL, GET_CODE_SNIPPET_TOOL, QUERY_GRAPH_TOOL, DETECT_CHANGES_TOOL, INDEX_STATUS_TOOL]);
+function definedEntries(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(keys.flatMap((key) => source[key] === undefined ? [] : [[key, source[key]]]));
+}
+
+/**
+ * 仅向 CLI 传递该操作支持的字段；路径别名仅用于调用前 workspace 边界校验。
+ * search/trace/detect/query 的 CLI 缺省为 tree 输出，wrapper 必须强制 JSON。
+ */
+export function normalizeCbmCliArgs(
+  tool: string,
+  args: unknown,
+  workspaceRoot: string,
+  projectPath?: string,
+): Record<string, unknown> {
+  const source = (typeof args === 'object' && args !== null ? args : {}) as Record<string, unknown>;
+  if (tool === INDEX_REPOSITORY_TOOL) {
+    return { repo_path: projectPath ?? workspaceRoot, name: deriveProjectName(workspaceRoot) };
+  }
+  const project = deriveProjectName(workspaceRoot);
+  switch (tool) {
+    case SEARCH_GRAPH_TOOL:
+      return { project, ...definedEntries(source, ['query', 'label', 'name_pattern', 'limit', 'offset']), format: 'json' };
+    case TRACE_PATH_TOOL:
+      return { project, ...definedEntries(source, ['function_name', 'direction', 'depth', 'limit']), format: 'json' };
+    case GET_CODE_SNIPPET_TOOL:
+      return { project, ...definedEntries(source, ['qualified_name', 'include_neighbors']) };
+    case QUERY_GRAPH_TOOL:
+      // query_graph 同样缺省输出 tree 文本（实测 cbm_query invalid_json 根因），必须强制 JSON。
+      return { project, ...definedEntries(source, ['query', 'max_rows']), format: 'json' };
+    case DETECT_CHANGES_TOOL:
+      return { project, ...definedEntries(source, ['since', 'scope', 'direction', 'depth', 'limit', 'base_branch']), format: 'json' };
+    case INDEX_STATUS_TOOL:
+      return { project, ...definedEntries(source, ['verbose']) };
+    default:
+      return {};
+  }
+}
 
 /** 是否需要在查询前触发自动索引（index_repository / 状态类工具除外）。 */
 function shouldIndexBeforeQuery(tool: string): boolean {
@@ -280,11 +316,12 @@ function resultFromPass(
       ok: false,
       tool,
       data: null,
-      error: {
-        code: 'invalid_json',
-        message: 'CBM stdout is not valid JSON',
-        stderr,
-      },
+        error: {
+          code: 'invalid_json',
+          message: 'CBM stdout is not valid JSON',
+          stderr,
+          stdoutPreview: stdout.trim().slice(0, 500),
+        },
     };
   }
   return { ok: true, tool, data };
@@ -299,7 +336,7 @@ async function execute(
   env: Record<string, string | undefined>,
   timeoutMs: number,
   maxOutputBytes: number,
-  mode: 'args-file' | 'stdin' | 'raw' = 'raw',
+  mode: 'args-file' | 'stdin' | 'raw' = 'args-file',
 ): Promise<{ result: CbmCliResult; stderr: string }> {
   let argsFileDir: string | undefined;
   let command: string[];
@@ -329,6 +366,47 @@ async function execute(
 function isUnsupportedInputMode(stderr: string): boolean {
   // 只将明确针对输入协议的诊断视为 fallback；“invalid argument”通常是业务参数错误。
   return /(?:unknown|unrecognized|unsupported|unexpected)\s+(?:option|flag)\b|(?:option|flag)\s+['`-]*(?:args-file|stdin)\b|(?:args-file|stdin)\s+(?:is not supported|unsupported|unknown)|(?:unsupported|unknown|unrecognized)\s+(?:args-file|stdin)\b/i.test(stderr);
+}
+
+/**
+ * daemon 坏状态/版本冲突特征：CLI 以这些诊断退出时，daemon 处于
+ * 「活着但不接受新客户端」或「旧 build 残留」的可恢复状态（0.10.8 实测：
+ * 30s accept 超时、fingerprint_mismatch、conflicting process、upgrade drain
+ * 拒绝）。此时执行一次 `daemon stop` retire 坏 daemon 后重试原调用。
+ */
+const DAEMON_STALE_PATTERNS: readonly RegExp[] = [
+  /could not accept this client within \d+\s*ms/i,
+  /conflicting CBM process is active/i,
+  /fingerprint_mismatch|must match the running daemon's build/i,
+  /did not accept the upgrade drain/i,
+];
+
+/** 判断一条 CLI 错误文本是否属于 daemon 坏状态（可自愈）特征。 */
+export function isDaemonStaleFailure(message: string): boolean {
+  return DAEMON_STALE_PATTERNS.some((re) => re.test(message));
+}
+
+/**
+ * 执行 `daemon stop` 尝试 retire 坏 daemon。
+ * 有 committed client 时上游会拒绝（exit 1），此处如实返回 false，
+ * 由调用方放弃自愈并保留原始错误。
+ */
+async function retireDaemon(
+  spawn: SpawnFn,
+  binaryPath: string,
+  cwd: string,
+  env: Record<string, string | undefined>,
+  timeoutMs: number,
+): Promise<boolean> {
+  const pass = await runPass(
+    spawn,
+    [binaryPath, 'daemon', 'stop'],
+    cwd,
+    env,
+    Math.min(timeoutMs, 15_000),
+    'daemon stop',
+  );
+  return pass.kind === 'output' && pass.exitCode === 0;
 }
 
 function internalErrorResult(tool: string, error: unknown): CbmCliResult {
@@ -405,15 +483,7 @@ export async function runCbmCli(
   }
 
   // 5. 按当前 CBM CLI 契约规范化最终参数。
-  let normalizedArgs: unknown = options.args;
-  if (canonical === INDEX_REPOSITORY_TOOL) {
-    normalizedArgs = {
-      repo_path: projectPath ?? workspaceRoot,
-      name: deriveProjectName(workspaceRoot),
-    };
-  } else if (PROJECT_TOOLS.has(canonical)) {
-    normalizedArgs = { ...(options.args as Record<string, unknown>), project: deriveProjectName(workspaceRoot) };
-  }
+  const normalizedArgs = normalizeCbmCliArgs(canonical, options.args, workspaceRoot, projectPath);
   const jsonArg = JSON.stringify(normalizedArgs);
   const first = await execute(
     spawn,
@@ -429,7 +499,9 @@ export async function runCbmCli(
 
   let result = first.result;
 
-  // 新 CLI 优先 args-file；仅明确表示不支持该输入方式时逐级回退。
+  // 默认经 args-file 传参（临时 args.json + --args-file，JSON 不依赖 stdin 管道，
+  // 参数不进 ps/进程列表、可审计；仅多一次临时文件 I/O）；
+  // 仅当 CLI 明确不支持该输入方式时才逐级回退 stdin → raw（兼容旧二进制）。
   const protocolFallback = isUnsupportedInputMode(first.stderr) ||
     (isTraceTool(options.tool) && canonical === TRACE_PATH_TOOL && isToolNotFoundOutput('', first.stderr));
   if (!result.ok && result.error?.code === 'exit_nonzero' && protocolFallback) {
@@ -442,13 +514,16 @@ export async function runCbmCli(
     }
   }
 
-  // 6. trace_path 旧版本 fallback：canonical 调用因“工具不存在”失败时重试 trace_call_path
+  // 6. trace_path 旧版本 fallback：canonical 调用因“工具不存在”失败时重试 trace_call_path。
+  //    判定基准取最近一次失败尝试的 stderr（协议回退后 first.stderr 已不代表最终诊断）；
+  //    trace_call_path 是“最老二进制”的专用兼容通道，仍用 raw（positional json，上游最久
+  //    契约）执行，不套用 args-file 默认，避免对不认 --args-file 的旧二进制二次失败。
   if (
     !result.ok &&
     result.error?.code === 'exit_nonzero' &&
     isTraceTool(options.tool) &&
     canonical === TRACE_PATH_TOOL &&
-    isToolNotFoundOutput('', first.stderr)
+    isToolNotFoundOutput('', result.error?.message ?? '')
   ) {
     const fb = await execute(
       spawn,
@@ -459,10 +534,36 @@ export async function runCbmCli(
       env,
       timeoutMs,
       maxOutputBytes,
+      'raw',
     );
     if (fb.result.ok || !isToolNotFoundOutput('', fb.stderr)) {
       result = fb.result;
     }
+  }
+
+  // 7. daemon 坏状态自愈：30s accept 超时 / fingerprint_mismatch 等特征时，
+  //    先尽力 retire 坏 daemon（被 committed client 拒绝也无害——实测坏状态
+  //    多为瞬时性 accept 拒绝，直接重试即可恢复），再重试一次原调用；
+  //    重试仍失败则如实返回错误，绝不循环。
+  if (
+    !result.ok &&
+    result.error?.code === 'exit_nonzero' &&
+    isDaemonStaleFailure(result.error.message ?? '')
+  ) {
+    await retireDaemon(spawn, binaryPath, workspaceRoot, env, timeoutMs);
+    const retry = await execute(
+      spawn,
+      binaryPath,
+      canonical,
+      jsonArg,
+      workspaceRoot,
+      env,
+      timeoutMs,
+      maxOutputBytes,
+      'args-file',
+    );
+    if (retry.result.ok) return retry.result;
+    result = retry.result;
   }
 
   return result;

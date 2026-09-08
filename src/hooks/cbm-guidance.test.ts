@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildGrepReadHint,
+  createDirectMcpWriteGuard,
   CBM_GREP_READ_HINT_MARKER,
   CBM_GUIDANCE_MARKER,
   createCbmGuidanceHook,
@@ -69,15 +70,27 @@ function makeEvent(over: Partial<Record<string, unknown>> = {}) {
 }
 
 describe('buildGrepReadHint', () => {
-  test('返回带标记与结构化查询建议的文案', () => {
+  test('返回带标记、codebase-memory-mcp 优先与 wrapper 兜底的结构化查询建议', () => {
     const hint = buildGrepReadHint('/ws');
     expect(hint).toContain(CBM_GREP_READ_HINT_MARKER);
+    expect(hint).toContain('codebase-memory-mcp');
+    expect(hint).toContain('list_projects');
+    expect(hint).toContain('root_path');
     expect(hint).toContain('cbm_search_graph');
     expect(hint).toContain('/ws');
   });
 
   test('默认阈值常量为 3', () => {
     expect(DEFAULT_CBM_GREP_READ_MIN_CALLS).toBe(3);
+  });
+});
+
+describe('direct MCP 写入保护', () => {
+  test('拒绝已知写入型 direct MCP 工具，允许只读工具', async () => {
+    const guard = createDirectMcpWriteGuard();
+    await expect(guard({ tool: 'codebase-memory-mcp_delete_project' })).rejects.toThrow('只读查询');
+    await expect(guard({ tool: 'codebase-memory-mcp.ingest_traces' })).rejects.toThrow('只读查询');
+    await expect(guard({ tool: 'codebase-memory-mcp_search_graph' })).resolves.toBeUndefined();
   });
 });
 

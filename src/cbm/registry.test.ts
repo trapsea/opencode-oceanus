@@ -7,6 +7,9 @@
 import { describe, expect, test } from 'bun:test';
 import {
   CBM_BOUNDARY_NOTE,
+  DIRECT_MCP_POLICY,
+  DIRECT_MCP_DEPTH_POLICY,
+  DIRECT_MCP_SERVER,
   CBM_EVIDENCE_NOTE,
   CBM_LIFECYCLE,
   CBM_QUERY_EXAMPLES,
@@ -25,16 +28,11 @@ const REGISTERED = [
   'cbm_detect_changes',
 ];
 
-/** 文本中出现的所有 cbm_* 工具名必须都已注册，且不得出现裸（无 cbm_ 前缀）内部名。 */
+/** 文本中出现的所有 cbm_* fallback 工具名必须都已注册。 */
 function expectRegisteredToolsOnly(text: string): void {
   for (const match of text.matchAll(/\bcbm_[a-z_]+\b/g)) {
     expect(REGISTERED).toContain(match[0]);
   }
-  expect(text).not.toMatch(/(?<!cbm_)search_graph/);
-  expect(text).not.toMatch(/(?<!cbm_)trace_path/);
-  expect(text).not.toMatch(/(?<!cbm_)get_code_snippet/);
-  expect(text).not.toMatch(/(?<!cbm_)query_graph/);
-  expect(text).not.toMatch(/(?<!cbm_)detect_changes/);
 }
 
 describe('CBM_TOOLS 注册清单', () => {
@@ -48,11 +46,47 @@ describe('CBM_TOOLS 注册清单', () => {
 describe('共享示例与公共边界句', () => {
   test('CBM_QUERY_EXAMPLES 使用 OrderHandler 示例族', () => {
     expect(CBM_QUERY_EXAMPLES).toContain('cbm_search_graph(query=".*OrderHandler.*"');
-    expect(CBM_QUERY_EXAMPLES).toContain('cbm_trace(symbol="pkg.OrderHandler"');
+    expect(CBM_QUERY_EXAMPLES).toContain('cbm_trace(symbol="OrderHandler", direction="inbound", depth=3)');
     expect(CBM_QUERY_EXAMPLES).toContain('cbm_code(qualified_name="pkg.OrderHandler"');
     expect(CBM_QUERY_EXAMPLES).toContain('cbm_query(query="MATCH ... RETURN ...")');
-    expect(CBM_QUERY_EXAMPLES).toContain('cbm_detect_changes(since="HEAD~1")');
+    expect(CBM_QUERY_EXAMPLES).toContain('cbm_detect_changes(since="HEAD~1", direction="inbound", depth=3)');
     expectRegisteredToolsOnly(CBM_QUERY_EXAMPLES);
+  });
+
+  test('DIRECT_MCP_POLICY 固定 codebase-memory-mcp 优先、wrapper 兜底与语义边界', () => {
+    expect(DIRECT_MCP_POLICY).toContain('codebase-memory-mcp 优先规则');
+    // direct 主通道工具与参数契约
+    expect(DIRECT_MCP_POLICY).toContain('search_graph');
+    expect(DIRECT_MCP_POLICY).toContain('trace_path');
+    expect(DIRECT_MCP_POLICY).toContain('get_code_snippet');
+    expect(DIRECT_MCP_POLICY).toContain('detect_changes');
+    // wrapper 兜底工具仍完整列出；索引/Cypher 保持 wrapper 专用
+    expect(DIRECT_MCP_POLICY).toContain('cbm_search_graph');
+    expect(DIRECT_MCP_POLICY).toContain('cbm_trace');
+    expect(DIRECT_MCP_POLICY).toContain('cbm_code');
+    expect(DIRECT_MCP_POLICY).toContain('cbm_detect_changes');
+    expect(DIRECT_MCP_POLICY).toContain('cbm_index');
+    expect(DIRECT_MCP_POLICY).toContain('cbm_query');
+    // wrapper 兜底仅限通道/基础设施错误
+    expect(DIRECT_MCP_POLICY).toMatch(/binary_missing/);
+    expect(DIRECT_MCP_POLICY).toMatch(/invalid_json/);
+    expect(DIRECT_MCP_POLICY).toMatch(/超时|timeout/);
+    // direct 前置：catalog + root_path 项目确认
+    expect(DIRECT_MCP_POLICY).toContain(DIRECT_MCP_SERVER);
+    expect(DIRECT_MCP_POLICY).toContain('list_projects');
+    expect(DIRECT_MCP_POLICY).toContain('root_path');
+    // 语义错误与空结果不是切换通道的条件；写工具禁止；参数不混用
+    expect(DIRECT_MCP_POLICY).toMatch(/不是切换通道的条件/);
+    expect(DIRECT_MCP_POLICY).toMatch(/delete_project|ingest_traces/);
+    expect(DIRECT_MCP_POLICY).toMatch(/不把 wrapper\/direct 字段名混用/);
+  });
+
+  test('DIRECT_MCP_DEPTH_POLICY 覆盖 detect_changes 与 trace_path 的分层规则', () => {
+    expect(DIRECT_MCP_DEPTH_POLICY).toContain('detect_changes');
+    expect(DIRECT_MCP_DEPTH_POLICY).toContain('depth: 3');
+    expect(DIRECT_MCP_DEPTH_POLICY).toContain('depth: 4');
+    expect(DIRECT_MCP_DEPTH_POLICY).toContain('trace_path');
+    expect(DIRECT_MCP_DEPTH_POLICY).toContain('不得自动使用 5');
   });
 
   test('CBM_BOUNDARY_NOTE 声明文本/AST/文件/Web 不用 CBM 替代', () => {
@@ -89,7 +123,7 @@ describe('CBM_LIFECYCLE 三阶段主线', () => {
 
   test('阶段二：Plan 自查 impact_estimate，Oracle advisory 可选', () => {
     expect(lifecycle).toMatch(/plan[\s\S]{0,400}impact_estimate/);
-    expect(lifecycle).toMatch(/cbm_search_graph[\s\S]{0,80}cbm_trace/);
+    expect(lifecycle).toContain('codebase-memory-mcp 优先规则');
     expect(lifecycle).toMatch(/advisory/);
     expect(lifecycle).toMatch(/plan status|plan 状态/);
     expect(lifecycle).toMatch(/不重建索引|只.*查询|仅.*查询/);
@@ -99,7 +133,7 @@ describe('CBM_LIFECYCLE 三阶段主线', () => {
   test('阶段三：review 按需刷新并复查影响面（刷新 → 排查 → 对比 → 降级证据）', () => {
     expect(lifecycle).toMatch(/- review:[\s\S]{0,400}cbm_index/);
     expect(lifecycle).toMatch(/再次排查|重新排查/);
-    expect(lifecycle).toMatch(/cbm_detect_changes/);
+    expect(lifecycle).toContain('codebase-memory-mcp 优先规则');
     expect(lifecycle).toMatch(/对比/);
     expect(lifecycle).toMatch(/预估/);
     expect(lifecycle).toMatch(/降级/);
@@ -123,8 +157,10 @@ describe('cbmSection 角色段落', () => {
     }
   });
 
-  test('explorer：查询型允许、禁止 cbm_index、优先级序列与证据句', () => {
+  test('explorer：direct MCP 优先、wrapper 兜底、禁止 cbm_index 与证据句', () => {
     const section = cbmSection('explorer');
+    expect(section).toContain(DIRECT_MCP_POLICY);
+    expect(section).toContain('codebase-memory-mcp');
     expect(section).toContain('cbm_status');
     expect(section).toContain('cbm_search_graph');
     expect(section).toContain('cbm_trace');
@@ -133,18 +169,17 @@ describe('cbmSection 角色段落', () => {
     expect(section).toMatch(/ast_grep_search/);
   });
 
-  test('oracle：code→trace→query/detect_changes 分析顺序', () => {
+  test('oracle：direct 优先、wrapper 兜底，Cypher 仍走 wrapper', () => {
     const section = cbmSection('oracle');
-    expect(section).toContain('cbm_code');
-    expect(section).toContain('cbm_trace');
+    expect(section).toContain(DIRECT_MCP_POLICY);
     expect(section).toContain('cbm_query');
     expect(section).toMatch(/cbm_detect_changes/);
     expect(section).toMatch(/不确定性/);
   });
 
-  test('fixer：高风险公共符号修改前 trace/query 影响面，普通机械修改不强制', () => {
+  test('fixer：高风险公共符号修改前 direct trace（wrapper 兜底），Cypher wrapper，普通机械修改不强制', () => {
     const section = cbmSection('fixer');
-    expect(section).toContain('cbm_trace');
+    expect(section).toContain(DIRECT_MCP_POLICY);
     expect(section).toContain('cbm_query');
     expect(section).toMatch(/高风险|公共/);
     expect(section).toMatch(/修改前/);
@@ -152,11 +187,10 @@ describe('cbmSection 角色段落', () => {
     expect(section).toMatch(/fail-open|fallback|回退/i);
   });
 
-  test('librarian：外部资料走 Web，本地交叉验证用查询型 CBM', () => {
+  test('librarian：外部资料走 Web，本地交叉验证 direct 优先、wrapper 兜底', () => {
     const section = cbmSection('librarian');
     expect(section).toMatch(/websearch|webfetch/);
-    expect(section).toContain('cbm_search_graph');
-    expect(section).toContain('cbm_code');
+    expect(section).toContain(DIRECT_MCP_POLICY);
   });
 
   test('已删角色类型面收窄：CbmRole 不再包含 momus/metis（编译期）', () => {

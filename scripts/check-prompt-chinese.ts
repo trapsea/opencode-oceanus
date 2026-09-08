@@ -28,7 +28,7 @@ const APPROVED_TOKENS = new Set([
   'OpenCode', 'Oceanus', 'Sisyphus', 'CBM', 'Fixer', 'Explorer',
   'Librarian', 'Oracle', 'Designer', 'Observer', 'README', 'Markdown', 'TypeScript',
   'ESM', 'Bun', 'API', 'UI', 'UX', 'TUI', 'JSON', 'OCR', 'PDF', 'YAGNI', 'TDD', 'SDD', 'L1', 'L2', 'L3', 'L4', 'L5',
-  'AST', 'ast-grep', 'wait_for_user', 'intake_report', 'open_questions', 'risks', 'clipboard-image-observer',
+   'AST', 'ast-grep', 'intake_report', 'open_questions', 'risks', 'clipboard-image-observer',
   'ledger', 'pending', 'in_progress', 'completed', 'failed', 'blocked', 'evidence', 'updated_at', 'stale',
   'diff', 'Files', 'scope', 'acceptance', 'criteria', 'typecheck', 'build', 'real-surface', 'Review',
   'TUI', 'image', 'input', 'clipboard', 'browser', 'tool', 'call', 'background', 'worker', 'lane',

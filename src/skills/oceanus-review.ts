@@ -70,7 +70,7 @@ Review 是 Execute 完成后的正式审查阶段；Intake、discuss、Plan 和 
 ## 步骤
 0. **当前目录范围**——审查始终针对当前目录中的实际 diff 执行；不创建或合并隔离工作区。
 1. **审查查询前规划 CBM 预算**——先根据实际 diff 分类：纯文档 diff（仅 Markdown、注释或文案，且不影响代码契约）跳过刷新，记录 \`cbm: skipped (docs-only)\`。其余 diff 在 Review 开始允许调用 \`cbm_index\` 刷新索引，成功后再执行查询：首次尝试最多 30 秒；若状态为 starting/in-progress 或超时，最多再重试一次、最多 60 秒；总预算严格为 90 秒。预算耗尽、失败或工具不可用时记录 \`cbm: stale\`，改用 grep/read 与手工 diff 复查，记录降级证据、覆盖范围和残余风险，但不得仅因 CBM 故障阻断 Review。
-2. **在实际 diff 上重新检查影响面**——用 \`cbm_trace\`/\`cbm_detect_changes\` 对实际 diff 再次排查影响面，以实际代码为准，并与 plan 的 \`impact_estimate\` 普通对比；差异解释或退回 execute。
+2. **在实际 diff 上重新检查影响面**——索引完成后，先用 codebase-memory-mcp 的 \`trace_path(project, function_name, direction, depth)\` / \`detect_changes(project, since, direction, depth)\` 对实际 diff 排查影响面（先 list_projects 确认唯一健康 project）；仅当 catalog 无该 server 或出现允许的通道错误时，回退 \`cbm_trace(symbol, direction, depth)\` / \`cbm_detect_changes(since, direction, depth)\`。以实际代码为准，并与 plan 的 \`impact_estimate\` 普通对比；差异解释或退回 execute。
 3. **与计划预估普通对比**——将实际 diff 的影响面与 plan 的 \`impact_estimate\` 对比；一致则记为证据，不一致则解释差异或退回 execute。同时对比每任务实际与预估 diff 行数，显著偏差记为 plan 质量信号。
 4. **执行最终审查门禁**——在进入 Finish 前，根据 spec 和 plan 审查最终实际输出。
    - **代码格式审查**——对实际代码 diff（不含无关文件）识别并执行项目已有的 formatter 或 \`format:check\` 命令；读取完整输出与退出码，并确认修改区域的换行、import、声明、方法和控制流符合仓库风格。若仓库没有格式化命令，必须明确记录“无可用 formatter”，并以 \`git diff --check\` 和人工结构检查作为降级证据；已有格式检查失败或代码仍明显难以审查时，作为 **BLOCKER** 列入回退清单，不得仅以测试通过替代格式证据。

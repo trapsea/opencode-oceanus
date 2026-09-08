@@ -97,7 +97,7 @@ Oceanus 正文、`DELEGATION_BRIEF_PROMPT`、Sisyphus `TASK_CONTINUITY`、门禁
 - 记录：plan 固定 `## Gate Status` 字段（momus verdict + round + 时间；human: APPROVED/PENDING/REJECTED+reason）。
 - 放行：execute 开工前必须读到 `human: APPROVED`；`oceanus-execute` 补齐“只有 @momus 的 OKAY 才能继续执行”的人工门禁；Plan-Change Gate 同步。
 - 分流：仅复杂任务启用双门禁；简单任务沿用 slim 式单评审并在 plan status 记录跳过理由（与现有"简单任务可跳过"呼应）。
-- 拒绝/沉默：用户不响应 → 停止并记 `PENDING`，不得自行放行（沿用 `wait_for_user` 边界）。
+- 拒绝/沉默：用户不响应 → 停止并记 `PENDING`，不得自行放行（沿用用户阻塞边界）。
 
 ### 6. Metis 触发条件统一
 全部替换为 `METIS_TRIGGER` 引用；修 sisyphus.ts:44 病句；可对照 openagent metis 措辞校准。

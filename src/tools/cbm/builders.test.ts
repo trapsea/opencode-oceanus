@@ -286,21 +286,46 @@ describe('输入 schema 校验', () => {
     const res = await exec(tool, {});
     expect(res.error).toContain('query 必填');
   });
+
+  test('cbm_trace depth 越界（0/5/1.5）被拒绝', async () => {
+    const { ctx } = createMockCtx();
+    const tools = buildCbmTools(ctx, {}, { runCli: recordingRun([]), indexer: okIndexer() });
+    const tool = find(tools, 'cbm_trace');
+    for (const depth of [0, 5, 1.5]) {
+      const res = await exec(tool, { symbol: 'OrderHandler', direction: 'inbound', depth });
+      expect(res.error).toContain('depth 必须是 1 到 4 的整数');
+    }
+  });
+
+  test('cbm_detect_changes depth（1/5）与 limit（0/1.5）被拒绝', async () => {
+    const { ctx } = createMockCtx();
+    const tools = buildCbmTools(ctx, {}, { runCli: recordingRun([]), indexer: okIndexer() });
+    const tool = find(tools, 'cbm_detect_changes');
+    for (const depth of [1, 5]) {
+      const res = await exec(tool, { since: 'HEAD~1', depth });
+      expect(res.error).toContain('depth 必须是 2 到 4 的整数');
+    }
+    for (const limit of [0, 1.5]) {
+      const res = await exec(tool, { since: 'HEAD~1', limit });
+      expect(res.error).toContain('limit 必须是正整数');
+    }
+  });
 });
 
 // ─────────────────────────── cbm_trace 映射 canonical trace_path ───────────────────────────
 
 describe('cbm_trace 映射 canonical trace_path', () => {
-  test('调用 trace_path（canonical），带 function_name 与可选 direction', async () => {
+  test('调用 trace_path（canonical），带 function_name、direction 与 depth', async () => {
     const { ctx } = createMockCtx();
     const records: Array<{ tool: string; args: unknown }> = [];
     const tools = buildCbmTools(ctx, {}, { runCli: recordingRun(records), indexer: okIndexer() });
     const tool = find(tools, 'cbm_trace');
-    const res = await exec(tool, { symbol: 'OrderHandler', direction: 'inbound' });
+    const res = await exec(tool, { symbol: 'OrderHandler', direction: 'inbound', depth: 3 });
     const call = records[records.length - 1];
     expect(call.tool).toBe('trace_path');
     expect((call.args as Record<string, unknown>).function_name).toBe('OrderHandler');
     expect((call.args as Record<string, unknown>).direction).toBe('inbound');
+    expect((call.args as Record<string, unknown>).depth).toBe(3);
     expect(res.results[0].function).toBe('OrderHandler');
   });
 });
@@ -362,15 +387,18 @@ describe('cbm_code / cbm_detect_changes 映射', () => {
     expect(res.source).toContain('function foo');
   });
 
-  test('cbm_detect_changes 调用 detect_changes 并透传 since', async () => {
+  test('cbm_detect_changes 调用 detect_changes 并透传安全影响面参数', async () => {
     const { ctx } = createMockCtx();
     const records: Array<{ tool: string; args: unknown }> = [];
     const tools = buildCbmTools(ctx, {}, { runCli: recordingRun(records), indexer: okIndexer() });
     const tool = find(tools, 'cbm_detect_changes');
-    const res = await exec(tool, { since: '2026-01-01' });
+    const res = await exec(tool, { since: '2026-01-01', direction: 'inbound', depth: 3, limit: 50 });
     const call = records[records.length - 1];
     expect(call.tool).toBe('detect_changes');
     expect((call.args as Record<string, unknown>).since).toBe('2026-01-01');
+    expect((call.args as Record<string, unknown>).direction).toBe('inbound');
+    expect((call.args as Record<string, unknown>).depth).toBe(3);
+    expect((call.args as Record<string, unknown>).limit).toBe(50);
     expect(res.changed_files).toEqual(['b.ts']);
   });
 });

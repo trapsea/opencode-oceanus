@@ -21,7 +21,7 @@ import { createApplyPatchHook } from './apply-patch';
 import { applyJsonErrorRecovery } from './json-error-recovery';
 import { createToolOutputTruncator } from './tool-output-truncator';
 import { createToolLoopGuardHook } from './tool-loop-guard';
-import { createCbmGuidanceHook } from './cbm-guidance';
+import { createCbmGuidanceHook, createDirectMcpWriteGuard } from './cbm-guidance';
 import { createSecretReadGuardHook } from './secret-read-guard';
 import { createPlanningWriteGuardHook } from './planning-write-guard';
 import { registerImageMaterializer } from './image-materializer';
@@ -210,6 +210,15 @@ export async function registerOceanusHooks(
       await ctx.tool.hook('execute.after', loopGuard['tool.execute.after'] as never);
     } catch (e) {
       log('[oceanus] 注册 tool-loop-guard.after 失败', { error: messageOf(e) });
+    }
+  }
+
+  // direct MCP 写入工具始终 fail-closed；不依赖可关闭的 guidance。
+  if (isCodebaseMemoryEnabled(config)) {
+    try {
+      await ctx.tool.hook('execute.before', createDirectMcpWriteGuard() as never);
+    } catch (e) {
+      log('[oceanus] 注册 direct MCP 写入保护 hook 失败', { error: messageOf(e) });
     }
   }
 

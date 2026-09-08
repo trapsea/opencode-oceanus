@@ -363,6 +363,20 @@ export async function runSetup(
     },
 
     {
+      name: 'cbm-daemon',
+      run: () => {
+        // CBM daemon 预热必须先于 MCP 注册：宿主 reload 后 spawn 的 stdio MCP
+        // server 是首个 committed client，会立即以 session-managed 模式拉起
+        // daemon（随最后客户端断开而退出）；此后 `daemon start` 对已存在的
+        // session-managed daemon 退化为 no-op，permanent 常驻永远无法建立。
+        // 提前到 mcp.reload() 之前，宿主重启（daemon 已死）时才能抢先把
+        // daemon 以 permanent 模式拉起，后续 MCP 连接变为 connect-to-warm。
+        // 门控/环境构造在 wiring 层统一；fire-and-forget，失败 fail-open。
+        startDaemonPrewarm(shared, log);
+      },
+    },
+
+    {
       name: 'mcp',
       run: () => {
         // MCP 明确 detached：Promise pending 不得阻塞 setup，rejection 统一报告 async。
@@ -393,14 +407,11 @@ export async function runSetup(
     {
       name: 'tools',
       run: async () => {
-        // CBM daemon 常驻预热：消除 CLI 短命进程的 connect-or-start 启停震荡
-        // （诊断结论：30s accept 超时的根因）。门控/环境构造在 wiring 层统一，
-        // 任何失败 fail-open，绝不阻塞工具注册。
-        startDaemonPrewarm(shared, log);
-        // 注册 CLI fallback 工具：CBM 工具复用共享 runDeps / indexer
-  //   （env=CBM_CACHE_DIR 由 tools 层经 config.codebaseMemory.cacheDir 推导）。
+        // CBM daemon 预热已前移至 'cbm-daemon' 阶段（必须先于 MCP 注册执行）。
+        // 注册 CLI fallback 工具：复用共享 runDeps / indexer
+        // （env=CBM_CACHE_DIR 由 tools 层经 config.codebaseMemory.cacheDir 推导）。
         await registerOceanusTools(ctx, config, {
-      cbmRunDeps: shared.runDeps,
+          cbmRunDeps: shared.runDeps,
       cbmIndexer: shared.indexer,
       cbmCacheRoot: shared.cacheRoot,
         });

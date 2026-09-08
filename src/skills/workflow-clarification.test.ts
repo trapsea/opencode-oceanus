@@ -32,6 +32,22 @@ describe('Sisyphus 工作流澄清契约', () => {
     expect(prompt).toContain('next_action');
   });
 
+  test('Sisyphus 阶段完成后自主续航，暂停必须以带推荐和自定义入口的问题建立边界', () => {
+    const prompt = createSisyphusAgent().system!;
+    const intake = skill('oceanus-intake').content;
+    expect(prompt).toContain('自主续航与暂停边界');
+    expect(prompt).toContain('completed` 不是等待下一条用户消息的信号');
+    expect(prompt).toContain('不得仅汇报交接结果后无故停止');
+    expect(prompt).toContain('从第一个未终态动作继续');
+    expect(prompt).toContain('仅当缺少会改变范围、验收、方案方向或不可逆操作的用户决策');
+    expect(prompt).toContain('必须调用 `question` 工具建立阻塞边界');
+    expect(prompt).toContain('明确标注推荐项及理由');
+    expect(prompt).toContain('“其他/自定义”入口');
+    expect(prompt).toContain('不得长期保持无解释的 `pending`');
+    expect(intake).toContain('必须以 `question` 交还用户');
+    expect(intake).toContain('推荐项及“其他/自定义”入口');
+  });
+
   test('Review BLOCKER 处置由 review_loop 双模式控制', () => {
     const review = skill('oceanus-review').content;
     const execute = skill('oceanus-execute').content;

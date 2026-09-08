@@ -84,19 +84,28 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(prompt).toMatch(/禁止|不得|must not|do not/i);
   });
 
-  test('仅引用已注册 CBM 工具并包含初始化规则', () => {
+  test('CBM 工具均已注册，wrapper 兜底与 direct 项目确认规则存在', () => {
     const prompts = [buildOceanusPrompt(), createSisyphusAgent().system!, OCEANUS_DISCUSS_SKILL.content, OCEANUS_REVIEW_SKILL.content];
     for (const prompt of prompts) {
-      expect(prompt).not.toContain('trace_path');
       for (const match of prompt.matchAll(/\bcbm_[a-z_]+\b/g)) expect(registered).toContain(match[0]);
     }
     expect(prompts.join('\n')).toMatch(/grep/);
     expect(prompts.join('\n')).toMatch(/read/);
     expect(prompts.join('\n')).toContain('cbm_index');
+    expect(prompts.join('\n')).toContain('codebase-memory-mcp');
+    expect(prompts.join('\n')).toContain('root_path');
   });
 
-  test('工具参数示例完整，角色边界明确', () => {
+  test('codebase-memory-mcp 优先与 wrapper 兜底边界明确', () => {
     const explorer = createExplorerAgent().system!;
+    expect(explorer).toContain('cbm_search_graph');
+    expect(explorer).toContain('cbm_trace(symbol, direction, depth)');
+    // direct fallback 前置与参数命名隔离
+    expect(explorer).toContain('function_name');
+    expect(explorer).toContain('list_projects');
+    expect(explorer).toContain('root_path');
+    expect(explorer).toContain('binary_missing');
+    expect(explorer).toContain('invalid_json');
     expect(explorer).toContain('cbm_status');
     expect(explorer).toContain('禁止');
     expect(explorer).toContain('query=".*OrderHandler.*"');

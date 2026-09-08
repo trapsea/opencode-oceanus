@@ -1,5 +1,5 @@
 import type { AgentOverrideConfig } from '../config/schema';
-import { CBM_LIFECYCLE } from '../cbm/registry';
+import { CBM_LIFECYCLE, DIRECT_MCP_POLICY } from '../cbm/registry';
 import { SISYPHUS_WORKFLOW_PROTOCOL } from './protocol';
 
 export type PermissionConfig = NonNullable<AgentOverrideConfig['permission']>;
@@ -212,15 +212,15 @@ export function buildCompactPromptSections(
     : '可用 agent 的职责和边界以本提示词中的常驻 Agent 调度协议为准。';
   const wait = waitForUserEnabled
     ? '需要用户澄清、选择、批准或外部手动操作时，使用 question 工具建立阻塞边界。'
-    : '需要用户输入时，使用 question 工具；wait_for_user 不可用，不得引用或调用。';
+    : '需要用户输入时，使用 question 工具建立阻塞边界。';
   return {
     role: `${identity}\n优先复用现有上下文；只有专家收益明显超过协调成本时才创建新上下文。主 agent 始终负责用户交互、关键决策、结果整合和最终验证。`,
     agents: `${disabled}
 ${DISPATCH_PROTOCOL}
 遇到 bug、测试失败或异常行为时加载 oceanus-debugging Skill，先完成根因调查再修复。`,
     workflow: variant === 'sisyphus'
-      ? `${SISYPHUS_WORKFLOW_PROTOCOL}\n\nCBM 生命周期摘要：${CBM_LIFECYCLE.brief}`
-      : `需求、验收或范围变化时返回适当阶段；没有当前证据不得声称完成。\nCBM 生命周期：${CBM_LIFECYCLE.brief}`,
+      ? `${SISYPHUS_WORKFLOW_PROTOCOL}\n\nCBM 生命周期摘要：${CBM_LIFECYCLE.brief}\n\n${DIRECT_MCP_POLICY}`
+      : `需求、验收或范围变化时返回适当阶段；没有当前证据不得声称完成。\nCBM 生命周期：${CBM_LIFECYCLE.brief}\n\n${DIRECT_MCP_POLICY}`,
     communication: `${wait}\n直接、简洁、诚实地回答；不猜测关键事实，不重复用户请求，不用口头总结替代验证证据。`,
   };
 }

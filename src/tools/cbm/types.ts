@@ -52,6 +52,8 @@ export interface CbmCliError {
   message: string;
   /** 原始 stderr（仅供诊断，不直接当作成功结果）。 */
   stderr?: string;
+  /** 非 JSON stdout 的截断预览，供定位 CLI 格式/协议错误。 */
+  stdoutPreview?: string;
   /** 非零退出码（仅 exit_nonzero）。 */
   exitCode?: number;
 }

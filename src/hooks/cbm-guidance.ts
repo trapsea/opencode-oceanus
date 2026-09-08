@@ -11,7 +11,8 @@
  *     结果上追加一条引导文案供 agent 回退原生工具。
  *
  * after（execute.after）：
- *   - 已索引项目对**重复** grep/read 追加建议提示，建议改用结构化查询；
+ *   - 已索引项目对**重复** grep/read 追加建议提示，建议先确认 direct MCP catalog
+ *     与项目身份后改用结构化查询；
  *   - grep 的 text/comment/ast 模式、glob、ast_grep_* 一律不提示（避免误伤）；
  *   - 同一 session 只提示一次（去重）；
  *   - 尊重 codebaseMemory.guidance：guidanceEnabled=false 时全部静默。
@@ -42,6 +43,17 @@ export const CBM_GREP_READ_HINT_MARKER = '[oceanus:cbm]';
 /** 结构化查询引导追加的标记前缀。 */
 export const CBM_GUIDANCE_MARKER = '[oceanus:cbm-guidance]';
 
+const DIRECT_MCP_WRITE_TOOL = /^(?:codebase-memory-mcp[._])(?:delete_project|ingest_traces|manage_adr)$/;
+
+/** 运行时拒绝 direct MCP 写入工具，不能只依赖 prompt 约束。 */
+export function createDirectMcpWriteGuard() {
+  return async (event: { tool?: unknown }) => {
+    if (typeof event?.tool === 'string' && DIRECT_MCP_WRITE_TOOL.test(event.tool)) {
+      throw new Error('Oceanus 仅允许 codebase-memory-mcp 的只读查询；写入型 MCP 工具已被阻止。');
+    }
+  };
+}
+
 /** 默认索引检查/状态查询超时（毫秒）。 */
 const DEFAULT_CBM_GUIDANCE_TIMEOUT_MS = 30_000;
 
@@ -50,7 +62,7 @@ export function buildGrepReadHint(projectPath?: string): string {
   const scope = projectPath ? `项目 ${projectPath}` : '当前项目';
   return (
     `${CBM_GREP_READ_HINT_MARKER} 已索引${scope}，反复 grep/read 定位代码较慢；` +
-    '可改用 cbm_search_graph / cbm_trace / cbm_code 结构化查询，效率更高。'
+    '优先使用 codebase-memory-mcp（list_projects 按 root_path 确认 project 后调用 search_graph / trace_path / get_code_snippet）。仅当会话无 codebase-memory-mcp 或通道失败时，才用 cbm_search_graph / cbm_trace / cbm_code 兜底。'
   );
 }
 
