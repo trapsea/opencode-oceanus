@@ -1,51 +1,47 @@
 import { describe, expect, test } from 'bun:test';
-import { EXPLORER_DEFAULT_PERMISSION } from '../config/constants';
+import { READONLY_DEFAULT_PERMISSION } from '../config/constants';
 import { createAgents } from './index';
 import type { PluginConfig } from '../config/schema';
 
 /**
- * explorer findings 落盘权限契约（review B1 修复的回归测试）：
- * explorer 默认权限放开 .oceanus/findings/* 的 write（资源级、窄 allow 在前宽 deny 在后），
- * 其余写动作（edit/apply_patch/ast_grep_replace）保持 deny；
- * 其他只读 agent 不受影响。
+ * explorer 只读权限契约（2026-09 用户决策：调研结果不落盘）：
+ * explorer 与其他只读 agent 一致使用 READONLY_DEFAULT_PERMISSION，
+ * write 为普通 deny（无资源级放行）；历史 findings 落盘放行已移除。
  */
 
-type ResourceRule = Record<string, 'allow' | 'deny' | 'ask'>;
-
-function writeRuleOf(permission: unknown): ResourceRule | undefined {
+function writeRuleOf(permission: unknown): Record<string, 'allow' | 'deny' | 'ask'> | undefined {
   const rule = (permission as Record<string, unknown> | undefined)?.write;
-  return typeof rule === 'object' && rule !== null ? (rule as ResourceRule) : undefined;
+  return typeof rule === 'object' && rule !== null
+    ? (rule as Record<string, 'allow' | 'deny' | 'ask'>)
+    : undefined;
 }
 
-describe('explorer findings 落盘权限', () => {
-  test('EXPLORER_DEFAULT_PERMISSION：write 为资源级规则，findings allow、其余 deny', () => {
-    const write = writeRuleOf(EXPLORER_DEFAULT_PERMISSION);
-    expect(write).toBeDefined();
-    expect(write!['.oceanus/findings/*']).toBe('allow');
-    expect(write!['*']).toBe('deny');
-    // allow 在 deny 之前声明（宿主 findLast 语义下窄规则可命中、宽规则兜底 fail-closed）。
-    expect(Object.keys(write!)[0]).toBe('.oceanus/findings/*');
+describe('explorer 只读权限（不落盘）', () => {
+  test('createAgents：explorer 使用统一只读默认权限，write 为 deny 且无资源级规则', () => {
+    const agents = createAgents({} as PluginConfig);
+    const explorer = agents.find((a) => a.name === 'explorer');
+
+    expect(explorer?.permission).toBe(READONLY_DEFAULT_PERMISSION);
+    expect((explorer?.permission as Record<string, unknown>).write).toBe('deny');
+    expect(writeRuleOf(explorer?.permission)).toBeUndefined();
   });
 
-  test('EXPLORER_DEFAULT_PERMISSION：其余写动作保持 deny', () => {
-    const perm = EXPLORER_DEFAULT_PERMISSION as Record<string, unknown>;
+  test('其余写动作保持 deny', () => {
+    const perm = READONLY_DEFAULT_PERMISSION as Record<string, unknown>;
+    expect(perm.write).toBe('deny');
     expect(perm.edit).toBe('deny');
     expect(perm.apply_patch).toBe('deny');
     expect(perm.ast_grep_replace).toBe('deny');
     expect(perm.task).toBe('deny');
   });
 
-  test('createAgents：explorer 应用 EXPLORER_DEFAULT_PERMISSION，oracle/librarian 保持全量只读', () => {
+  test('createAgents：oracle/librarian 与 explorer 权限一致', () => {
     const agents = createAgents({} as PluginConfig);
     const explorer = agents.find((a) => a.name === 'explorer');
     const oracle = agents.find((a) => a.name === 'oracle');
     const librarian = agents.find((a) => a.name === 'librarian');
 
-    expect(writeRuleOf(explorer?.permission)).toBeDefined();
-    expect(writeRuleOf(oracle?.permission)).toBeUndefined();
-    expect(oracle?.permission && (oracle.permission as Record<string, unknown>).write).toBe('deny');
-    expect(
-      librarian?.permission && (librarian.permission as Record<string, unknown>).write,
-    ).toBe('deny');
+    expect(explorer?.permission).toEqual(oracle?.permission);
+    expect(explorer?.permission).toEqual(librarian?.permission);
   });
 });

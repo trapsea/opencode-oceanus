@@ -160,24 +160,15 @@ export const READONLY_DEFAULT_PERMISSION: NonNullable<
   todowrite: 'deny',
   // 剪贴板可能包含与当前任务无关的敏感内容；只允许主编排 agent 按需处理。
   clipboard_image: 'deny',
+  // 用户级配置写入只允许主编排 agent（/oceanus-config 流程）执行。
+  oceanus_config_generate: 'deny',
 };
 
 /**
- * explorer 专用默认 permission：在只读基线上放开 findings 落盘路径。
- * write 采用资源级规则（窄 allow 声明在前、宽 deny 在后，宿主 findLast 语义）：
- * - `*` 不跨 `/` 时：`.oceanus/findings/<file>` 命中 allow，其余路径命中 deny；
- * - `*` 跨 `/` 时：两条规则均匹配，后声明的 `*` deny 生效（fail-closed 回落只读）。
- * 无论宿主 glob 语义如何都不会放大写权限。
+ * explorer 与其他只读 agent 一致使用 READONLY_DEFAULT_PERMISSION：
+ * 调研结果不落盘，完整结论在对话回复中以七字段结构返回（2026-09 用户决策）。
+ * 历史 findings 落盘放行（EXPLORER_DEFAULT_PERMISSION）已移除。
  */
-export const EXPLORER_DEFAULT_PERMISSION: NonNullable<
-  AgentOverrideConfig['permission']
-> = {
-  ...READONLY_DEFAULT_PERMISSION,
-  write: {
-    '.oceanus/findings/*': 'allow',
-    '*': 'deny',
-  },
-};
 
 /**
  * 写入 subagent（fixer/designer）的工具族 permission：

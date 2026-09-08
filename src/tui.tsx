@@ -254,8 +254,22 @@ function sameLocation(left: { directory: string; workspaceID?: string } | undefi
   return left.directory === right.directory && left.workspaceID === right.workspaceID;
 }
 
+/**
+ * agent 标识规范化：小写化 + 别名归一到 canonical 名。
+ * session.agent 可能携带 displayName、别名或大小写差异；精确比较会漏匹配，
+ * 导致活跃标记"时灵时不灵"。只做 alias → canonical 单向归一
+ * （AGENT_ALIASES: { 别名: canonical }），canonical 名直接小写返回。
+ */
+export function normalizeAgentKey(value: string | undefined): string | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  const lower = value.toLowerCase();
+  return AGENT_ALIASES[lower] ?? lower;
+}
+
 function matchesAgent(agent: { id: string; name: string }, agentID: string | undefined): boolean {
-  return agent.id === agentID || agent.name === agentID;
+  const key = normalizeAgentKey(agentID);
+  if (!key) return false;
+  return normalizeAgentKey(agent.id) === key || normalizeAgentKey(agent.name) === key;
 }
 
 function isRunningStatus(status: LocalSessionStatus): boolean {
@@ -269,11 +283,15 @@ export function getRelatedRunningSessions(context: Context, sessionID: string, l
   const rootID = context.data.session.root(sessionID);
 
   // 仅统计当前会话及其子会话族，避免同一目录下其它窗口的会话把 agent 标记为活跃。
+  // root() 防御：当前会话尚未 sync 时 root() 返回 undefined，若仍用
+  // `undefined === undefined` 判族，同目录其它未 sync 会话会被误纳（误亮）；
+  // 此时只认 family() 集合，等 sync 完成后 root 比较自然恢复。
   return context.data.session.list()
     .filter((session) => {
       if (deletedSessionIDs.has(session.id)) return false;
 
-      const isFamilySession = familyIDs.has(session.id) || context.data.session.root(session.id) === rootID;
+      const isFamilySession = familyIDs.has(session.id)
+        || (rootID !== undefined && context.data.session.root(session.id) === rootID);
       if (!isFamilySession) return false;
 
       const status = localStatuses.get(session.id) ?? context.data.session.status(session.id);
@@ -342,6 +360,9 @@ type SolidModuleSurface = {
   createSignal: <T>(initial: T) => [() => T, (update: (prev: T) => T) => T];
   createComponent: (component: unknown, props: unknown) => JSX.Element;
   Show: unknown;
+  /** 自检用；注入的测试表面可缺省（缺省时跳过自检，保持旧契约）。 */
+  createEffect?: (fn: () => void) => void;
+  createRoot?: (fn: () => unknown) => unknown;
 };
 
 interface PanelReactivity {
@@ -351,14 +372,55 @@ interface PanelReactivity {
   dynamic: (build: () => JSX.Element) => JSX.Element;
 }
 
-/** 探测宿主共享 solid 实例；不可用时返回 undefined（fail-open 回退）。 */
+/**
+ * 响应式自检：区分真 client 构建与 server 构建（server 构建同样导出
+ * createSignal/createComponent，但信号不触发 effect——假阳性会导致 tick
+ * bump 静默失效，活跃标记"时灵时不灵"）。原理：effect 订阅 signal 后写
+ * 入新值，真正的响应式实现会让 effect 至少再执行一次。
+ * 注入表面缺省 createEffect/createRoot 时无法自检，按函数形状接受（测试契约）。
+ */
+async function isReactiveSolid(solid: SolidModuleSurface): Promise<boolean> {
+  if (typeof solid.createEffect !== 'function' || typeof solid.createRoot !== 'function') {
+    return true;
+  }
+  return await new Promise<boolean>((resolve) => {
+    let runs = 0;
+    let dispose: (() => void) | undefined;
+    try {
+      dispose = solid.createRoot!(() => {
+        const [read, write] = solid.createSignal(0);
+        solid.createEffect!(() => {
+          read();
+          runs += 1;
+        });
+        // 微任务后写入并再等一轮：client 构建初始执行 1 次 + 写入触发 1 次。
+        void Promise.resolve().then(() => {
+          write((value) => value + 1);
+          void Promise.resolve().then(() => {
+            try { dispose?.(); } catch { /* noop */ }
+            resolve(runs >= 2);
+          });
+        });
+        return undefined;
+      }) as (() => void) | undefined;
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * 探测宿主共享 solid 实例；不可用时返回 undefined（fail-open 回退）。
+ *
+ * 探测顺序（修复时灵时不灵的关键）：
+ * 1. 裸 'solid-js' 优先：opencode 宿主别名表只拦截裸名并重写到宿主共享
+ *    实例——这是唯一保证插件信号参与宿主 reactive graph 的入口；子路径
+ *    不被别名重写，可能 resolve 到插件侧独立实例（跨 graph，bump 静默失效）。
+ * 2. 'solid-js/dist/solid.js' 兜底：裸宿主/测试环境无别名，裸名在 node
+ *    条件下解析为无响应式的 server 构建，需显式 client 子路径。
+ * 每个候选都要通过响应式自检（server 构建会被拒），全部失败返回 undefined。
+ */
 export async function loadPanelReactivity(injected?: SolidModuleSurface): Promise<PanelReactivity | undefined> {
-  // solid-js 的 node/worker 导出条件指向 server 构建（SSR，信号无响应式），
-  // 客户端真实响应式在 dist/solid.js（@opentui/solid 同款导入路径）。加载顺序：
-  // 1. 显式 client 子路径：裸宿主/测试环境可用；
-  // 2. 裸 'solid-js'：opencode2 宿主别名表（"solid-js" → 宿主共享实例）拦截
-  //    该 specifier，子路径反而不被重写；
-  // 3. 两者皆失败（旧宿主无 solid-js）→ undefined 回退 requestRender 模式。
   const tryImport = async (specifier: string): Promise<SolidModuleSurface | undefined> => {
     try {
       const mod = (await import(specifier)) as unknown as SolidModuleSurface;
@@ -369,32 +431,44 @@ export async function loadPanelReactivity(injected?: SolidModuleSurface): Promis
       return undefined;
     }
   };
-  const solid = injected ?? (await tryImport('solid-js/dist/solid.js')) ?? (await tryImport('solid-js'));
-  if (
-    !solid ||
-    typeof solid.createSignal !== 'function' ||
-    typeof solid.createComponent !== 'function'
-  ) {
-    return undefined;
+  const candidates: Array<{ source: string; solid: SolidModuleSurface | undefined }> = injected
+    ? [{ source: 'injected', solid: injected }]
+    : [
+        { source: 'solid-js(宿主别名)', solid: await tryImport('solid-js') },
+        { source: 'solid-js/dist/solid.js(client)', solid: await tryImport('solid-js/dist/solid.js') },
+      ];
+  for (const { source, solid } of candidates) {
+    if (
+      !solid ||
+      typeof solid.createSignal !== 'function' ||
+      typeof solid.createComponent !== 'function'
+    ) {
+      continue;
+    }
+    if (!(await isReactiveSolid(solid))) {
+      console.debug('[oceanus-tui] panel reactivity 候选被自检拒绝（无响应式，疑似 server 构建）:', source);
+      continue;
+    }
+    // tick 从 1 起：keyed Show 的 when 为 falsy 时不渲染 children。
+    const [readTick, writeTick] = solid.createSignal(1);
+    return {
+      bump: () => {
+        writeTick((tick) => tick + 1);
+      },
+      dynamic: (build) =>
+        solid.createComponent(solid.Show, {
+          keyed: true,
+          get when() {
+            return readTick();
+          },
+          // 必须声明形参：solid 只把 child.length > 0 的函数视为 render prop，
+          // keyed 模式下 when 变化时以新 tick 值重复调用（零参函数会被原样
+          // 返回、不求值）。
+          children: (_tickValue: number) => build(),
+        }),
+    };
   }
-  // tick 从 1 起：keyed Show 的 when 为 falsy 时不渲染 children。
-  const [readTick, writeTick] = solid.createSignal(1);
-  return {
-    bump: () => {
-      writeTick((tick) => tick + 1);
-    },
-    dynamic: (build) =>
-      solid.createComponent(solid.Show, {
-        keyed: true,
-        get when() {
-          return readTick();
-        },
-        // 必须声明形参：solid 只把 child.length > 0 的函数视为 render prop，
-        // keyed 模式下 when 变化时以新 tick 值重复调用（零参函数会被原样
-        // 返回、不求值）。
-        children: (_tickValue: number) => build(),
-      }),
-  };
+  return undefined;
 }
 
 interface PanelWire {
@@ -452,11 +526,21 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
     // 可能缺少刚创建的子会话，● 标记要等下一个事件才出现。
     const sync = context.data?.session?.sync;
     if (!sync || pending.length === 0) return;
-    await Promise.allSettled(
-      pending.map((sessionID) =>
-        Promise.resolve(sync(sessionID)).catch(() => undefined),
-      ),
+    const results = await Promise.allSettled(
+      pending.map((sessionID) => Promise.resolve(sync(sessionID))),
     );
+    // sync 失败重试一次：allSettled 吞错后若不重试，且后续无事件，
+    // session.list() 将长期缺少新子会话（● 延迟无限期）。
+    const failed = results
+      .filter((result) => result.status === 'rejected')
+      .map((result) => (result as PromiseRejectedResult).reason);
+    if (failed.length > 0) {
+      await Promise.allSettled(
+        pending.map((sessionID) =>
+          Promise.resolve(sync(sessionID)).catch(() => undefined),
+        ),
+      );
+    }
     commit();
   };
   const flushNow = () => {
@@ -522,6 +606,34 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
     dirtySessions.add(sessionID);
     scheduleFlush();
   };
+
+  // ── running 状态周期校准（治 ● 滞留）──
+  // 事件缺口（subagent 结束不发 idle/execution 终态、事件名与宿主不匹配）
+  // 会让 localStatuses 里的 running 永不清理。低频对照 host store 的权威
+  // status，发现已 idle 即修正并刷新；异常静默跳过（下一轮再试）。
+  const STATUS_CALIBRATE_MS = 2000;
+  const calibrateRunningSessions = () => {
+    let changed = false;
+    for (const [sessionID, status] of state.localStatuses) {
+      if (!isRunningStatus(status)) continue;
+      let hostStatus: LocalSessionStatus | undefined;
+      try {
+        hostStatus = (context.data?.session as
+          | { status?: (id: string) => LocalSessionStatus | undefined }
+          | undefined
+        )?.status?.(sessionID);
+      } catch {
+        continue;
+      }
+      if (hostStatus !== undefined && !isRunningStatus(hostStatus)) {
+        state.localStatuses.set(sessionID, hostStatus);
+        changed = true;
+      }
+    }
+    if (changed) scheduleFlush();
+  };
+  const calibrateTimer = setInterval(calibrateRunningSessions, STATUS_CALIBRATE_MS);
+
   const setLocalStatus = (sessionID: string, status: LocalSessionStatus) => {
     state.deletedSessionIDs.delete(sessionID);
     state.localStatuses.set(sessionID, status);
@@ -591,7 +703,7 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
       if (!family.has(event.data.sessionID)) return;
 
       const agent = listAgents(context).find(
-        (candidate) => candidate.id === event.data.agent || candidate.name === event.data.agent,
+        (candidate) => matchesAgent(candidate, event.data.agent),
       );
       if (!agent) return;
 
@@ -610,7 +722,7 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
       const sessionAgent = (context.data?.session as { get?: (id: string) => { agent?: string } | undefined } | undefined)
         ?.get?.(event.data.sessionID)?.agent;
       const agent = listAgents(context).find(
-        (candidate) => candidate.id === sessionAgent || candidate.name === sessionAgent,
+        (candidate) => matchesAgent(candidate, sessionAgent),
       );
       if (!agent) return;
 
@@ -629,8 +741,21 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
 
   refreshAgents();
 
+  // ── degraded 渲染兜底 ──
+  // 宿主无共享 solid 实例时（reactivity undefined），requestRender 只调度
+  // 重绘帧、不重跑组件函数——普通刷新永远不更新面板。此时用 500ms 低频
+  // 轮询触发 scheduleFlush（读最新 state 后 commit），保证 ● 标记最终收敛；
+  // 有 reactivity 的正常路径不启用，零额外开销。
+  let degradedTimer: ReturnType<typeof setInterval> | undefined;
+  if (!reactivity) {
+    console.debug('[oceanus-tui] panel reactivity 不可用，启用 500ms degraded 轮询刷新');
+    degradedTimer = setInterval(() => scheduleFlush(), 500);
+  }
+
   const dispose = () => {
     if (flushTimer) clearTimeout(flushTimer);
+    if (degradedTimer) clearInterval(degradedTimer);
+    clearInterval(calibrateTimer);
     disposePresetWatcher();
     pendingRefreshes.forEach((timer) => clearTimeout(timer));
     pendingRefreshes.clear();

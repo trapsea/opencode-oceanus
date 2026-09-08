@@ -307,6 +307,53 @@ export async function runSetup(
         },
         reply: syntheticReply,
       },
+      gitCommit: {
+        // 对话式提交分析：注入用户消息并触发 LLM turn；delivery 透传
+        // 用户提交意图（steer/queue）。session.prompt 缺失时降级为
+        // synthetic 回执提示，不静默失败。
+        prompt: async (sessionID, text, delivery) => {
+          if (typeof ctx.session.prompt !== 'function') {
+            throw new Error('宿主 session.prompt 能力不可用');
+          }
+          await ctx.session.prompt({
+            sessionID,
+            text,
+            delivery,
+          });
+        },
+        reply: syntheticReply,
+      },
+      aiRatio: {
+        // 对话式占比分析：注入统计工作流指令并触发 LLM turn（模式同
+        // /git-commit）。session.prompt 缺失时降级 synthetic 回执，不静默失败。
+        prompt: async (sessionID, text, delivery) => {
+          if (typeof ctx.session.prompt !== 'function') {
+            throw new Error('宿主 session.prompt 能力不可用');
+          }
+          await ctx.session.prompt({
+            sessionID,
+            text,
+            delivery,
+          });
+        },
+        reply: syntheticReply,
+      },
+      oceanusConfig: {
+        // 对话式厂商配置：注入工作流指令并触发 LLM turn（模式同 /git-commit）；
+        // 由 oceanus_config_generate 工具完成确定性写入。session.prompt 缺失时
+        // 降级为 synthetic 回执提示，不静默失败。
+        prompt: async (sessionID, text, delivery) => {
+          if (typeof ctx.session.prompt !== 'function') {
+            throw new Error('宿主 session.prompt 能力不可用');
+          }
+          await ctx.session.prompt({
+            sessionID,
+            text,
+            delivery,
+          });
+        },
+        reply: syntheticReply,
+      },
     });    for (const command of commands) {
       draft.add(command);
     }

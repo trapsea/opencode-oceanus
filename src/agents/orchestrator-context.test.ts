@@ -142,4 +142,29 @@ describe('formatOracleBrief Oracle 调度上下文', () => {
     expect(formatOracleBrief({ ...complete, evidence: '' })).toContain('信息缺口: evidence');
     expect(getMissingOracleSceneFields({ ...complete, scene: 'diff-review', diffScope: '' })).toContain('diffScope');
   });
+
+  test('正式 Review 使用 graded verdict，不注入 no_verdict', () => {
+    const review = { ...complete, scene: 'review' as const, changedFiles: 'src/index.ts' };
+    const text = formatOracleBrief(review);
+    expect(text).toContain('verdict: PASS/WARN/FAIL');
+    expect(text).not.toContain('no_verdict');
+    expect(getMissingOracleSceneFields(review)).toEqual([]);
+  });
+
+  test('缺失 scene 不得静默回退 consult', () => {
+    const missingScene = { ...complete } as Partial<typeof complete> & { scene?: undefined };
+    delete missingScene.scene;
+    expect(getMissingOracleSceneFields(missingScene)).toContain('scene');
+  });
+
+  test('非法 scene 不得绕过正式路由', () => {
+    const invalid = { ...complete, scene: 'unknown' as never };
+    expect(getMissingOracleSceneFields(invalid)).toContain('scene');
+    expect(formatOracleBrief(invalid)).toContain('信息缺口: scene');
+  });
+
+  test('正式 Review 要求主 Agent 当前判断', () => {
+    const missing = { ...complete, scene: 'review' as const, recommendationStatus: '' };
+    expect(getMissingOracleBriefFields(missing)).toContain('recommendationStatus');
+  });
 });

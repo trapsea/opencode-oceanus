@@ -19,12 +19,23 @@ describe('commands 聚合与 v2 注册契约', () => {
     reply: async () => {},
   });
 
-  test('createCommands 只注册 preset，不再注册 cbm 命令', () => {
-    const commands = createCommands({ preset: presetStub() });
+  test('createCommands 注册 preset、git-commit 与 ai-ratio，不再注册 cbm 命令', () => {
+    const commands = createCommands({
+      preset: presetStub(),
+      gitCommit: {
+        prompt: async () => {},
+        reply: async () => {},
+      },
+      aiRatio: {
+        prompt: async () => {},
+        reply: async () => {},
+      },
+    });
     const command = commands.find((c) => c.name === 'preset') as CommandDefinition | undefined;
     expect(command, 'command preset 已注册').toBeDefined();
     expect(typeof command!.description).toBe('string');
     expect(typeof command!.execute).toBe('function');
+    expect(commands.some((c) => c.name === 'ai-ratio'), 'ai-ratio 命令已注册').toBe(true);
     expect(commands.some((c) => c.name === 'cbm'), 'cbm 命令不应注册').toBe(false);
   });
 
@@ -58,6 +69,8 @@ describe('commands 聚合与 v2 注册契约', () => {
         rebuildAgents: async () => { calls.push('rebuild'); },
         reply: async (_s, text) => { replies.push(text); },
       },
+      gitCommit: { prompt: async () => {}, reply: async () => {} },
+      aiRatio: { prompt: async () => {}, reply: async () => {} },
     });
     const preset = commands.find((c) => c.name === 'preset')!;
     await preset.execute({ sessionID: 's1', prompt: { text: 'ok' }, delivery: 'steer' });

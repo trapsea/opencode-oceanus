@@ -4,11 +4,12 @@ import { getReviewScene, REVIEW_SCENES } from './scenes';
 import { createSisyphusAgent } from '../agents/sisyphus';
 
 describe('REVIEW_SCENES 注册表', () => {
-  test('恰好注册五个审核场景', () => {
+    test('注册正式 Review 与辅助审核场景', () => {
     expect(Object.keys(REVIEW_SCENES).sort()).toEqual([
       'completion-audit',
       'diff-review',
       'plan-gate',
+      'review',
       'solution-analysis',
       'visual-acceptance',
     ]);
@@ -56,6 +57,7 @@ describe('REVIEW_SCENES 注册表', () => {
     expect(scene.contract).toBe('advisory');
     expect(scene.independence).toBe('fresh-session');
     expect(scene.onReject).toBe('return-execute');
+    expect(scene.maxRounds).toBe(3);
     expect(scene.maxRounds).toBe(3);
   });
 
@@ -132,6 +134,18 @@ describe('plan-gate · momus 契约迁移', () => {
   test('历史场景明确可由协议兼容保留', () => {
     expect(scene!.name).toBe('plan-gate');
   });
+
+  test('review：Oracle 正式全量审查（graded/fresh-session/return-execute）', () => {
+    const scene = REVIEW_SCENES['review']!;
+    expect(scene.reviewer).toBe('oracle');
+    expect(scene.subjectType).toBe('diff');
+    expect(scene.contract).toBe('graded');
+    expect(scene.independence).toBe('fresh-session');
+    expect(scene.onReject).toBe('return-execute');
+    for (const dimension of ['性能', '安全', '边界', '可靠性', '兼容']) {
+      expect(scene.checks).toContain(dimension);
+    }
+  });
 });
 
 describe('solution-analysis · metis 契约迁移', () => {
@@ -202,7 +216,7 @@ describe('validateSubjectPath · diff-review（含 .oceanus 内 .diff/.patch 落
 });
 
 describe('requiredContext · 委派必附上下文（单一来源）', () => {
-  test('五场景全部声明 requiredContext 且非空', () => {
+  test('全部场景声明 requiredContext 且非空', () => {
     for (const [name, scene] of Object.entries(REVIEW_SCENES)) {
       expect(scene.requiredContext.length, `${name} requiredContext 非空`).toBeGreaterThan(0);
       for (const item of scene.requiredContext) {
@@ -211,16 +225,18 @@ describe('requiredContext · 委派必附上下文（单一来源）', () => {
     }
   });
 
-  test('plan-gate 必附上下文覆盖 spec/findings/前轮 BLOCKER', () => {
+  test('plan-gate 必附上下文覆盖 spec/会话内调研结论/前轮 BLOCKER', () => {
     const ctx = REVIEW_SCENES['plan-gate']!.requiredContext.join('\n');
     expect(ctx).toContain('spec / intake');
-    expect(ctx).toContain('research_brief 或 .oceanus/findings/');
+    expect(ctx).toContain('会话内已回收的 research_brief');
+    expect(ctx).not.toContain('.oceanus/findings');
     expect(ctx).toContain('round=N、前轮 BLOCKER');
   });
 
-  test('sisyphus Oracle advisory 边界明确', () => {
+  test('sisyphus 负责 Oracle 正式 Review 编排边界', () => {
     const system = createSisyphusAgent().system!;
     expect(system).toContain('Oracle 顾问');
-    expect(system).toContain('spec/plan advisory');
+    expect(system).toContain('Review 阶段执行正式只读审查');
+    expect(system).toContain('BLOCKER 回退');
   });
 });

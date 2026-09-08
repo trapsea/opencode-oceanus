@@ -59,18 +59,18 @@ describe('CBM-GATE-01 静态提示词契约', () => {
   test('Plan 自查影响面，Oracle advisory 可选且不构成门禁', () => {
     const prompt = createSisyphusAgent().system!;
     expect(prompt).toContain('impact_estimate');
-    expect(prompt).toContain('Oracle 顾问只按需提供 spec/plan advisory');
+    expect(prompt).toContain('consult/analysis 仍仅在需要时调用并只返回 advisory');
     expect(prompt).toContain('不授予批准');
   });
 
-  test('Review 主流程与 Oracle advisory 边界明确', () => {
+  test('Review 由 Oracle 正式审查且 Sisyphus 保留编排边界', () => {
     const review = OCEANUS_REVIEW_SKILL.content;
-    expect(review).toMatch(/Review subagent.*只读.*不修改代码.*不运行 task/i);
-    expect(review).toContain('Oracle 仅条件委派');
-    expect(review).toMatch(/Sisyphus.*负责 spec\/plan\/diff 审查、测试验证和完成审计/);
-    expect(review).toMatch(/@oracle.*高风险架构审查/);
+    expect(review).toMatch(/正式审查由 Oracle 只读执行.*不修改代码.*不运行 task/i);
+    expect(review).toContain('每次 Review 都必须使用 `review` 场景');
+    expect(review).toContain('@oracle');
+    expect(review).toContain('准备 Brief');
     expect(review).toMatch(/不确定性.*未达成/);
-    expect(review).toContain('核查 evidence、tests 与 completionMatrix');
+    expect(review).toContain('完整 Oracle Brief');
   });
 
   test('Finish 只接受阶段输入且声明禁止动作', () => {
@@ -166,10 +166,10 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(sys).toContain('Review');
   });
 
-  test('sisyphus system 含 Plan 自查与可选 Oracle advisory', () => {
+  test('sisyphus system 含 Plan 自查与 Oracle Review 正式职责', () => {
     const sys = createSisyphusAgent().system!;
     expect(sys).toContain('impact_estimate');
-    expect(sys).toContain('Oracle 顾问只按需提供 spec/plan advisory');
+    expect(sys).toContain('Oracle 在 Review 阶段执行正式只读审查');
     expect(sys).not.toContain('plan-gate 的预估');
   });
 });

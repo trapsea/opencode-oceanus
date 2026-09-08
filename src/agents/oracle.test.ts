@@ -16,7 +16,7 @@ describe('oracle 基础定义', () => {
     expect(description).toContain('consult');
     expect(description).toContain('analysis');
     expect(description).toContain('顾问');
-    expect(description).toMatch(/可选分析顾问/);
+    expect(description).toMatch(/正式 Review 审查者/);
   });
 
   test('model 传入时原样写入定义', () => {
@@ -72,7 +72,7 @@ describe('oracle 内嵌场景标准指令（0.46.1 修复：注册表 checks 不
     expect(system).toContain('**必附上下文**');
     expect(system).toContain('信息缺口');
     expect(system).toContain('spec / intake 报告路径');
-    expect(system).toContain('已有的 research_brief / findings');
+    expect(system).toContain('会话内已回收的 research_brief / findings');
   });
 
   test('内嵌 solution-analysis 指令', () => {
@@ -80,8 +80,10 @@ describe('oracle 内嵌场景标准指令（0.46.1 修复：注册表 checks 不
     expect(system).toContain('<oracle_scene name="analysis">');
     expect(system).toContain('BACKGROUND_RESEARCH');
     expect(system).toContain('SOLUTION_ANALYSIS');
-    expect(system).not.toContain('<oracle_scene name="diff-review">');
-    expect(system).not.toContain('<oracle_scene name="completion-audit">');
+    expect(system).toContain('<oracle_scene name="review">');
+    expect(system).toContain('性能与资源');
+    expect(system).toContain('安全');
+    expect(system).toContain('边界与异常');
   });
 
   test('visual-acceptance（observer 场景）不内嵌于 oracle', () => {

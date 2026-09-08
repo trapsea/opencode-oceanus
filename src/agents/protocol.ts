@@ -3,7 +3,10 @@ export const DISPATCH_PROTOCOL = `### 调度协议
 所有调度使用结构化对象参数：subagent({ agent, description, prompt, background })。prompt 必须是实际包含换行的多行 Markdown 文本；目标、背景、范围、非目标、验收、验证、风险和预期输出必须各自独占一行或一个小节，字段之间留空行。禁止把多个字段压在同一行，禁止只传字面量 \\n。派发前声明稳定 lane 与文件边界；不要依赖队列通知。
 
 ### 后台调研同步门禁
-Explorer 与 Oracle 的只读调研可以使用 \`background: true\`，但派发后必须登记 child session ID、agent、研究问题和状态。进入 Discuss 或 Plan 之前，先对本任务已登记且会影响当前阶段的每个后台调研 session 使用宿主提供的会话等待能力（OpenCode v2 优先使用 \`session.wait({ sessionID })\`），再回收其成功、失败或阻塞结果。后台完成通知不是放行依据；不得在结果回收前消费调研结论。无法确认完成、结果缺失或宿主不提供等待能力时，当前阶段保持 \`pending\`/\`blocked\` 并报告缺口，不得猜测或伪造完成。无相关后台调研时记录 \`not_applicable\`。`;
+Explorer 与 Oracle 的只读调研可以使用 \`background: true\`，但派发后必须登记 child session ID、agent、研究问题和状态。进入 Discuss 或 Plan 之前，先对本任务已登记且会影响当前阶段的每个后台调研 session 使用宿主提供的会话等待能力（OpenCode v2 优先使用 \`session.wait({ sessionID })\`），再回收其成功、失败或阻塞结果。后台完成通知不是放行依据；不得在结果回收前消费调研结论。无法确认完成、结果缺失或宿主不提供等待能力时，当前阶段保持 \`pending\`/\`blocked\` 并报告缺口，不得猜测或伪造完成。无相关后台调研时记录 \`not_applicable\`。
+
+### 调研复用规则
+委派只读调研（explorer/librarian/oracle）前，先检查会话内已回收的调研结论（七字段结构）：研究问题、task 标识、state_head、变更文件集合与用户决策均未变化（复用快照未失效）时，直接复用已有结论并只做增量提问，不重复全量调研；结论缺失、部分覆盖或快照失效时 fail-open 重新委派，不得使用过期结论或把旧结论当作已验证事实。正式审查场景（review/diff-review/completion-audit/visual-acceptance）不复用任何审查会话与旧 verdict；前置调研事实只能作为未验证线索注入 Brief，由审核者基于当前 state_head 与 diff_scope 的证据重新核验。`;
 
 /** Sisyphus 六阶段总契约的唯一来源；Workflow Skill 与 Sisyphus system 共同消费。 */
 export const SISYPHUS_WORKFLOW_PROTOCOL = `
@@ -24,7 +27,7 @@ export const SISYPHUS_WORKFLOW_PROTOCOL = `
 
 - 不跳过阶段；Trivial 任务可以在阶段内压缩步骤，但必须记录 \`condensed_steps\` 与理由。
 - 需求、验收或范围变化返回 Discuss/Plan；结构性计划变化返回 Plan。
-- Oracle 顾问只按需提供 spec/plan advisory，不是固定 gate，不授予批准，也不替代 Review。
+- Oracle 在 Review 阶段执行正式只读审查并输出 graded 结论；Sisyphus 负责委派、证据核验、BLOCKER 回退和阶段推进。Oracle 顾问的 consult/analysis 仍是 advisory，不授予批准。
 - CBM 由 Intake 负责首次初始化并故障开放；Plan 复用并自查 \`impact_estimate\`；Review 可针对最终 diff 刷新索引并复查；Finish 不调用 CBM。
 - Review 是 Execute 后的正式审查阶段；其他阶段只做阶段内自查，不重复创建 Review/Completion Audit 门禁。
 - Review 发现 BLOCKER 时立即退回 Execute；WARNING 记录后可继续；UNCERTAIN 阻塞并请求用户决策；INFO 不阻塞。

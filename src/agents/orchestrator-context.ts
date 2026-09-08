@@ -5,7 +5,7 @@ export interface DelegationBrief {
 }
 function render(value: string | string[]): string { return Array.isArray(value) ? value.join('\n') : value; }
 
-export type OracleScene = 'consult' | 'analysis' | 'diff-review' | 'completion-audit';
+export type OracleScene = 'consult' | 'analysis' | 'review' | 'diff-review' | 'completion-audit';
 
 /** Oracle 的完整调度上下文；摘要负责定向，路径负责让 Oracle 自行读取原始证据。 */
 export interface OracleBrief {
@@ -45,7 +45,7 @@ export interface OracleBrief {
 }
 
 const ORACLE_BRIEF_FIELDS = [
-  'objective', 'decisionNeeded', 'currentPhase', 'goal', 'acceptanceCriteria', 'constraints',
+  'scene', 'objective', 'decisionNeeded', 'recommendationStatus', 'currentPhase', 'goal', 'acceptanceCriteria', 'constraints',
   'currentState', 'changedFiles', 'impact', 'evidence', 'contextPaths', 'expectedOutput',
   'stateHead', 'diffScope', 'evidenceFreshness',
 ] as const satisfies readonly (keyof OracleBrief)[];
@@ -53,9 +53,14 @@ const ORACLE_BRIEF_FIELDS = [
 const ORACLE_SCENE_FIELDS: Record<OracleScene, readonly (keyof OracleBrief)[]> = {
   consult: ['currentState', 'changedSymbols', 'impact', 'callChain', 'behavior', 'alternatives', 'evidence'],
   analysis: ['alternatives', 'selectedApproach', 'tradeoffs', 'rejectedOptions', 'lockedDecisions', 'assumptions', 'edgeCoverage', 'truths', 'prohibitions'],
+  review: ['userIntent', 'nonGoals', 'changedFiles', 'changedSymbols', 'impact', 'callChain', 'behavior', 'acceptanceCriteria', 'lockedDecisions', 'edgeCoverage', 'truths', 'prohibitions', 'evidence', 'stateHead', 'diffScope', 'evidenceFreshness'],
   'diff-review': ['changedFiles', 'changedSymbols', 'impact', 'evidence', 'stateHead', 'diffScope', 'evidenceFreshness'],
   'completion-audit': ['acceptanceCriteria', 'evidence', 'priorFindings', 'unresolvedBlockers', 'evidenceFreshness'],
 };
+
+function isOracleScene(value: unknown): value is OracleScene {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(ORACLE_SCENE_FIELDS, value);
+}
 
 export function getMissingOracleBriefFields(brief: Partial<OracleBrief>): string[] {
   return ORACLE_BRIEF_FIELDS.filter((field) => {
@@ -66,16 +71,22 @@ export function getMissingOracleBriefFields(brief: Partial<OracleBrief>): string
 }
 
 export function getMissingOracleSceneFields(brief: Partial<OracleBrief>): string[] {
-  const fields = [...ORACLE_BRIEF_FIELDS, ...ORACLE_SCENE_FIELDS[brief.scene ?? 'consult']];
-  return [...new Set(fields)].filter((field) => {
+  const sceneFields = isOracleScene(brief.scene)
+    ? ORACLE_SCENE_FIELDS[brief.scene]
+    : [];
+  const fields = [...ORACLE_BRIEF_FIELDS, ...sceneFields];
+  const missing = [...new Set(fields)].filter((field) => {
     const value = brief[field];
     return value === undefined || (typeof value === 'string' && value.trim().length === 0) ||
       (Array.isArray(value) && value.length === 0);
   });
+  if (!isOracleScene(brief.scene) && !missing.includes('scene')) missing.unshift('scene');
+  return missing;
 }
 
 export function formatOracleBrief(brief: OracleBrief): string {
   const missing = getMissingOracleSceneFields(brief);
+  const formalReview = brief.scene === 'review';
   const lines = [
     '## Oracle Brief',
     `- 场景: ${brief.scene}`,
@@ -120,9 +131,9 @@ export function formatOracleBrief(brief: OracleBrief): string {
     `- evidence_freshness: ${brief.evidenceFreshness}`,
     `- expected_output: ${render(brief.expectedOutput)}`,
     '- read_only: true',
-    '- no_verdict: true',
+    ...(formalReview ? ['- verdict: PASS/WARN/FAIL（正式 Review）'] : ['- no_verdict: true']),
   ];
-  if (missing.length > 0) lines.push('', `信息缺口: ${missing.join('、')}`, '缺失字段不得被假设为已确认；Oracle 只能基于可确认材料给出 advisory。');
+  if (missing.length > 0) lines.push('', `信息缺口: ${missing.join('、')}`, formalReview ? '缺失字段不得被假设为已确认；正式 Review 必须先报告缺口。' : '缺失字段不得被假设为已确认；Oracle 只能基于可确认材料给出 advisory。');
   return lines.join('\n');
 }
 

@@ -14,6 +14,7 @@ import {
   setup,
   sortAgentRows,
   bareModelName,
+  normalizeAgentKey,
 } from './tui';
 import { ALL_AGENT_NAMES } from './config/constants';
 
@@ -173,6 +174,53 @@ describe('sidebar 活跃会话隔离', () => {
     const result = getRelatedRunningSessions(context as never, 'a', new Map(), new Set());
 
     expect(result.map((session) => session.id)).toEqual(['a']);
+  });
+
+  test('root 未同步（undefined）时不把其它未同步会话误判为同族', () => {
+    const location = { directory: '/project' };
+    // root 表为空：当前会话与其它会话的 root 都是 undefined。
+    const sessions: FakeSession[] = [
+      { id: 'cur', time: { created: 1 }, agent: 'oceanus', location },
+      { id: 'other-window', time: { created: 2 }, agent: 'sisyphus', location },
+    ];
+    const context = makeContext({
+      current: 'cur',
+      sessions,
+      family: { cur: ['cur'] },
+      root: {},
+      running: new Set(['cur', 'other-window']),
+      location,
+    });
+
+    const result = getRelatedRunningSessions(context as never, 'cur', new Map(), new Set());
+
+    // undefined === undefined 不得成立：只统计 family 内的 cur，不误亮 sisyphus。
+    expect(result.map((session) => session.id)).toEqual(['cur']);
+  });
+
+  test('session.agent 大小写差异仍能点亮（经 getRows 验证）', () => {
+    const location = { directory: '/project' };
+    const sessions: FakeSession[] = [
+      { id: 's1', time: { created: 1 }, agent: 'Explorer', location },
+    ];
+    const context = makeContext({
+      current: 's1',
+      sessions,
+      family: { s1: ['s1'] },
+      root: { s1: 's1' },
+      running: new Set(['s1']),
+      location,
+      agents: [
+        { id: 'explorer', name: 'Explorer', mode: 'subagent' },
+        { id: 'oracle', name: 'Oracle', mode: 'subagent' },
+      ],
+    });
+
+    const rows = getRows(context as never, 's1', new Map(), new Set());
+    const explorer = rows.find((row) => row.id === 'explorer');
+    const oracle = rows.find((row) => row.id === 'oracle');
+    expect(explorer?.active).toBe(true);
+    expect(oracle?.active).toBe(false);
   });
 });
 
@@ -494,5 +542,65 @@ describe('readConfigAgentModels 配置直读模型解析', () => {
     const directory = await withUserConfig('{}');
     expect(readConfigAgentModels(directory)).toEqual({});
     delete process.env.XDG_CONFIG_HOME;
+  });
+});
+
+
+describe('normalizeAgentKey agent 标识规范化', () => {
+  test('别名与大小写归一；未知名原样小写返回', () => {
+    expect(normalizeAgentKey('Explorer')).toBe('explorer');
+    expect(normalizeAgentKey('explore')).toBe('explorer');
+    expect(normalizeAgentKey('ORACLE')).toBe('oracle');
+    expect(normalizeAgentKey(undefined)).toBeUndefined();
+    expect(normalizeAgentKey('custom-agent')).toBe('custom-agent');
+  });
+});
+
+describe('panel reactivity 响应式自检', () => {
+  test('信号不触发 effect（server 构建特征）→ 拒绝返回 undefined', async () => {
+    let runs = 0;
+    const fakeSolid = {
+      createSignal: <T,>(_initial: T) => {
+        let value = _initial;
+        const read = () => value;
+        const write = (update: (prev: T) => T) => {
+          value = update(value);
+          // server 构建特征：写入不通知任何订阅者。
+        };
+        return [read, write] as [() => T, (update: (prev: T) => T) => T];
+      },
+      createComponent: () => undefined,
+      Show: {},
+      createRoot: (fn: () => unknown) => {
+        fn();
+        return () => {};
+      },
+      createEffect: (fn: () => void) => {
+        runs += 1;
+        fn();
+      },
+    };
+    const reactivity = await loadPanelReactivity(fakeSolid as never);
+    expect(reactivity).toBeUndefined();
+    expect(runs).toBeGreaterThan(0);
+  });
+
+  test('缺省 createEffect/createRoot 的注入表面跳过自检仍被接受（旧契约）', async () => {
+    const minimal = {
+      createSignal: <T,>(initial: T) => {
+        let value = initial;
+        return [
+          () => value,
+          (update: (prev: T) => T) => {
+            value = update(value);
+          },
+        ] as [() => T, (update: (prev: T) => T) => T];
+      },
+      createComponent: () => undefined,
+      Show: {},
+    };
+    const reactivity = await loadPanelReactivity(minimal as never);
+    expect(reactivity).toBeDefined();
+    expect(typeof reactivity!.bump).toBe('function');
   });
 });

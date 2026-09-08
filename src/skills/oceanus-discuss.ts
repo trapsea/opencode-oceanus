@@ -26,6 +26,8 @@ humanReview: required
 
 进入任何 Discuss 工作前，先检查当前任务登记的后台 Explorer/Oracle child session。对每个会影响本阶段的 session 使用宿主会话等待能力（OpenCode v2 优先使用 \`session.wait({ sessionID })\`），并回收成功、失败或阻塞结果；不要仅依据完成通知放行。等待或结果回收失败时，保持本阶段 \`pending\`/\`blocked\`，报告缺失结果后停止，不得消费不完整调研或伪造结论。没有相关后台调研时记录 \`not_applicable\`。
 
+回收成功的调研结论登记为会话内 research_brief（研究问题、task 标识、state_head、变更文件、结论七字段）；后续需要补充调研时先复用：快照未失效（研究问题、state_head、变更文件与用户决策未变化）时只做增量提问，不重复全量调研；失效或缺失时 fail-open 重新委派。
+
 ## 目标
 
 在编写代码或任务计划前，把用户描述和背景调研转化为经过用户确认的设计方向与 \`brainstorm_report\`。Discuss 是通用的方案讨论与定向 Skill，不负责 Intake 配置批问、任务拆分、实现代码或 Plan 门禁。

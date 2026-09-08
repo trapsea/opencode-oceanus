@@ -21,7 +21,7 @@ opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agen
 | `fixer` | 逃生舱执行（大批量并行机械实现，需满足逃生舱三条件） | subagent |
 | `observer` | 视觉 / 多媒体分析（**默认禁用**，需要视觉模型） | subagent |
 
-`explorer`、`librarian`、`oracle` **只读**，不写代码文件、不委派、不执行 task（`explorer` 仅有 `.oceanus/findings/*` 的落盘例外）；`observer` 默认禁用（需要视觉模型）。
+`explorer`、`librarian`、`oracle` **只读**，不写任何文件、不委派、不执行 task（调研结果在回复中以七字段结构返回，不落盘）；`observer` 默认禁用（需要视觉模型）。
 
 ### 复杂任务按需咨询：Oracle advisory
 
@@ -355,6 +355,16 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 选择成功后会原子更新**用户级** `~/.config/opencode/opencode-oceanus.jsonc`（或 `.json`）的顶层 `preset` 字段（全局生效，所有项目共享），不会改写 `presets` 或 `agents`；没有预设、预设不存在或写入失败时命令会报错。preset 名称校验会合并项目级 `.opencode/` 中的 `presets` 定义。命令同时会**立即生效**：当前会话模型同步切换，agent registry 立即重建，后续 subagent 立即使用新模型；仅正在执行中的 subagent 不受影响。TUI sidebar 由 fs.watch 指纹监听自动刷新（~100ms）。
 
 Sisyphus 执行时还会为每个计划维护任务级进度 ledger：`.oceanus/progress/<plan-name>.md`。ledger 按任务记录 `pending`、`in_progress`、`completed`、`failed` 或 `blocked` 状态、worker/session、验证证据和更新时间。并行 worker 不直接写共享 ledger，由 orchestrator 在派发前及每个任务完成后串行更新。
+
+### `/git-commit`：提交分析建议
+
+```text
+/git-commit                  # 分析当前未提交变更并生成 commit 建议
+/git-commit 只分析已暂存变更   # 附加补充要求
+```
+
+对话式命令：把「扫描变更 → 归类意图（`[需求]`/`[缺陷]`/`[通用]`/`[紧急]`）→ 判断拆分策略 → 生成 `[AI][标签][模块名] 简短描述` 格式建议 → 用 question 工具询问用户是否提交」的工作流指令注入当前会话，由当前 agent 执行。固定选项：**确认提交**（自动按顺序执行各组 `git add` + `git commit`，任一组失败立即停止并报告现场）、**继续拆分**（细化粒度后再次询问）、**不提交**。仅在用户明确选择提交后才执行 git 写操作，绝不执行 `git push`。命令经 `session.prompt` 注入并触发 LLM turn（宿主能力缺失时降级为 synthetic 回执提示）。
+
 
 ## 开发
 

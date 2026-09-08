@@ -12,6 +12,7 @@ import { runSg } from './ast-grep/cli';
 import { CLI_LANGUAGES, type CliLanguage, type ReplaceOptions, type SearchOptions } from './ast-grep/types';
 import { isPathWithinRoot } from './ast-grep/args';
 import { buildClipboardImageTool } from './clipboard-image';
+import { buildOceanusConfigTool } from './oceanus-config';
 import { buildCbmTools } from './cbm';
 import type { IndexerHandle, IndexerRunCli } from '../cbm/indexer';
 import type { CbmRunDeps } from './cbm/types';
@@ -194,6 +195,11 @@ const TOOL_BUILDERS: ReadonlyArray<{
     // 剪贴板图片 → 文件（阶段一原子能力）：无 coordinator 依赖，默认启用（isToolEnabled 缺省 true）。
     build: (ctx, _config, _opts) => buildClipboardImageTool(ctx),
   },
+  {
+    name: 'oceanus_config_generate',
+    // 厂商 blueprint → 用户级 preset：/oceanus-config 对话流程的确定性写入端。
+    build: (_ctx, _config, _opts) => buildOceanusConfigTool(),
+  },
 ];
 
 
@@ -217,6 +223,7 @@ const DIRECT_TOOL_NAMES: ReadonlySet<string> = new Set([
   'ast_grep_search',
   'ast_grep_replace',
   'clipboard_image',
+  'oceanus_config_generate',
 ]);
 
 /**

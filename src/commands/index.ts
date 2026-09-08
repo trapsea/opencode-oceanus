@@ -15,10 +15,19 @@
  */
 import { createPresetCommand } from './preset';
 import type { PresetCommandHandlers } from './preset';
+import { createGitCommitCommand } from './git-commit';
+import type { GitCommitCommandHandlers } from './git-commit';
+import { createAiRatioCommand } from './ai-ratio';
+import type { AiRatioCommandHandlers } from './ai-ratio';
+import { createOceanusConfigCommand } from './oceanus-config';
+import type { OceanusConfigCommandHandlers } from './oceanus-config';
 import type { CommandDefinition } from './types';
 
 export type { CommandDefinition, CommandInvocation } from './types';
 export type { PresetCommandHandlers } from './preset';
+export type { GitCommitCommandHandlers } from './git-commit';
+export type { AiRatioCommandHandlers } from './ai-ratio';
+export type { OceanusConfigCommandHandlers } from './oceanus-config';
 
 /**
  * command 依赖集合：key 为命令名，value 为该命令所需的最小 handlers 集合。
@@ -26,9 +35,17 @@ export type { PresetCommandHandlers } from './preset';
  */
 export interface CommandsDeps {
   preset: PresetCommandHandlers;
+  gitCommit: GitCommitCommandHandlers;
+  aiRatio: AiRatioCommandHandlers;
+  oceanusConfig: OceanusConfigCommandHandlers;
 }
 
 /** 聚合工厂：注入一次依赖，返回全部 command 定义。 */
 export function createCommands(deps: CommandsDeps): CommandDefinition[] {
-  return [createPresetCommand(deps.preset)];
+  return [
+    createPresetCommand(deps.preset),
+    createGitCommitCommand(deps.gitCommit),
+    createAiRatioCommand(deps.aiRatio),
+    createOceanusConfigCommand(deps.oceanusConfig),
+  ];
 }

@@ -7,11 +7,20 @@ export type ReviewContract = 'gate' | 'graded' | 'advisory';
 /** 审核者角色（协议不感知具体 agent 实现，仅作标注与提示组装）。 */
 export type Reviewer = 'oracle' | 'observer';
 /** 问题分级：BLOCKER 必须修复才能通过；SUGGESTION 建议修复。 */
-export type Severity = 'BLOCKER' | 'SUGGESTION';
+export type Severity = 'BLOCKER' | 'WARNING' | 'INFO' | 'SUGGESTION';
 /** verdict 种类：gate 产出 OKAY/REJECT，graded 产出 PASS/WARN/FAIL，advisory 产出 ADVISORY。 */
 export type VerdictKind = 'OKAY' | 'REJECT' | 'PASS' | 'WARN' | 'FAIL' | 'ADVISORY';
 
-export interface Finding { severity: Severity; evidence: string; fix: string; }
+export interface Finding {
+  severity: Severity;
+  evidence: string;
+  fix: string;
+  dimension?: string;
+  description?: string;
+  impact?: string;
+  fixHint?: string;
+  confidence?: string;
+}
 
 /** 审核场景定义；具体场景由 scenes.ts 提供，本模块只承载协议逻辑。 */
 export interface ReviewScene {
@@ -43,8 +52,8 @@ export interface ReviewVerdict { kind: VerdictKind; blockers: Finding[]; suggest
 /** 重审循环规则文本：历史兼容场景仅作 advisory，不构成当前工作流门禁。 */
 export const REVIEW_LOOP_RULES = [
   '## 重审循环规则',
-  '- REJECT 触发受限重审：每轮只验证前轮 BLOCKER 是否修复 + 修订新引入的问题，不追加旧问题。',
-  '- 重审轮数上限为 3 轮；第 3 轮仍 REJECT 时停止重审，按统一 3 轮中断上报模板上报。',
+  '- REJECT/FAIL 触发受限重审：每轮只验证前轮 BLOCKER 是否修复 + 修订新引入的问题，不追加旧问题。',
+  '- 重审轮数上限为 3 轮；第 3 轮仍 REJECT/FAIL 时停止重审，按统一 3 轮中断上报模板上报。',
   '- 审核通过后，重审计数清零。',
 ].join('\n');
 
@@ -97,7 +106,9 @@ export function buildReviewPrompt(scene: ReviewScene, request: ReviewRequest): s
     `## 输出契约（${scene.contract}）`,
     contractRules[scene.contract],
     '## Findings 格式',
-    '- 每条问题分级为 BLOCKER（必须修复才能通过）或 SUGGESTION（建议修复），并附 evidence（证据/出处）与 fix（建议的修改）。',
+    scene.contract === 'graded'
+      ? '- 每条问题分级为 BLOCKER（必须修复才能通过）、WARNING（质量风险）或 INFO（参考信息），并附 evidence（证据/出处）与 fix（建议的修改）。'
+      : '- 每条问题分级为 BLOCKER（必须修复才能通过）或 SUGGESTION（建议修复），并附 evidence（证据/出处）与 fix（建议的修改）。',
   ];
 
   if (request.round > 1) {
@@ -148,6 +159,12 @@ export function parseVerdict(text: string, contract: ReviewContract): ReviewVerd
     return null;
   }
   // graded：行首 + 词边界，避免句子中误匹配（如 "能够 PASS 评审"）
-  const match = text.match(/^[ \t]*(PASS|WARN|FAIL)\b/m);
-  return match ? { kind: match[1] as 'PASS' | 'WARN' | 'FAIL', blockers: [], suggestions: [] } : null;
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? '';
+  const normalized = firstLine.trim();
+  const kind = normalized === 'PASS' || normalized === 'FAIL'
+    ? normalized
+    : normalized.match(/^WARN\s*:/)
+      ? 'WARN'
+      : null;
+  return kind ? { kind, blockers: [], suggestions: [] } : null;
 }

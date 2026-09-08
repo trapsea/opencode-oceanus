@@ -1,6 +1,5 @@
 import { Model } from '@opencode-ai/plugin';
 import {
-  EXPLORER_DEFAULT_PERMISSION,
   READONLY_AGENTS,
   READONLY_DEFAULT_PERMISSION,
   SUBAGENT_NAMES,
@@ -161,10 +160,9 @@ export function createAgents(
 
       // 只读 agent 在无显式 permission 时集中应用默认只读权限。
       // 显式 agents.<name>.permission 已在上方 applyOverrides 中设置，此处分支自动跳过。
-      // explorer 特判：放开 .oceanus/findings/* 的 write（落盘契约），其余写路径仍 deny。
+      // explorer 与其他只读 agent 一致：不放开任何写路径（调研结果不落盘，回复内交付）。
        if (READONLY_AGENTS.has(name) && agent.permission === undefined) {
-         agent.permission =
-           name === 'explorer' ? EXPLORER_DEFAULT_PERMISSION : READONLY_DEFAULT_PERMISSION;
+         agent.permission = READONLY_DEFAULT_PERMISSION;
       }
       return agent;
     });

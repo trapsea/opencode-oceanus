@@ -4,26 +4,26 @@ const OCEANUS_REVIEW_SKILL: SkillDefinition = {
   name: 'oceanus-review',
   category: 'phase',
   description:
-    '第 5 阶段——审查：Execute 完成后执行最终 diff、影响面和验收证据审查，将高强度审查交给 @oracle，并在接受任何发现前用证据核实。由 sisyphus agent 在审查阶段开始时加载。',
+    '第 5 阶段——审查：Execute 完成后由 @oracle 执行独立全量审查，Sisyphus 负责上下文、证据和回退闭环。',
   slash: true,
   content: `---
 name: oceanus-review
 category: phase
 input: 实现、plan、evidence、tests 与 completionMatrix
-owner: Sisyphus 主 Agent（subagent 只读；Oracle 仅条件委派）
+owner: Sisyphus 主 Agent 编排，@oracle 正式审查（双方只读；Execute 负责修复）
 output: review 报告
 entry: execute 完成
 exit: 验收证据齐全
 failure: 缺口退回 execute
 verification: 主流程测试与 evidence 审查
 humanReview: conditional
-description: 第 5 阶段——审查：Execute 完成后执行最终 diff、影响面和验收证据审查，将高强度审查交给 @oracle，并在接受任何发现前用证据核实。由 sisyphus agent 在审查阶段开始时加载。
+description: 第 5 阶段——审查：Execute 完成后由 @oracle 执行独立全量审查，Sisyphus 负责上下文、证据和回退闭环。
 ---
 
 # Sisyphus 第 5 阶段——审查
 
 ## 目标
-Sisyphus 主 Agent 持有 spec/plan/diff/evidence 上下文并负责完成判定；仅对高风险架构、持续故障或安全敏感问题条件委派 @oracle。
+Sisyphus 主 Agent 收集并验证 spec/plan/diff/evidence，必须将正式 Review 以完整 Oracle Brief 委派给 @oracle。Oracle 只读执行独立全量审查并返回 PASS/WARN/FAIL；Sisyphus 负责消费结论、核验证据、组织 Execute 回退和最终阶段推进。
 
 Review 是 Execute 完成后的正式审查阶段；Intake、discuss、Plan 和 Execute 内部只做阶段内自查，不重复创建 Review/Completion Audit 门禁。
 
@@ -74,7 +74,7 @@ Review 是 Execute 完成后的正式审查阶段；Intake、discuss、Plan 和 
 4. **执行最终审查门禁**——在进入 Finish 前，根据 spec 和 plan 审查最终实际输出。
    - **代码格式审查**——对实际代码 diff（不含无关文件）识别并执行项目已有的 formatter 或 \`format:check\` 命令；读取完整输出与退出码，并确认修改区域的换行、import、声明、方法和控制流符合仓库风格。若仓库没有格式化命令，必须明确记录“无可用 formatter”，并以 \`git diff --check\` 和人工结构检查作为降级证据；已有格式检查失败或代码仍明显难以审查时，作为 **BLOCKER** 列入回退清单，不得仅以测试通过替代格式证据。
 5. **接受前验证**——对于任何发现，在采取行动前用证据（阅读代码、运行检查）确认它。
-6. **将高强度审查升级给 @oracle**——将高风险架构决策、持续性故障或安全敏感审查交给 @oracle。
+6. **正式委派给 @oracle**——每次 Review 都必须使用 \`review\` 场景；不得因任务简单而跳过性能、安全、边界、可靠性或兼容性审查。
 7. **完成审计**——Review/Completion Audit 只在正式 Review 中执行；已知声明未经验证时，不得进入 Finish。
 
 ## 反馈与发现处理
@@ -91,11 +91,12 @@ Review 是 Execute 完成后的正式审查阶段；Intake、discuss、Plan 和 
 
 ## 审查职责
 
-Review subagent 只读检查，不修改代码、不运行 task；测试由 Review 主流程执行。oracle 审查场景（diff-review/completion-audit）仅在独立审查能实质降低高风险不确定性时调用，核查 evidence、tests 与 completionMatrix 边界，且委派必须附完整 Oracle Brief；不默认替代代码审查。SDD 开启时报告写入 \`.oceanus/review/Review v1.md\`；SDD 关闭时 review 结论在会话内呈现，不落盘。
+Review 的正式审查由 Oracle 只读执行，不修改代码、不运行 task；测试和基础验证由 Review 主流程执行后作为证据交给 Oracle。Oracle 必须消费完整 Oracle Brief 与落盘审核对象；Sisyphus 不得以 Oracle 自报结论替代对证据、范围和回退清单的核验。SDD 开启时报告写入 \`.oceanus/review/Review v1.md\`；SDD 关闭时 review 结论在会话内呈现，不落盘。
 
-- **Sisyphus** 负责 spec/plan/diff 审查、测试验证和完成审计；采取行动前用证据验证每项发现。
-- **@oracle** 负责高风险架构审查、复杂故障诊断和独立代码审查。将高强度或独立审查交给 @oracle，而不是自行执行。
-- **Oracle 不是默认的实现 agent**——仅在高风险条件下委派 @oracle 的 diff-review 或 completion-audit 场景，提供 advisory，不作为默认门禁。
+- **Sisyphus** 负责准备 Brief、运行基础验证、核对 Oracle 证据、组织 BLOCKER 回退和阶段交接。
+- **@oracle** 负责每次 Review 的独立正式审查，必须覆盖正确性、边界、性能、安全、可靠性、兼容性、可维护性和证据质量。
+- **调研复用边界**：正式 Review 每次使用新的 Oracle 会话，不复用旧审查会话或旧 verdict（含前轮 PASS/WARN/FAIL）；会话内已回收的调研事实可注入 Brief 作为未验证线索，但每条结论依据必须来自当前 state_head 与 diff_scope 的新鲜证据，由 Oracle 重新核验。
+- **Oracle 不是实现 agent**——只读输出 graded 审查结论；不得修改代码、运行 task 或替代用户批准。
 - **咨询性发现不会转移职责**——如果某项发现仅检查实现是否偏离 plan，将其记录为咨询性发现，并保持上述主要审查职责不变。
 
 ## 完成矩阵（固定格式）
@@ -125,7 +126,7 @@ Review subagent 只读检查，不修改代码、不运行 task；测试由 Revi
 - [ ] 已执行完成审计：每项准则均有证据覆盖（矩阵全绿）
 
 ## 规则
-- Review 与 Completion Audit 是阶段之间的必经步骤，但 Oracle 咨询不是默认门禁。
+- Review 是阶段之间的必经步骤，且正式审查默认由 Oracle 执行；Completion Audit 可作为其完成矩阵核查的一部分。
 - 除非最终状态发生变化，否则不要重复已有证据。
 - 如果某项发现无法验证，应明确说明不确定性，而不是自行假定。
 - **CBM 边界**：对变更入口与影响面做独立验证，以实际 diff 为准，并与 plan 的 impact_estimate 普通对比；CBM 不可用时明确记录降级证据。

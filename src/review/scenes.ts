@@ -6,7 +6,7 @@
  *    影响面校验继承 CBM MOMUS_SECTION 的 impact_estimate 覆盖语义；
  *    验收绑定语义对应 src/agents/protocol.ts 的 PLAN_ACCEPTANCE_RUBRIC。
  *  - solution-analysis：迁移自原 metis 的 BACKGROUND_RESEARCH / SOLUTION_ANALYSIS 双模式。
- *  - diff-review / completion-audit / visual-acceptance：新增交付级审核场景
+ *  - review / diff-review / completion-audit / visual-acceptance：交付级审核场景
  *    （diff 范围与验收证据映射 / Completion Audit 六项判定矩阵 / L5 取证 diff）。
  */
 
@@ -61,7 +61,44 @@ const COMPLETION_AUDIT_CHECKS = `- 逐项执行 Completion Audit 六项判定矩
   ⑤ 人工批准存在：需要用户批准的决策点均有明确的批准记录；
   ⑥ 证据可审计：每项完成声明均可追溯到可复现证据（命令/输出/文件路径/审核产物）。
  - 任一判定项存在缺口 → 在完成矩阵中记录缺口与建议动作；不生成放行 verdict，是否继续由主 agent 按 Review 结果决定。
-- 不得伪造完成：证据缺失即缺口；不把口头声明、mock、skip 或降级结果记为已验证完成，验证不了的项目一律按缺口处理。`;
+  - 不得伪造完成：证据缺失即缺口；不把口头声明、mock、skip 或降级结果记为已验证完成，验证不了的项目一律按缺口处理。`;
+
+/** review 正式场景：由 Oracle 独立执行全量交付审查。 */
+const FORMAL_REVIEW_CHECKS = `### 全量审查维度（不得因某维度未在需求中明确提及而跳过）
+- 需求与计划：逐条核对 requirements、acceptance criteria、non-goals、锁定决策与最终行为；识别需求遗漏、范围漂移和未授权改动。
+- 正确性与回归：检查主路径、调用链、状态转换、错误传播、并发/异步语义、幂等性、兼容性和现有调用方回归。
+- 边界与异常：检查空值、缺失值、类型错误、非法输入、极值、超大规模、重复请求、乱序、超时、取消、重试、部分失败、资源耗尽和恢复路径；每个边界必须有证据或明确标记缺口。
+- 安全：检查认证、授权、信任边界、输入校验、注入、路径/资源越界、敏感信息泄露、日志暴露、密钥/配置处理、依赖与供应链风险，以及拒绝服务风险。
+- 性能与资源：检查时间/空间复杂度、重复计算、N+1、I/O/网络调用、缓存、序列化、锁竞争、并发放大、内存/句柄/连接释放和规模增长后的退化；必要时要求基准、profiling 或可解释的静态证据。
+- 可靠性：检查超时、重试退避、熔断/降级、数据一致性、持久化、故障恢复、可观测性和错误可诊断性。
+- API/类型/配置/宿主兼容：检查公共契约、配置 schema、OpenCode 宿主 API、版本兼容、迁移和向后兼容。
+- 可维护性：检查复杂度、重复逻辑、抽象必要性、可读性、命名、注释、可测试性和长期维护成本。
+- 验证与证据：检查测试、typecheck、build、format、diff --check、真实运行表面及完成矩阵；证据必须绑定当前 state_head、diff_scope、命令、退出码、时间和覆盖准则。
+
+### 输出要求
+- 每条发现包含 dimension、severity（BLOCKER/WARNING/INFO）、description、evidence、impact、fix_hint、confidence。
+- 没有证据证明已覆盖的准则必须列为 BLOCKER 或 UNCERTAIN，不得以“看起来没问题”放行。
+- 必须输出 Negative Findings，明确哪些维度已检查且未发现问题；不能只列问题。
+- 结论必须为 PASS/WARN/FAIL，且单独位于输出首行；FAIL 或关键 UNCERTAIN 必须附可执行的 Execute 回退清单。`;
+
+const formalReviewScene = defineScene({
+  name: 'review',
+  reviewer: 'oracle',
+  subjectType: 'diff',
+  subjectGlobs: ['.oceanus/review/*.md', '.oceanus/**/*.diff', '.oceanus/**/*.patch', '*.diff', '*.patch'],
+  contract: 'graded',
+  checks: FORMAL_REVIEW_CHECKS,
+  requiredContext: [
+    '结构化 Oracle Brief（完整需求、当前状态、changedFiles/changedSymbols、影响面、证据与新鲜度）',
+    '最终 state_head、diff_scope、实际变更文件、调用链和影响面摘要',
+    'spec、plan、progress ledger、completion matrix 与 review artifact 路径',
+    'edge_coverage、truths、prohibitions、锁定决策及其逐条证据',
+    '测试、typecheck、build、format、diff --check 和 real-surface 验证结果',
+  ],
+  independence: 'fresh-session',
+  onReject: 'return-execute',
+  maxRounds: 3,
+});
 
 /** visual-acceptance 检查清单：L5 取证 diff 视觉验收。 */
 const VISUAL_ACCEPTANCE_CHECKS = `- L5 取证 diff：以设计基准图为基准，与待验图片逐区域比对；输入为基准图路径 + 对比图路径 + 契约项清单（布局、间距、层级、动效、颜色、文案等逐项）。
@@ -83,7 +120,7 @@ const planGateScene = defineScene({
     '候选方案、已选方向、权衡、排除项和可验证的决策标准',
     '落盘 plan 文件路径（唯一审核对象，会话内转述不可替代）',
     'spec / intake 报告路径（SDD 开启时；需求背景与验收标准的来源）',
-    'research_brief 或 .oceanus/findings/ 路径（若存在；调研事实，避免重新侦察）',
+    '会话内已回收的 research_brief / 调研结论（若存在；快照未失效时增量验证，不重新侦察）',
     '复审时：round=N、前轮 BLOCKER 清单与逐条落实证据（文件引用优先）',
   ],
   independence: 'fresh-session',
@@ -103,7 +140,7 @@ const solutionAnalysisScene = defineScene({
     'requirements_context、assumptions、edge_coverage、truths、prohibitions 与 D-ID',
     'spec / intake 报告路径（需求、约束与未决问题清单的来源）',
     '候选方案描述（或已落盘方案文档路径）；多方案时逐个列出关键差异点',
-    '已有的 research_brief / findings（若存在；增量验证，不重新侦察）',
+    '会话内已回收的 research_brief / findings（若存在；快照未失效时增量验证，不重新侦察）',
   ],
   independence: 'reusable',
   onReject: 'escalate',
@@ -167,6 +204,7 @@ const visualAcceptanceScene = defineScene({
 
 /** 审核场景注册表：name → 场景定义；运行时冻结，防篡改。 */
 export const REVIEW_SCENES: Readonly<Record<string, ReviewScene>> = Object.freeze({
+  review: formalReviewScene,
   'plan-gate': planGateScene,
   'solution-analysis': solutionAnalysisScene,
   'diff-review': diffReviewScene,

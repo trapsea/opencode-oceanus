@@ -75,8 +75,8 @@ describe('parseVerdict · gate', () => {
 });
 
 describe('parseVerdict · graded', () => {
-  test('行首 PASS 解析为 PASS', () => {
-    expect(parseVerdict('检查完成\nPASS\n细节略', 'graded')?.kind).toBe('PASS');
+  test('首行 PASS 解析为 PASS', () => {
+    expect(parseVerdict('PASS\n细节略', 'graded')?.kind).toBe('PASS');
   });
 
   test('行首 WARN: 前缀解析为 WARN', () => {

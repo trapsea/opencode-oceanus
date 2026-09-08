@@ -171,6 +171,8 @@ Standard 与 Architecture 计划应提供给 Oracle analysis：已批准的 requ
 
 复杂架构或高风险场景可按需委派 @oracle(analysis) 提供 advisory。Oracle 不输出门禁 verdict，不阻断 execute，也不参与完成判定。
 
+调用前先检查会话内已回收的调研结论与前次 Oracle advisory：研究问题、task 标识、state_head、变更文件集合与用户决策未变化时，把已有结论写入 Oracle Brief 的 prior_findings 并只提增量问题，不重复全量调研；快照失效、结论缺失或部分覆盖时 fail-open 重新调研，不得把过期结论当作已验证事实。
+
 ## 检查清单
 
 - [ ] 文件结构先行：每个文件的职责与边界已明确
