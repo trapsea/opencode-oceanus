@@ -122,6 +122,15 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
     expect(content).toContain('state_head');
   });
 
+  test('Discuss 与 Plan 入口必须先回收后台调研', () => {
+    for (const phaseContent of [brainstormContent, content]) {
+      expect(phaseContent).toContain('阶段入口：回收后台调研');
+      expect(phaseContent).toContain('session.wait({ sessionID })');
+      expect(phaseContent).toContain('不得消费不完整调研');
+      expect(phaseContent).toContain('not_applicable');
+    }
+  });
+
   test('Trivial 轻量路径支持显式质量升级', () => {
     expect(intakeContent).toContain('升级单项质量保障');
   });
