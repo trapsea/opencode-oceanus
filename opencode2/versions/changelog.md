@@ -23,7 +23,40 @@
 | beta-18230 → beta-18721 | ✅ 已核实（全量 .d.ts diff，2026-08-31） |
 | beta-18721 → beta-18743 | ✅ 已核实（全量 dist diff，2026-09-01） |
 | beta-18743 → beta-19242 | ✅ 已核实（全量 dist diff，2026-09-07） |
+| beta-18743 → beta-19271 | ✅ 已核实（全量 dist diff 三方分解，2026-09-09；19242→19271 增量详列，18743→19242 部分见下条目） |
 | 更早历史版本 | 未回溯（build 数百个，按需增量补录） |
+
+---
+
+## beta-18743 → beta-19271
+
+- 日期：2026-09-09（npm `beta` dist-tag 当前指向 `@opencode-ai/{plugin,schema}@0.0.0-beta-19271`；宿主实测 `@opencode/cli@0.0.0-beta-19296`，`@opencode-ai/plugin` 无 19296 版本，npm E404 实证——CLI 宿主已迁往新包名 `@opencode/cli`）
+- 证据源类型：tarball 全量 dist diff 三方分解（18743/19242/19271 三版 plugin + schema tarball，`diff -rq` 定位 + 逐文件 `diff -u`；18743→19242 差异与下方既有条目完全重合，本条目只详列 **19242→19271 净增量**）
+- 变更文件面（19242→19271）：plugin 仅 `tui/context.d.ts`；schema `config/provider.d.ts`、`model.d.ts`、`provider.d.ts`、`session-event.d.ts`、`session-message.d.ts`、`session-transfer.d.ts`、`event-manifest.d.ts`，新增 `session-provider-context.d.ts`。promise/effect 全部注册域（agent/catalog/command/integration/mcp/plugin/reference/session/skill/tool/vcs/websearch）与根级文件零变化。
+
+### 1. `compaction` 配置新增（provider 条目 / provider 顶层 / model 条目）【新增】
+
+`{ mode: "local" } | { mode: "provider"; threshold?: number }` 联合类型，optional，加到 `config/provider` 的 provider 条目与顶层两处、`model` 条目；`provider.d.ts` 导出 `Compaction` 类型。用于声明上下文压缩走本地还是 provider 侧（provider 模式可配触发阈值）。
+
+### 2. `providerContext` 会话溯源字段 + 新文件 `session-provider-context.d.ts`【新增】
+
+`session-event`、`session-message`、`session-transfer` 新增 optional `providerContext: { version: 1; provenance: { providerID, provider, modelID, route, protocol, endpoint(摘要，非原始 URL) }; messages: Json }`——记录产生该消息的 provider 上下文（canonical AI Message[] 载荷，安装/回放时校验）；`event-manifest` 同步登记。新文件定义 `Provenance` 与 `Info` schema。注释明确"never credentials or a connection ID"。
+
+### 3. TUI `DialogSelectOption.footer?: string`【新增】
+
+`tui/context.d.ts` 选择项（`DialogSelectOption<Value>`，title/value/description/category/disabled 同级）新增 optional `footer`。
+
+### 4. 无变化锚点（升级安全面）
+
+`promise|effect` 全部注册域 `.d.ts`（含 `mcp.d.ts`——`MCPDomain{transform, reload}` 契约与 19242 一致）、`Plugin.define`、`app.d.ts`、`options.d.ts`、`host.d.ts`/`source*.d.ts`、`registration.d.ts`、permission/storage/shell/websearch 等 infra 域、schema 其余文件均与 19242 逐字节一致。
+
+### 5. 宿主实测注记（@opencode/cli@0.0.0-beta-19296，2026-09-09）
+
+宿主加载本插件（npm `opencode-oceanus@0.49.0/0.50.0`，基于 beta-18743 API 构建）：插件加载、agents/skills/tools 注册、`ctx.mcp.transform/reload` 均正常工作（宿主服务日志 `loading plugin` + agent 注册实测）。beta-18743 API 面在 19296 宿主上无兼容性回归。
+
+### 适配结论
+
+19242→19271 净增量全部为 optional 字段与新增类型，**零 breaking**；本插件未消费 compaction/providerContext/DialogSelectOption.footer，无需升级依赖（锁定 beta-18743 继续有效，宿主 19296 实测通过）。
 
 ---
 

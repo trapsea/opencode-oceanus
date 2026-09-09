@@ -8,9 +8,10 @@
 
 | 项目 | 当前值 | 证据 |
 |---|---|---|
-| 插件包 | `opencode-oceanus@0.34.0` | `package.json:2-4` |
+| 插件包 | `opencode-oceanus@0.50.1` | `package.json:2-4` |
 | OpenCode 插件 API | `@opencode-ai/plugin@0.0.0-beta-18743`，精确锁定 | `package.json:43-45`、`bun.lock` |
 | OpenCode schema | `@opencode-ai/schema@0.0.0-beta-18743`，精确锁定 | `package.json:44-45`、`bun.lock` |
+| 实测宿主 | `@opencode/cli@0.0.0-beta-19296`（CLI 宿主已迁新包名；`@opencode-ai/plugin` 无 19296 版本，npm E404） | 2026-09-09 宿主服务日志：插件加载、agents/skills/tools 注册、`ctx.mcp.transform` 注册 CBM server 均正常；npm beta tag `@opencode-ai/{plugin,schema}@0.0.0-beta-19271` 与 19242 差异全部为 optional 新增（详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md)），锁定 18743 无回归 |
 | 可选 peer | `@opentui/solid >=0.5.8`、`solid-js >=1.9.0`、`zod ^4.0.0`；前两者 optional | `package.json:47-59` |
 | 构建目标 | Bun build，Node/ESM；OpenCode plugin、schema、OpenTUI 和 Solid 外部化 | `package.json:25` |
 | 入口 | CLI `dist/index.js`，TUI `dist/tui.js` | `package.json:6-16` |
@@ -31,6 +32,7 @@
 | agent model 是单个 `ModelRef` | 配置数组只取首项，不能假设 Agent.Info 接受模型数组 | `src/agents/index.ts:63-87`；源码已验证 |
 | `plugins` 与 TUI 配置 | CLI 和 TUI 是两个入口；配置字段/加载差异应以当前宿主文档和真实 Host 复测 | `README.md:124-147`；这是 README 声明，仓库代码未独立验证 |
 | `plugins` 本地路径必须是含 index 入口的目录（宿主 `0.0.0-beta-18721` 实测） | 配置条目指向目录时宿主在目录内解析 `index` 入口文件（`dist/` 目录含 `index.js` 可正常加载）；指向单文件报 WARN `configured plugin path must be a directory`，指向无 index 文件的目录报 WARN `configured plugin directory has no index entrypoint`，两种情况插件均被整体跳过、所有 agent 不注册 | 2026-08-31 实测：`~/.local/share/opencode/log/opencode.log` 服务日志 + `opencode2 api get "/api/agent?location[directory]=…"` 验证三种写法仅目录形式注册出 oceanus/sisyphus 全量 agent；README 安装示例已同步为 `dist` 目录写法 |
+| `ctx.mcp.transform` + `ctx.mcp.reload`（`MCPDomain = Pick<McpApi, "list">` 形态） | CBM server 注册只调用 `transform`（`draft.get/set/remove`）与 `reload`，两者在 beta-18721→19271 类型面均未变化（18743/19242/19271 三版 `mcp.d.ts` 对比：18743→19242 变化不影响本用法，19242→19271 零差异） | `src/cbm/mcp.ts:150-252`；宿主 `@opencode/cli@19296` 实测：日志出现 `server=codebase-memory-mcp` 连接尝试即证明 transform 注册生效（连接失败为 CBM daemon 生命周期问题，与注册契约无关，2026-09-09） |
 
 ## 插件侧版本与运行时边界
 
@@ -51,10 +53,9 @@
 
 ### 未验证或需真实宿主复测
 
-- beta-18743 对当前 OpenCode 应用发行版的精确对应关系。
 - 真实 Host 中 `session.active`、`interrupt`、skill draft 形态、CLI/TUI 加载字段的最终行为。
 - 真实 Host 是否接受图片 `prompt` / `retry` hook 名称，以及 `/builtin/...` skill location 是否要求可直接访问的物理文件。
-- 不同 OpenCode beta 版本的向后兼容性。
+- `beta-18743` 之后版本的完整向后兼容性（`beta-19271` 类型面已核对零 breaking；宿主 `@opencode/cli@19296` 已实测插件加载与注册链路正常，2026-09-09，见「当前版本基线」）。
 
 ## 升级检查清单
 

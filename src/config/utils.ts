@@ -12,12 +12,15 @@ import type {
 export interface AutoUpdateResolvedConfig {
   enabled: boolean;
   checkIntervalMs: number;
+  /** 更新成功后及检查周期兜底时清理历史版本目录（默认 true）。 */
+  cleanup: boolean;
 }
 
 /** 默认 3 小时：每进程仅一次检查（订阅后 2s 定时器），跨进程由该窗口节流。 */
 const DEFAULT_AUTO_UPDATE_CONFIG: AutoUpdateResolvedConfig = {
   enabled: true,
   checkIntervalMs: 10_800_000,
+  cleanup: true,
 };
 
 /** 获取自动更新配置，缺省时启用并按 checkIntervalMs（默认 3 小时）节流检查。 */

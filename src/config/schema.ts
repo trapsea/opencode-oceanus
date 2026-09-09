@@ -170,6 +170,8 @@ export const AutoUpdateConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
     checkIntervalMs: z.number().int().positive().optional(),
+    /** 更新成功后及检查周期兜底时清理历史版本目录（默认 true）。 */
+    cleanup: z.boolean().optional(),
   })
   .strict();
 

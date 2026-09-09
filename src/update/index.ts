@@ -20,6 +20,8 @@ export interface AutoUpdateDeps {
   currentVersion?: () => string
   discover?: () => ConfigEntry[]
   loadedPackagePath?: string
+  /** 历史版本清扫（fail-open）；检查周期开始与更新安装成功后各触发一次。测试注入用。 */
+  cleanup?: () => unknown
   /** 订阅建立后延迟触发一次初始检查，兜底事件注册间隙；默认 2000ms，测试可注入 0。 */
   initialDelayMs?: number
 }
@@ -78,6 +80,10 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
     // 跨进程频率由 checkIntervalMs 节流（默认 3 小时）。抢占必须发生在任何异步启动之前。
     if (checked || !resolved.enabled) return
     checked = true
+    // 历史版本兜底清扫：独立于入口发现与节流（幂等、fail-open）。宿主热重载可能
+    // 中断"更新成功后"的清理调用链，此处保证每个进程首个检查周期都尝试回收
+    // 残留（含更新前已存在的历史时间戳目录）。
+    if (resolved.cleanup) { try { deps.cleanup?.() } catch {} }
     try {
       const all = (deps.discover ?? discoverConfigEntries)()
       // 入口筛选：file: / @latest / 本地开发路径按既有安全策略跳过（@latest 由
@@ -121,6 +127,9 @@ export function registerAutoUpdate(ctx: AutoUpdateContext, config?: any, deps: A
            installMarker = await deps.installer(next, entry)
          } catch (error) { await save("update_failed"); log({ decision: "update_failed", error }); return }
          await save("update_installed"); log({ decision: "update_installed", currentVersion: current, latestVersion: next })
+         // 更新成功后尽力清扫历史版本；宿主热重载路径若在此处中断调用链，
+         // 清理自然放弃，由下一进程的检查周期兜底（见 run() 开头）。
+         if (resolved.cleanup) { try { deps.cleanup?.() } catch {} }
          // 宿主路径热重载成功时无需重启；host-pending（跨实例/验证超时）与自管安装仍需重启。
          if (installMarker === "host-reloaded") {
            log({ decision: "updated_via_host", currentVersion: current, latestVersion: next })

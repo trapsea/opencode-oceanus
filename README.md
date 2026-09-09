@@ -1,6 +1,12 @@
 # opencode-oceanus
 
-opencode **v2** 插件：注册 Oceanus agent 编排器及其专家 agent，agent 定义参考 oh-my-opencode-slim 实现（oceanus 颜色 #0FFFFF）。
+opencode-oceanus 是面向 OpenCode **v2 beta** 的 AI 编码编排插件。它将 Oceanus 编排器、Sisyphus 六阶段工作流和一组职责清晰的专家 agent 集成到 OpenCode 中，帮助开发者把复杂任务拆解为可研究、可计划、可执行、可审查的工程流程。
+
+Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资料研究、方案分析，到视觉设计、批量机械修改和最终 Review 的协作分工，并配套 AST 工具、剪贴板图片处理、CBM 代码知识库、运行时保护 Hook、模型 preset 和 TUI sidebar。插件默认强调最小权限、只读调研与 fail-open 降级，让 AI 编码更适合真实项目协作。
+
+> **适合谁**：希望在 OpenCode 中获得结构化任务编排、专家分工和工程安全保护的个人开发者与团队。
+
+> **重要说明**：Sisyphus 六阶段流程和 Oracle 审查属于 prompt / skill 层约定，不是运行时自动 supervisor；实际能力仍取决于 OpenCode v2 beta 宿主及所配置的模型。
 
 ## 兼容性
 
@@ -104,13 +110,14 @@ bun run build
 ### 自动升级
 
 插件默认在加载后 2 秒后台检查一次 npm 最新稳定版本（每进程一次），跨进程按 `checkIntervalMs`（默认 3 小时）节流，不阻塞插件加载；裸名安装走宿主原生 `plugin.update`（热重载免重启），固定版本与旧宿主回退自管安装。
-可通过配置关闭：
+更新成功后及每个检查周期会自动清理插件自身的历史版本缓存目录（宿主更新产生的旧时间戳目录，每版本约 110MB；仅清理当前 identity 目录内比活跃版本更旧的目录，fail-open），可通过 `cleanup` 关闭：
 
 ```jsonc
 {
   "autoUpdate": {
     "enabled": false,
-    "checkIntervalMs": 10800000
+    "checkIntervalMs": 10800000,
+    "cleanup": true
   }
 }
 ```

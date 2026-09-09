@@ -133,34 +133,61 @@ describe('runCbmCli：daemon 坏状态自愈', () => {
   const STALE_STDERR =
     'Error: CBM daemon is active or starting but could not accept this client within 30000 ms';
 
-  test('accept 超时特征触发 daemon stop 后重试一次，重试成功则返回成功', async () => {
+  test('accept 超时特征触发 daemon stop → start 重建 permanent → 重试一次成功', async () => {
     let cliCalls = 0;
-    let stopCalls = 0;
-    const cliCommands: string[][] = [];
+    const daemonCommands: string[][] = [];
     const { spawn } = capturingSpawn((command) => {
       if (command[1] === 'daemon') {
-        stopCalls += 1;
-        return procOf('daemon: stopped', { exitCode: 0 });
+        daemonCommands.push(command.slice(1));
+        // stop 成功；rebuild start 返回 permanent 建立输出。
+        return command[2] === 'stop'
+          ? procOf('daemon: stopped', { exitCode: 0 })
+          : procOf('daemon: started (permanent, pid 42)', { exitCode: 0 });
       }
       cliCalls += 1;
-      cliCommands.push(command);
       if (cliCalls === 1) return procOf('', { exitCode: 1, stderr: STALE_STDERR });
       return procOf('{"ok":true}');
     });
     const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
     expect(result.ok).toBe(true);
-    expect(stopCalls).toBe(1);
+    // 自愈序列：retire(stop) → rebuild(start permanent) → 重试原命令。
+    expect(daemonCommands).toEqual([['daemon', 'stop'], ['daemon', 'start']]);
     expect(cliCalls).toBe(2);
-    // 自愈重试同样以 args-file 默认传参（与主链路一致）。
-    expect(cliCommands[1][3]).toBe('--args-file');
   });
 
-  test('版本冲突（fingerprint/build 不匹配）特征同样触发自愈', async () => {
-    let stopCalls = 0;
+  test('rebuild start 遇 session-managed 抢先 → 追加一层 stop→start 升级', async () => {
+    let cliCalls = 0;
+    const daemonCommands: string[][] = [];
+    let startCalls = 0;
     const { spawn } = capturingSpawn((command) => {
       if (command[1] === 'daemon') {
-        stopCalls += 1;
-        return procOf('daemon: stopped', { exitCode: 0 });
+        daemonCommands.push(command.slice(1));
+        if (command[2] === 'stop') return procOf('daemon: stopped', { exitCode: 0 });
+        startCalls += 1;
+        // 第一次 start（rebuild）撞上 session-managed；升级序列的第二次 start 成功。
+        return startCalls === 1
+          ? procOf('daemon: already active (session-managed, pid 9)', { exitCode: 0 })
+          : procOf('daemon: started (permanent, pid 10)', { exitCode: 0 });
+      }
+      cliCalls += 1;
+      if (cliCalls === 1) return procOf('', { exitCode: 1, stderr: STALE_STDERR });
+      return procOf('{"ok":true}');
+    });
+    const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
+    expect(result.ok).toBe(true);
+    // retire → start(session 抢先) → stop → start(permanent) → 重试。
+    expect(daemonCommands).toEqual([['daemon', 'stop'], ['daemon', 'start'], ['daemon', 'stop'], ['daemon', 'start']]);
+    expect(cliCalls).toBe(2);
+  });
+
+  test('版本冲突（fingerprint/build 不匹配）特征同样触发自愈（含 permanent 重建）', async () => {
+    let daemonCalls = 0;
+    const { spawn } = capturingSpawn((command) => {
+      if (command[1] === 'daemon') {
+        daemonCalls += 1;
+        return command[2] === 'stop'
+          ? procOf('daemon: stopped', { exitCode: 0 })
+          : procOf('daemon: started (permanent, pid 42)', { exitCode: 0 });
       }
       return procOf('', {
         exitCode: 1,
@@ -170,15 +197,15 @@ describe('runCbmCli：daemon 坏状态自愈', () => {
     // 首次与重试都失败（daemon stop 成功但查询仍坏）→ 返回重试结果，不无限循环
     const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
     expect(result.ok).toBe(false);
-    expect(stopCalls).toBe(1);
+    expect(daemonCalls).toBe(2); // stop + start(rebuild)
   });
 
-  test('daemon stop 被拒绝（committed client 占用）时仍重试一次，瞬时拒绝场景可恢复', async () => {
+  test('daemon stop 被拒绝（committed client 占用）时不 rebuild，仍重试一次', async () => {
     let cliCalls = 0;
-    let stopCalls = 0;
+    const daemonCommands: string[][] = [];
     const { spawn } = capturingSpawn((command) => {
       if (command[1] === 'daemon') {
-        stopCalls += 1;
+        daemonCommands.push(command.slice(1));
         return procOf('daemon: NOT stopped — 1 committed client(s) still use it.', { exitCode: 1 });
       }
       cliCalls += 1;
@@ -187,7 +214,7 @@ describe('runCbmCli：daemon 坏状态自愈', () => {
     });
     const result = await runCbmCli(searchOpts, { spawn, resolveBinary: () => FAKE_BIN });
     expect(result.ok).toBe(true);
-    expect(stopCalls).toBe(1);
+    expect(daemonCommands).toEqual([['daemon', 'stop']]); // retire 被拒 → 不触发 rebuild
     expect(cliCalls).toBe(2);
   });
 

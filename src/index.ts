@@ -13,6 +13,7 @@ import { registerOceanusHooks } from './hooks';
 import { buildCbmSharedDeps, startDaemonPrewarm, waitForDaemonReady, type CbmWiringInjections } from './cbm/wiring';
 import type { PluginSetupContext } from './runtime/types';
 import { registerAutoUpdate } from './update';
+import { cleanupStaleVersions } from './update/cleanup';
 import { installStaged, resolveOpenCodeInstallContext } from './update/cache';
 import { syncEntryVersion, PACKAGE_NAME, type ConfigEntry } from './update/config-entry';
 import { hasNativePluginUpdate, updateViaHost, waitForHostVersion } from './update/host-update';
@@ -444,6 +445,13 @@ export async function runSetup(
       run: () => {
         if (!(ctx as unknown as { event?: unknown }).event) return;
         const updateCleanup = registerAutoUpdate(ctx as unknown as any, config, {
+    // 历史版本清扫：宿主路径更新会累积时间戳缓存目录（每版本约 110MB，
+    // 宿主自身不清理）；fail-open，任何失败只记日志。
+    cleanup: () => {
+      cleanupStaleVersions({
+        log: (event) => console.warn('[oceanus:update:cleanup]', event),
+      });
+    },
     logger: (event) => {
       const { event: kind, error, ...meta } = event;
       const hint = kind === 'restart_required'

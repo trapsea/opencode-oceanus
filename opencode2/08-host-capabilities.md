@@ -60,7 +60,7 @@ storage.memory(key, { initial })  // ephemeral：热重载共享、TUI 退出即
 - **Slot 系统**（`SlotMap`/`SlotClaim`）：宿主 UI 的具名边界树，插件可 `prepend/append/before/after/replace` 认领。已发布路径：`app`、`home.footer`、`prompt.footer{,.status,.file}`、`session.composer.top`、`sidebar.content`、`sidebar.footer`。`replace` 压制原内容与内部认领（记录不丢弃）；宿主路径消失时 additive 认领降级挂到最近存活祖先、replacement 被压制。同目标多认领按启用序共存，`replace` 后启用者胜、祖先 replacement 恒胜后代。
 - **router**：`register(page: {name, render})`（插件页面路由 `Route.type: "plugin"`）+ `navigate(destination)` + `current()`。
 - **tabs**：`enabled()/list()/open(sessionID)/focus/close`（含 busy/attention/unread 状态）。
-- **dialog**：`show(render, onClose?)/set(options)/clear` + 快捷 `alert/confirm/prompt/select`。
+- **dialog**：`show(render, onClose?)/set(options)/clear` + 快捷 `alert/confirm/prompt/select`。（beta-19271 变化：`DialogSelectOption` 新增 optional `footer?: string`）
 - **toast**：`show({title?, message, variant: info|success|warning|error, duration?})`。
 - **attention**：`notify({title?, message, notification?, sound?}) → {ok, notification, sound, skipped?}`（声音名：default/question/permission/error/done/subagent_done）。
 

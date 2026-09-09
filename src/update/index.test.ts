@@ -198,4 +198,50 @@ describe("registerAutoUpdate", () => {
     await tick(); await cleanup(); await tick()
     expect(stream.wasReturned()).toBe(true)
   })
+
+  test("检查周期开始时触发历史版本清扫（deps.cleanup）", async () => {
+    const stream = context([{ type: "session.created", data: { sessionID: "root" } }])
+    let cleanups = 0
+    const stop = registerAutoUpdate(stream.ctx, undefined, deps({ cleanup: () => { cleanups++ } }))
+    await tick(); await tick(); await stop()
+    expect(cleanups).toBe(1)
+  })
+
+  test("autoUpdate.cleanup=false 时不触发清扫", async () => {
+    const stream = context([{ type: "session.created", data: { sessionID: "root" } }])
+    let cleanups = 0
+    const stop = registerAutoUpdate(
+      stream.ctx,
+      { autoUpdate: { cleanup: false } },
+      deps({ cleanup: () => { cleanups++ } }),
+    )
+    await tick(); await tick(); await stop()
+    expect(cleanups).toBe(0)
+  })
+
+  test("清扫抛错不影响更新检查主流程", async () => {
+    const stream = context([{ type: "session.created", data: { sessionID: "root" } }])
+    let checks = 0
+    const logs: Record<string, unknown>[] = []
+    const stop = registerAutoUpdate(stream.ctx, undefined, deps({
+      cleanup: () => { throw new Error("cleanup boom") },
+      checker: async () => { checks++; return "1.1.0" },
+      installer: async () => undefined,
+      logger: (event) => logs.push(event),
+    }))
+    await tick(); await tick(); await tick(); await stop()
+    expect(checks).toBe(1)
+    expect(logs).toContainEqual(expect.objectContaining({ decision: "update_installed" }))
+  })
+
+  test("更新安装成功后再次触发清扫（检查周期 1 次 + 安装成功 1 次）", async () => {
+    const stream = context([{ type: "session.created", data: { sessionID: "root" } }])
+    let cleanups = 0
+    const stop = registerAutoUpdate(stream.ctx, undefined, deps({
+      cleanup: () => { cleanups++ },
+      installer: async () => undefined,
+    }))
+    await tick(); await tick(); await tick(); await stop()
+    expect(cleanups).toBe(2)
+  })
 })

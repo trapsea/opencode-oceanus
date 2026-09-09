@@ -41,9 +41,19 @@ function fakeShared(overrides?: {
 
 /** 可观察的 fake daemon 预热（async：await 后记录就绪）。 */
 function fakePrewarm() {
-  const calls: Array<{ binaryPath: string; cacheRoot: string; env: Record<string, string> }> = [];
+  const calls: Array<{
+    binaryPath: string;
+    cacheRoot: string;
+    env: Record<string, string>;
+    upgradeSessionManaged?: boolean;
+  }> = [];
   const fn: DaemonEnsureFn = async (options) => {
-    calls.push({ binaryPath: options.binaryPath, cacheRoot: options.cacheRoot, env: options.env });
+    calls.push({
+      binaryPath: options.binaryPath,
+      cacheRoot: options.cacheRoot,
+      env: options.env,
+      upgradeSessionManaged: options.upgradeSessionManaged,
+    });
     const result: DaemonWaitResult = { status: 'ready', mode: 'started', elapsedMs: 1 };
     return result;
   };
@@ -56,6 +66,14 @@ describe('startDaemonPrewarm：门控与分支（async 等待语义）', () => {
     const { shared } = fakeShared({ enabled: false });
     await startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn });
     expect(prewarm.calls).toHaveLength(0);
+  });
+
+  test('预热请求带 upgradeSessionManaged=true（session→permanent 升级开通）', async () => {
+    const prewarm = fakePrewarm();
+    const { shared } = fakeShared({});
+    await startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn, exists: () => true });
+    expect(prewarm.calls).toHaveLength(1);
+    expect(prewarm.calls[0].upgradeSessionManaged).toBe(true);
   });
 
   test('binaryPath 显式配置时等待它就绪且不触发 ensureInstalled', async () => {

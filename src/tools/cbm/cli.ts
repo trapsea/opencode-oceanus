@@ -409,6 +409,48 @@ async function retireDaemon(
   return pass.kind === 'output' && pass.exitCode === 0;
 }
 
+/**
+ * retire 成功后重建 permanent daemon。
+ *
+ * 背景（0.10.8 实测诊断）：旧自愈只 retire + 重试原命令，重试进程会以
+ * session-managed 模式拉起 temporary daemon，随后随最后一个 committed
+ * client 断开退出——permanent 得而复失，宿主重连反复落入 30s accept
+ * 排队超时。retire 后先 `daemon start` 重建 permanent，重试命令变为
+ * connect-to-warm。start 若遇 session-managed 抢先（no-op 文案），再执行
+ * 一层 stop→start 升级；任何失败均 best-effort 返回 false，不阻塞重试。
+ */
+async function rebuildPermanentDaemon(
+  spawn: SpawnFn,
+  binaryPath: string,
+  cwd: string,
+  env: Record<string, string | undefined>,
+  timeoutMs: number,
+): Promise<boolean> {
+  const start = await runPass(
+    spawn,
+    [binaryPath, 'daemon', 'start'],
+    cwd,
+    env,
+    Math.min(timeoutMs, 20_000),
+    'daemon start (rebuild)',
+  );
+  if (start.kind !== 'output' || start.exitCode !== 0) return false;
+  if (!/already active \(session-managed/.test(`${start.stdout}${start.stderr}`)) {
+    return true; // started (permanent) / already active (permanent)
+  }
+  // session-managed 抢先：stop 后重试一次 start（只升级一层，防循环）。
+  if (!(await retireDaemon(spawn, binaryPath, cwd, env, timeoutMs))) return false;
+  const restart = await runPass(
+    spawn,
+    [binaryPath, 'daemon', 'start'],
+    cwd,
+    env,
+    Math.min(timeoutMs, 20_000),
+    'daemon start (upgrade)',
+  );
+  return restart.kind === 'output' && restart.exitCode === 0;
+}
+
 function internalErrorResult(tool: string, error: unknown): CbmCliResult {
   const message = error instanceof Error ? error.message : String(error);
   return { ok: false, tool, data: null, error: { code: 'internal_error', message } };
@@ -543,14 +585,19 @@ export async function runCbmCli(
 
   // 7. daemon 坏状态自愈：30s accept 超时 / fingerprint_mismatch 等特征时，
   //    先尽力 retire 坏 daemon（被 committed client 拒绝也无害——实测坏状态
-  //    多为瞬时性 accept 拒绝，直接重试即可恢复），再重试一次原调用；
+  //    多为瞬时性 accept 拒绝，直接重试即可恢复）；retire 成功后先重建
+  //    permanent daemon 再重试原命令，使重试 connect-to-warm 且 daemon 不再
+  //    随重试进程退化为 temporary session-managed（自毁循环根因）；
   //    重试仍失败则如实返回错误，绝不循环。
   if (
     !result.ok &&
     result.error?.code === 'exit_nonzero' &&
     isDaemonStaleFailure(result.error.message ?? '')
   ) {
-    await retireDaemon(spawn, binaryPath, workspaceRoot, env, timeoutMs);
+    const retired = await retireDaemon(spawn, binaryPath, workspaceRoot, env, timeoutMs);
+    if (retired) {
+      await rebuildPermanentDaemon(spawn, binaryPath, workspaceRoot, env, timeoutMs);
+    }
     const retry = await execute(
       spawn,
       binaryPath,

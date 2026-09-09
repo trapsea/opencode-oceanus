@@ -211,8 +211,11 @@ const TOOL_BUILDERS: ReadonlyArray<{
  * 不会主动走该路径，prompt 引导会失效（实测复现：fixer 回退宿主原生 edit）。
  * 因此面向 subagent/orchestrator 的高频工具必须显式 `codemode: false`。
  *
- * CBM 工具（buildCbmTools，独立 draft.add 循环）保持缺省 Code Mode：
- * 15+ 查询型工具以 catalog 形式提供，避免撑大每个会话的直接工具目录。
+ * CBM 工具（buildCbmTools，独立 draft.add 循环）默认保持 Code Mode：
+ * 查询型工具以 catalog 形式提供，避免撑大每个会话的直接工具目录。
+ * 但 cbm_index 是 Sisyphus Intake/Review 生命周期要求主 agent 直接触发的
+ * 工具，必须进入直接工具目录，否则模型虽能在 Code Mode catalog 中看到它，
+ * 仍会在普通工具调用中收到 Unknown tool。
  *
  * permission 说明：不设 options.permission，宿主以工具名作为 permission
  * action，与 config/constants.ts READONLY_DEFAULT_PERMISSION 的 key
@@ -224,6 +227,7 @@ const DIRECT_TOOL_NAMES: ReadonlySet<string> = new Set([
   'ast_grep_replace',
   'clipboard_image',
   'oceanus_config_generate',
+  'cbm_index',
 ]);
 
 /**
@@ -267,7 +271,12 @@ export async function registerOceanusTools(
     }
     for (const tool of cbmTools) {
       try {
-        draft.add(tool);
+        // cbm_index 虽由 CBM builder 独立构建，也必须经过同一直接工具注入；
+        // 否则它只出现在 Code Mode catalog，Sisyphus 普通调用会收到 Unknown tool。
+        const options = DIRECT_TOOL_NAMES.has(tool.name)
+          ? { ...tool.options, codemode: false as const }
+          : tool.options;
+        draft.add({ ...tool, ...(options !== undefined ? { options } : {}) });
       } catch (e) {
         log(`[oceanus] 注册 CBM 工具失败: ${tool.name}`, { error: messageOf(e) });
       }

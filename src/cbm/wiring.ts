@@ -3,7 +3,7 @@ import type { PluginConfig } from '../config/schema';
 import { existsSync } from 'node:fs';
 import { getCacheRoot } from './paths';
 import { resolveExpectedBinaryPath } from './mcp';
-import { ensurePermanentDaemon, type EnsurePermanentDaemonOptions } from './daemon';
+import { ensurePermanentDaemon, probeDaemonAccept, healUnacceptableDaemon, type EnsurePermanentDaemonOptions } from './daemon';
 import { buildCbmEnv } from '../tools/cbm/args';
 import {
   ensureInstalled as provisionEnsureInstalled,
@@ -102,6 +102,9 @@ export interface DaemonPrewarmInjections {
   exists?: (path: string) => boolean;
   /** 就绪等待超时上限（默认 daemon.DAEMON_READY_TIMEOUT_MS = 15s）。 */
   timeoutMs?: number;
+  /** 健康探测/自愈注入（透传 waitForDaemonReady；测试避免真实 spawn）。 */
+  probe?: typeof probeDaemonAccept;
+  heal?: typeof healUnacceptableDaemon;
 }
 
 /** 构造与 CLI/MCP 通道一致的 daemon 环境（白名单基础 + CBM_CACHE_DIR 覆盖）。 */
@@ -110,6 +113,12 @@ function buildDaemonEnv(cacheRoot: string): Record<string, string> {
     ...buildCbmEnv({}, process.env),
     CBM_CACHE_DIR: cacheRoot,
   } as Record<string, string>;
+}
+
+/** daemon 健康探测/自愈注入（测试用；缺省走真实 probe/heal）。 */
+export interface DaemonHealthInjections {
+  probe?: typeof probeDaemonAccept;
+  heal?: typeof healUnacceptableDaemon;
 }
 
 /**
@@ -122,15 +131,48 @@ export async function waitForDaemonReady(
   log?: (message: string, meta?: Record<string, unknown>) => void,
   ensure?: DaemonEnsureFn,
   timeoutMs?: number,
+  health: DaemonHealthInjections = {},
 ): Promise<void> {
   const fn = ensure ?? ensurePermanentDaemon;
   const result = await fn({
     binaryPath,
     cacheRoot,
     env: buildDaemonEnv(cacheRoot),
+    // session-managed daemon 随最后一个 committed client 断开退出，是宿主重连
+    // 反复落入 30s accept 排队超时的根因；预热遇该形态时尝试 stop→start 升级
+    // 为 permanent（stop 被 committed client 拒绝时上游保持现状不强杀）。
+    upgradeSessionManaged: true,
     log,
     timeoutMs,
   });
+  if (result.status === 'ready') {
+    // accept 级健康探测：daemon 可能「活着但不完成新 client admission」（宿主
+    // 表现为 30s+ 超时，`daemon start` 幂等 exit 0 无法反映）。探测失败即自愈
+    // （stop 被拒时解析 pid 强杀坏死 daemon → 重建 permanent → 复测）。健康时
+    // 探测秒回，全部 fail-open。
+    const probeFn = health.probe ?? probeDaemonAccept;
+    const healFn = health.heal ?? healUnacceptableDaemon;
+    const probe = await probeFn({
+      binaryPath,
+      cacheRoot,
+      env: buildDaemonEnv(cacheRoot),
+      log,
+      timeoutMs,
+    });
+    if (!probe.ok) {
+      log?.('[oceanus] CBM daemon accept 探测失败，尝试自愈', { detail: probe.detail });
+      await healFn({
+        binaryPath,
+        cacheRoot,
+        env: buildDaemonEnv(cacheRoot),
+        probeFailedDetail: probe.detail,
+        log,
+        timeoutMs,
+      }).catch(() => {
+        // heal fail-open：探测/重建失败不阻塞预热主流程。
+      });
+    }
+  }
   if (result.status !== 'ready') {
     log?.('[oceanus] CBM daemon 预热未就绪(fail-open)', {
       status: result.status,
@@ -177,6 +219,7 @@ export async function startDaemonPrewarm(
       log,
       injections.prewarm,
       injections.timeoutMs,
+      { probe: injections.probe, heal: injections.heal },
     );
   };
 

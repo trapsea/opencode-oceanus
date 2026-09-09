@@ -72,17 +72,23 @@ describe('agent preset 配置 schema', () => {
 });
 
 describe('autoUpdate 配置', () => {
-  test('默认启用，检查间隔为 3 小时', () => {
+  test('默认启用，检查间隔为 3 小时，清理历史版本默认开启', () => {
     expect(getAutoUpdateConfig()).toEqual({
       enabled: true,
       checkIntervalMs: 10_800_000,
+      cleanup: true,
     });
   });
 
-  test('支持覆盖 enabled 和 checkIntervalMs，且不允许 allowMajor', () => {
+  test('支持覆盖 enabled、checkIntervalMs 与 cleanup，且不允许 allowMajor', () => {
     expect(
       PluginConfigSchema.safeParse({
         autoUpdate: { enabled: false, checkIntervalMs: 60_000 },
+      }).success,
+    ).toBe(true);
+    expect(
+      PluginConfigSchema.safeParse({
+        autoUpdate: { cleanup: false },
       }).success,
     ).toBe(true);
     expect(
@@ -93,6 +99,8 @@ describe('autoUpdate 配置', () => {
     expect(getAutoUpdateConfig({ autoUpdate: { checkIntervalMs: 60_000 } })).toEqual({
       enabled: true,
       checkIntervalMs: 60_000,
+      cleanup: true,
     });
+    expect(getAutoUpdateConfig({ autoUpdate: { cleanup: false } }).cleanup).toBe(false);
   });
 });

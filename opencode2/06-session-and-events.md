@@ -87,7 +87,7 @@ interface SessionRetry {
 interface EventDomain extends Pick<EventApi, "subscribe"> {}
 ```
 
-订阅宿主全局事件流（SSE，`/api/event` 路由）。事件联合类型 `OpenCodeEvent` 覆盖 `session.*` / `session.message.*` / `plugin.*` / `skill.updated` / `permission.*` / `vcs.*` / `worktree.*` / `workspace.*` 等（schema `server-event.d.ts` 等）。beta-18721 新增事件：`session.message.content.updated`；多个 session 事件新增 optional `metadata`（宿主注入，含从父会话继承的注解——subagent 会话血缘相关）。
+订阅宿主全局事件流（SSE，`/api/event` 路由）。事件联合类型 `OpenCodeEvent` 覆盖 `session.*` / `session.message.*` / `plugin.*` / `skill.updated` / `permission.*` / `vcs.*` / `worktree.*` / `workspace.*` 等（schema `server-event.d.ts` 等）。beta-18721 新增事件：`session.message.content.updated`；多个 session 事件新增 optional `metadata`（宿主注入，含从父会话继承的注解——subagent 会话血缘相关）。**beta-19271 变化**：`session-event`/`session-message`/`session-transfer` 新增 optional `providerContext: { version: 1; provenance: { providerID, provider, modelID, route, protocol, endpoint(摘要) }; messages: Json }`（新 schema 文件 `session-provider-context.d.ts`；记录产生消息的 provider 上下文，安装/回放时校验 canonical AI Message[] 载荷，明确不含凭据/连接 ID）。
 
 ## 5. RpcDomain（beta-18721 全新）
 

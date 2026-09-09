@@ -2,9 +2,9 @@
 
 OpenCode v2 beta 宿主的能力 / API / 工具 / hook / 配置参考文档，服务于 `opencode-oceanus` 插件开发与版本适配。
 
-> **版本基线**：`0.0.0-beta-18743`（2026-09-01 核实；`@opencode-ai/{plugin,schema}@0.0.0-beta-18743` 与 18721 的 `dist` 全量 diff 为零；宿主实测证据仍以 `opencode2 v0.0.0-beta-18721` 标注）
-> **本项目锁定版本**：`beta-18743`（`package.json`）；与旧锁定 18230 的差异见 [versions/changelog.md](versions/changelog.md)
-> **最新 npm beta**：`0.0.0-beta-19242`（2026-09-07 核实，`beta` dist-tag）；18743 → 19242 差异见 [versions/changelog.md](versions/changelog.md)——主要为 `*Draft`→`*Editor` 重命名、`Plugin.vcs` 移除、新增 `worktree` 域与 TUI `session.panel` 插槽，本文其余章节仍以 18743 类型为基线，差异以各章"beta-19242 变化"标注为准。
+> **版本基线**：`0.0.0-beta-19271`（2026-09-09 核实，npm `beta` dist-tag；与 19242 的差异见 [versions/changelog.md](versions/changelog.md)——全部为 optional 新增，零 breaking；18743→19242 差异同见该文件）
+> **本项目锁定版本**：`beta-18743`（`package.json`）；宿主 `@opencode/cli@0.0.0-beta-19296` 实测加载 beta-18743 API 插件无回归（2026-09-09）；`@opencode-ai/plugin` 无 19296 版本（npm E404），CLI 宿主已迁往新包名 `@opencode/cli`（旧名 `@opencode-ai/cli` 仍在发布，beta tag 19271）
+> **beta-19242 差异摘要**：`*Draft`→`*Editor` 重命名、`Plugin.vcs` 移除、新增 `worktree` 域与 TUI `session.panel` 插槽；beta-19271 增量：`compaction` 配置、`providerContext` 会话溯源、TUI `DialogSelectOption.footer`（详见 [versions/changelog.md](versions/changelog.md)）。
 
 ## 文档索引
 
