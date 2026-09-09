@@ -1,6 +1,6 @@
 import type { AgentOverrideConfig } from '../config/schema';
 import { CBM_LIFECYCLE, DIRECT_MCP_POLICY } from '../cbm/registry';
-import { SISYPHUS_WORKFLOW_PROTOCOL } from './protocol';
+import { CODEMODE_CALLING_PROTOCOL, SISYPHUS_WORKFLOW_PROTOCOL } from './protocol';
 
 export type PermissionConfig = NonNullable<AgentOverrideConfig['permission']>;
 
@@ -217,6 +217,7 @@ export function buildCompactPromptSections(
     role: `${identity}\n优先复用现有上下文；只有专家收益明显超过协调成本时才创建新上下文。主 agent 始终负责用户交互、关键决策、结果整合和最终验证。`,
     agents: `${disabled}
 ${DISPATCH_PROTOCOL}
+${CODEMODE_CALLING_PROTOCOL}
 遇到 bug、测试失败或异常行为时加载 oceanus-debugging Skill，先完成根因调查再修复。`,
     workflow: variant === 'sisyphus'
       ? `${SISYPHUS_WORKFLOW_PROTOCOL}\n\nCBM 生命周期摘要：${CBM_LIFECYCLE.brief}\n\n${DIRECT_MCP_POLICY}`

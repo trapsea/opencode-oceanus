@@ -46,6 +46,20 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
   等）对齐，只读 agent 的写入边界经宿主权限系统直接生效。
   Agent prompt 中“直接调用，不要通过 Code Mode 的 `execute` proxy”
   的既有措辞在直接化后语义更准（这些工具与宿主工具同级），无需弱化。
+- **Code Mode 内部调用纪律（beta-19296 宿主实证）**：`execute` 的 JS 运行时里
+  存在两种调用形态——catalog 工具挂在 `tools` 命名空间（`tools.<ns>.<name>(...)`），
+  而 `search(...)` 是**全局内置函数**（发现工具目录与签名，返回 path 与
+  signature），不在 `tools` 命名空间内。模型高频混淆点：把 `search` 写成
+  `tools.search(...)` / `tools["search"](...)` 会触发
+  `Unknown tool 'search'`（真实会话已复现；错误提示
+  "Use search to find available tools" 指的正是全局函数形态）。正确纪律：
+  工具一律 `tools.<ns>.<name>(...)`；发现工具用全局 `search({ query })`；
+  `Object.keys(tools)` 列出顶层命名空间。该纪律已固化为
+  `CODEMODE_CALLING_PROTOCOL`（`src/agents/protocol.ts`），常驻
+  oceanus/sisyphus 主 agent prompt，并由 `oceanus-execute` skill 步骤 3
+  同步。宿主源码主线已将 `search` 迁至 `tools.$codemode.search` 并常驻
+  注册（防投机调用失败），升级宿主后以运行时目录提示的实际形态为准，
+  两代形态不得在同一会话混用。
 - **写入 subagent 的工具族约束（WRITER_TOOL_PERMISSION）**：文件编辑使用宿主原生
   `edit` / `write` / `apply_patch`（原生 diff 渲染与模型通用心智）；`ast_grep_replace`
   显式 `allow`（默认 dry-run 预览保护）。

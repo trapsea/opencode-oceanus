@@ -57,6 +57,18 @@ export const LEDGER_PROTOCOL = `### 进度账本协议
 export const RUNTIME_GUARDS_PROTOCOL = `### 运行时护栏协议
 代码变更后旧 evidence 视为 stale；必须检查最终 diff、Files scope 与 acceptance criteria，并运行适用的测试、typecheck、build 和 real-surface 验证。`;
 
+/**
+ * Code Mode 调用纪律（beta-19296 宿主实证）：
+ *
+ * `execute` 的 JS 运行时内存在两种调用形态——工具挂在 `tools` 命名空间、
+ * `search` 是全局内置函数。模型高频混淆点：把 `search` 写成 `tools.search(...)`
+ * 会触发 `Unknown tool 'search'`（真实会话已复现）。本纪律常驻主 agent prompt，
+ * 从源头约束调用形态；宿主版本差异（`tools.$codemode.search`）以运行时提示为准。
+ */
+export const CODEMODE_CALLING_PROTOCOL = `### Code Mode 调用纪律
+
+在 \`execute\` 的 JS 运行时内，工具一律以 \`tools.<ns>.<name>(...)\` 或 \`tools["ns"]["tool"](...)\` 形态调用。\`search\` 是全局内置函数（发现工具目录与签名），不在 \`tools\` 命名空间内：写成 \`tools.search(...)\` 或 \`tools["search"](...)\` 会报 \`Unknown tool 'search'\`。不确定工具路径时，先 \`search({ query: "..." })\` 查询，再按返回的 path 调用；\`Object.keys(tools)\` 列出顶层命名空间。宿主版本差异注记：部分版本将 \`search\` 挂在 \`tools.$codemode.search\`——以当前运行时目录提示的实际形态为准，两种形态不得混用。`;
+
 /** 3 轮中断上报模板的完整定义（单一来源）。站点只保留引用句式，不复制完整定义。 */
 export const THREE_ROUND_TEMPLATE = `**3 轮中断上报模板（统一）**：任何 3 轮循环（执行修复重试 / review 缺口退回 / oracle-analysis 分歧 / 视觉 L5 FAIL 退回 / 同一目标的探索性尝试连续失败）第 3 轮仍不通过时，停止自动重试，用 \`question\` 工具上报，内容必须包含：①当前状态摘要（已完成任务清单、进行中与剩余任务清单）②原因（第 3 轮失败或分歧的具体原因，引用最后一轮关键证据）③下一步方案（恰好 2-3 个方案 / 推荐项：每项附一句可行性与代价说明）④推荐项（明确标注推荐项及理由）。计数边界：每类循环独立计数，从该循环第一次失败、分歧或缺口起算；修订后通过则该循环计数清零；不同循环、不同任务之间不累计。`;
 
@@ -70,5 +82,5 @@ export const CHILD_BLOCKING_PROTOCOL =
   '缺少委派上下文时不要直接问用户；将问题反馈给父 agent，并输出 STATUS: BLOCKED、QUESTIONS、IMPACT。未明确指定模式时不猜测。';
 
 export function buildAgentProtocol(): string {
-  return [DISPATCH_PROTOCOL, LEDGER_PROTOCOL, RUNTIME_GUARDS_PROTOCOL].join('\n\n');
+  return [DISPATCH_PROTOCOL, LEDGER_PROTOCOL, RUNTIME_GUARDS_PROTOCOL, CODEMODE_CALLING_PROTOCOL].join('\n\n');
 }
