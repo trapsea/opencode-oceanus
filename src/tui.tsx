@@ -276,6 +276,41 @@ function isRunningStatus(status: LocalSessionStatus): boolean {
   return typeof status === 'string' ? status === 'running' : status.type !== 'idle';
 }
 
+/**
+ * 周期校准的单会话决策（纯函数，便于测试）：
+ *
+ * 宿主事实（beta-19296 二进制实证）：
+ * - `context.data.session.status(id)` 内部为 `store.session.active[id] ?? 'idle'`，
+ *   而 `store.session.active` 只由已无人发布的 `session.execution.*` 事件更新，
+ *   因此在现行宿主上该接口恒返回 `'idle'`——它**不能**作为 running 的反向证据；
+ * - 会话活跃的权威事件是 `session.status`（每次 run 开始必发 busy、结束必发
+ *   idle）与 deprecated 的 `session.idle`。
+ *
+ * 旧实现每 2s 把 localStatuses 中 running 反向校正为 host status，在 host 恒
+ * 返回 'idle' 的宿主上会把刚由 busy 事件点亮的 ● 在 ≤2s 内误杀（第二次任务
+ * 事件少，表现为 ● 完全不再点亮）。因此改为：
+ * - 不亮且 host 明确 running → bump-running（正向补亮，覆盖漏事件窗口）；
+ * - running 且超过 staleRunningMs 无任何该会话状态事件 → clear-stale（防御
+ *   宿主事件缺口导致的 ● 滞留，远超正常 step 间隔，不误杀真实任务）；
+ * - 其余 keep。host 恒 idle/缺失不再触发反向清除。
+ */
+export function decideCalibration(options: {
+  localRunning: boolean;
+  hostRunning: boolean | undefined;
+  lastEventAt: number | undefined;
+  now: number;
+  staleRunningMs: number;
+}): 'keep' | 'bump-running' | 'clear-stale' {
+  const { localRunning, hostRunning, lastEventAt, now, staleRunningMs } = options;
+  if (!localRunning) {
+    return hostRunning ? 'bump-running' : 'keep';
+  }
+  if (lastEventAt !== undefined && now - lastEventAt > staleRunningMs) {
+    return 'clear-stale';
+  }
+  return 'keep';
+}
+
 export function getRelatedRunningSessions(context: Context, sessionID: string, localStatuses: Map<string, LocalSessionStatus>, deletedSessionIDs: Set<string>) {
   const familyIDs = new Set(context.data.session.family(sessionID) ?? []);
   familyIDs.add(sessionID);
@@ -607,26 +642,50 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
     scheduleFlush();
   };
 
-  // ── running 状态周期校准（治 ● 滞留）──
-  // 事件缺口（subagent 结束不发 idle/execution 终态、事件名与宿主不匹配）
-  // 会让 localStatuses 里的 running 永不清理。低频对照 host store 的权威
-  // status，发现已 idle 即修正并刷新；异常静默跳过（下一轮再试）。
+  // ── running 状态周期校准（事件权威制）──
+  // 宿主事实（beta-19296 二进制实证）：`context.data.session.status(id)` 的宿主
+  // data 层实现为 `store.session.active[id] ?? 'idle'`，而 `active` 只由已无
+  // 发布者的 `session.execution.*` 事件更新 → 该接口在现行宿主恒返回 'idle'。
+  // 旧实现每 2s 把 localStatuses 中 running 反向校正为 host status，等价于把
+  // 刚由权威 `session.status`(busy) 事件点亮的 ● 在 ≤2s 内误杀——第二次任务
+  // （正常完成后同会话再输入）事件少、无 session.created 掩盖，表现为 ● 完全
+  // 不再点亮。修复：running 只由权威事件熄灭；周期校准仅做
+  // 1) host 明确 busy 而本地未亮时的正向补亮（漏事件窗口）；
+  // 2) 超过 STALE_RUNNING_MS 无任何该会话状态事件时的滞留兜底（防御宿主事件
+  //    缺口导致的 ● 滞留；10min 远超正常 step 间隔，不误杀真实任务）。
   const STATUS_CALIBRATE_MS = 2000;
+  const STALE_RUNNING_MS = 10 * 60 * 1000;
+  const statusAt = new Map<string, number>();
+  const hostSessionStatus = (sessionID: string): LocalSessionStatus | undefined => {
+    try {
+      return (context.data?.session as
+        | { status?: (id: string) => LocalSessionStatus | undefined }
+        | undefined
+      )?.status?.(sessionID);
+    } catch {
+      return undefined;
+    }
+  };
   const calibrateRunningSessions = () => {
     let changed = false;
-    for (const [sessionID, status] of state.localStatuses) {
-      if (!isRunningStatus(status)) continue;
-      let hostStatus: LocalSessionStatus | undefined;
-      try {
-        hostStatus = (context.data?.session as
-          | { status?: (id: string) => LocalSessionStatus | undefined }
-          | undefined
-        )?.status?.(sessionID);
-      } catch {
-        continue;
-      }
-      if (hostStatus !== undefined && !isRunningStatus(hostStatus)) {
-        state.localStatuses.set(sessionID, hostStatus);
+    const now = Date.now();
+    for (const [sessionID, status] of [...state.localStatuses]) {
+      const localRunning = isRunningStatus(status);
+      const hostStatus = hostSessionStatus(sessionID);
+      const decision = decideCalibration({
+        localRunning,
+        hostRunning: hostStatus === undefined ? undefined : isRunningStatus(hostStatus),
+        lastEventAt: statusAt.get(sessionID),
+        now,
+        staleRunningMs: STALE_RUNNING_MS,
+      });
+      if (decision === 'bump-running') {
+        statusAt.set(sessionID, now);
+        state.localStatuses.set(sessionID, 'running');
+        changed = true;
+      } else if (decision === 'clear-stale') {
+        statusAt.delete(sessionID);
+        state.localStatuses.delete(sessionID);
         changed = true;
       }
     }
@@ -635,10 +694,12 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
   const calibrateTimer = setInterval(calibrateRunningSessions, STATUS_CALIBRATE_MS);
 
   const setLocalStatus = (sessionID: string, status: LocalSessionStatus) => {
+    statusAt.set(sessionID, Date.now());
     state.deletedSessionIDs.delete(sessionID);
     state.localStatuses.set(sessionID, status);
   };
   const removeLocalStatus = (sessionID: string) => {
+    statusAt.delete(sessionID);
     state.localStatuses.delete(sessionID);
     state.deletedSessionIDs.add(sessionID);
   };

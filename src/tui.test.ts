@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import {
   createPresetWatcher,
+  decideCalibration,
   getRelatedRunningSessions,
   getRows,
   loadPanelReactivity,
@@ -553,6 +554,87 @@ describe('normalizeAgentKey agent 标识规范化', () => {
     expect(normalizeAgentKey('ORACLE')).toBe('oracle');
     expect(normalizeAgentKey(undefined)).toBeUndefined();
     expect(normalizeAgentKey('custom-agent')).toBe('custom-agent');
+  });
+});
+
+describe('decideCalibration 校准决策（host status 恒 idle 不再反向误杀）', () => {
+  const now = 1_000_000_000;
+  const staleRunningMs = 10 * 60 * 1000;
+
+  test('host 恒 idle（现行宿主 data.status 缺省 ?? "idle"）且本地 running 新鲜 → keep，不反向清除', () => {
+    // 回归主 bug：旧实现会把刚由 session.status busy 事件点亮的 running
+    // 反向校正为 host 'idle'，导致第二次任务 ● 完全不再点亮。
+    expect(
+      decideCalibration({
+        localRunning: true,
+        hostRunning: false,
+        lastEventAt: now - 1000,
+        now,
+        staleRunningMs,
+      }),
+    ).toBe('keep');
+  });
+
+  test('host 缺失（undefined）时 running 新鲜 → keep', () => {
+    expect(
+      decideCalibration({
+        localRunning: true,
+        hostRunning: undefined,
+        lastEventAt: now - 1000,
+        now,
+        staleRunningMs,
+      }),
+    ).toBe('keep');
+  });
+
+  test('running 超过 staleRunningMs 无任何该会话事件 → clear-stale（滞留兜底）', () => {
+    expect(
+      decideCalibration({
+        localRunning: true,
+        hostRunning: false,
+        lastEventAt: now - staleRunningMs - 1,
+        now,
+        staleRunningMs,
+      }),
+    ).toBe('clear-stale');
+  });
+
+  test('running 但无时间戳记录 → keep（不误杀未知时序）', () => {
+    expect(
+      decideCalibration({
+        localRunning: true,
+        hostRunning: false,
+        lastEventAt: undefined,
+        now,
+        staleRunningMs,
+      }),
+    ).toBe('keep');
+  });
+
+  test('本地未亮 + host 明确 running → bump-running（正向补亮漏事件窗口）', () => {
+    expect(
+      decideCalibration({
+        localRunning: false,
+        hostRunning: true,
+        lastEventAt: now - 1000,
+        now,
+        staleRunningMs,
+      }),
+    ).toBe('bump-running');
+  });
+
+  test('本地未亮 + host idle/缺失 → keep', () => {
+    for (const hostRunning of [false, undefined]) {
+      expect(
+        decideCalibration({
+          localRunning: false,
+          hostRunning,
+          lastEventAt: now - 1000,
+          now,
+          staleRunningMs,
+        }),
+      ).toBe('keep');
+    }
   });
 });
 

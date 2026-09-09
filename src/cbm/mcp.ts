@@ -46,6 +46,12 @@ export interface McpRegisterOptions extends ProvisionOptions {
   ensureInstalled?: (options?: ProvisionOptions) => Promise<string | null>;
   /** 已有二进制的可注入健康检查；未通过时视为不可用。 */
   healthCheck?: (binary: string) => Promise<boolean>;
+  /**
+   * 安装完成、启用 server 前的 daemon 就绪钩子（fail-open）：宿主 reload 后
+   * 将 spawn stdio MCP server，先确保 permanent daemon 可接受新客户端，避免
+   * 首个连接落在 daemon 冷启动窗口。缺省 no-op。
+   */
+  ensureDaemonReady?: (binary: string, cacheRoot: string) => Promise<unknown>;
 }
 
 /** 注入的 MCP server 固定名称。 */
@@ -210,6 +216,12 @@ export async function registerCbmMcp(
       log(`[oceanus] CBM install failed: ${messageOf(e)}`);
     }
     if (bin) {
+      // 首次安装完成：宿主 reload 后将 spawn stdio MCP server。先确保
+      // permanent daemon 就绪（前台等待，fail-open），使首个连接
+      // connect-to-warm，避免落在 daemon 冷启动窗口内失败。
+      if (opts.ensureDaemonReady) {
+        await opts.ensureDaemonReady(bin, cacheDir).catch(() => {});
+      }
       let updated = false;
       await ctx.mcp.transform((draft) => {
         const existing = draft.get(MCP_SERVER_NAME);

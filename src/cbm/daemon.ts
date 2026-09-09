@@ -1,93 +1,200 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 
 /**
- * CBM daemon 常驻预热。
+ * CBM permanent daemon 前台等待式预热。
  *
- * 背景（0.10.8 实测诊断）：CLI 短命进程模式下 daemon 以「最后客户端断开即
- * 退出」的 session-managed 生命周期高频启停（日志 139 start / 126 stop），且
- * 长期运行后会间歇性进入「活着但不接受新客户端」的坏状态——新客户端等待
- * 30s 后报 `CBM daemon is active or starting but could not accept this client
- * within 30000 ms` 并 exit 1。
+ * 背景（0.10.8 实测诊断）：宿主重启后若 daemon 已退出，宿主 spawn 的 stdio
+ * MCP server 与插件预热的 `daemon start` 会并行竞争拉起 daemon。旧实现
+ * fire-and-forget（detached + stdio ignore + unref）不等待 daemon 就绪，MCP
+ * reload 紧随其后，宿主 spawn 的首个 stdio MCP server 落在 daemon 冷启动窗口
+ * 内：connect-or-start 等不到 accept 即退出（`Connection closed` ~2.4s），或对
+ * 半启动 daemon 等满 30s（`Request timed out`）；且首个 stdio server 会抢先以
+ * session-managed 模式拉起 daemon，使 `daemon start` 的 permanent 意图退化为
+ * no-op，service 停止后 daemon 随最后客户端退出，下次冷启动重演。
  *
- * `codebase-memory-mcp daemon start` 的真实语义（0.10.8 实测）：
- * - 无 daemon 运行时：启动 **permanent** daemon（跨空闲期与会话存活，
- *   实测冷启动 30s 失败 / 3.4s → 常驻命中 1.1s）；
- * - permanent daemon 已存在时：幂等确认（`already active (permanent)`）；
- * - **session-managed daemon 已存在时：退化为 no-op**——打印
- *   `already active (session-managed …) — it stops with its last session`
- *   后 exit 0，不会将其升级为 permanent；且 `daemon stop` 在仍有
- *   committed client 时会被拒绝（exit 1）。
+ * 0.10.8 实测语义：
+ * - 无 daemon 时 `daemon start` 前台阻塞到 permanent daemon 就绪后打印
+ *   `daemon: started (permanent, pid N)` 并 exit 0（返回即 accept-ready）；
+ * - permanent 已存在：幂等打印 `daemon: already active (permanent, pid N)`
+ *   exit 0；
+ * - session-managed 已存在：no-op 打印 `already active (session-managed…)`
+ *   exit 0（不升级为 permanent）。
  *
- * 因此本预热必须在任何 CBM 客户端连接之前执行（插件 setup 的 'cbm-daemon'
- * 阶段先于 'mcp' 注册），否则宿主 spawn 的 stdio MCP server 会抢先以
- * session-managed 模式拉起 daemon，permanent 常驻将永远无法建立。
+ * 因此本函数前台 spawn `daemon start` 并等待退出（exit 0 = daemon 已可服务）。
+ * 调用方必须在宿主 MCP reload（spawn stdio server）之前 await 本函数，使所有
+ * stdio 连接变为 connect-to-warm，消除首个连接失败。
  *
- * 本函数 fire-and-forget：detached + stdio ignore + unref，绝不阻塞插件
- * setup，任何失败（二进制缺失、spawn 异常）一律 fail-open 静默降级。
+ * 任何失败/超时均 fail-open：返回结构化结果，绝不抛异常、绝不阻塞其它能力。
  */
 
+/** daemon 就绪等待默认上限：冷启动实测 3-4s；慢机器/加载索引库预留余量。 */
+export const DAEMON_READY_TIMEOUT_MS = 15_000;
+
+/** 就绪形态：冷启动新建 / 幂等命中 permanent / no-op 命中 session-managed。 */
+export type DaemonReadyMode = 'started' | 'already-permanent' | 'already-session';
+
+export type DaemonWaitStatus = 'ready' | 'skipped' | 'timeout' | 'failed';
+
+export interface DaemonWaitResult {
+  status: DaemonWaitStatus;
+  /** status=ready 时的 daemon 形态。 */
+  mode?: DaemonReadyMode;
+  elapsedMs: number;
+  /** 可读详情：进程输出摘录或错误消息。 */
+  detail?: string;
+}
+
+/** spawn 结果句柄：等待退出、超时 kill、读取已收集输出。 */
 export interface DaemonSpawnProc {
-  unref: () => void;
+  /** 进程退出（或 spawn error）时 resolve；超时 kill 后为 close code/null。 */
+  exited: Promise<number | null>;
+  kill: () => void;
+  /** 进程 stdout+stderr 已收集文本（进程结束后可读）。 */
+  readOutput: () => string;
+  /** spawn 阶段错误（如 ENOENT）。 */
+  readError: () => string | undefined;
 }
 
 export interface DaemonSpawnFn {
-  (command: string[], options: {
-    detached: boolean;
-    stdio: 'ignore';
-    windowsHide: boolean;
-    env: Record<string, string>;
-  }): DaemonSpawnProc;
+  (command: string[], options: { windowsHide: boolean; env: Record<string, string> }): DaemonSpawnProc;
 }
 
-const defaultSpawn: DaemonSpawnFn = (command, options) => {
-  const child = nodeSpawn(command[0]!, command.slice(1), options);
-  // 二进制缺失等异步 spawn 失败以 error 事件到达；预热是 fire-and-forget
-  // 优化，必须吞掉该事件避免进程级 uncaught exception（fail-open 语义）。
-  child.on('error', () => {});
-  return { unref: () => child.unref() };
-};
-
-export interface PrewarmDaemonOptions {
+export interface EnsurePermanentDaemonOptions {
   /** CBM 二进制绝对路径。 */
   binaryPath: string;
-  /** 与其余 CBM 调用一致的 cache 根（决定 daemon 单例指纹）。 */
+  /** 与其余 CBM 调用一致的 cache 根（daemon 单例 cache fingerprint 来源）。 */
   cacheRoot: string;
   /**
    * daemon 进程环境。由调用方构造（与 CLI/MCP 通道一致的白名单基础 +
    * `CBM_CACHE_DIR` 覆盖），避免常驻进程携带残缺环境。
    */
   env: Record<string, string>;
+  /** 就绪等待上限；超时 kill 子进程并返回 timeout。默认 15s。 */
+  timeoutMs?: number;
   /** 测试注入；默认 node child_process spawn。 */
   spawnFn?: DaemonSpawnFn;
   /** fail-open 日志；缺省静默。 */
   log?: (message: string, extra?: Record<string, unknown>) => void;
 }
 
+const defaultSpawn: DaemonSpawnFn = (command, options) => {
+  const child = nodeSpawn(command[0]!, command.slice(1), {
+    windowsHide: true,
+    env: options.env,
+    // 前台执行：收集输出用于就绪形态判定与诊断，不 detached、不 unref。
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let spawnError: string | undefined;
+  const exited = new Promise<number | null>((resolve) => {
+    child.on('error', (err) => {
+      spawnError = err.message;
+      resolve(null);
+    });
+    child.on('close', (code) => resolve(code));
+  });
+  const chunks: Buffer[] = [];
+  child.stdout?.on('data', (d: Buffer) => chunks.push(d));
+  child.stderr?.on('data', (d: Buffer) => chunks.push(d));
+  return {
+    exited,
+    kill: () => {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // 已退出等场景忽略。
+      }
+    },
+    readOutput: () => Buffer.concat(chunks).toString('utf8'),
+    readError: () => spawnError,
+  };
+};
+
 /**
- * 启动常驻 daemon 预热。同步返回，不抛异常。
+ * 前台等待 permanent daemon 就绪。同步可等待语义，不抛异常。
  *
- * 返回 true 表示 spawn 已发出（不代表 daemon 就绪）；false 表示跳过
- * （参数缺失）或失败（已记录 fail-open 日志）。
+ * - 参数缺失 → `skipped`；
+ * - spawn 抛出/异步 error（如 ENOENT）→ `failed`；
+ * - 超过 timeoutMs 未退出 → kill 后 `timeout`；
+ * - exit 非 0 → `failed`（detail 带进程输出）；
+ * - exit 0 → `ready`（mode 由输出文案判定）。
  */
-export function prewarmDaemon(options: PrewarmDaemonOptions): boolean {
+export async function ensurePermanentDaemon(
+  options: EnsurePermanentDaemonOptions,
+): Promise<DaemonWaitResult> {
   const { binaryPath, cacheRoot, env, spawnFn = defaultSpawn, log } = options;
+  const timeoutMs = options.timeoutMs ?? DAEMON_READY_TIMEOUT_MS;
+  const startedAt = Date.now();
+  const elapsedMs = () => Date.now() - startedAt;
+
   if (!binaryPath || !cacheRoot) {
     log?.('[oceanus] CBM daemon 预热跳过：binaryPath/cacheRoot 缺失', { failOpen: true });
-    return false;
+    return { status: 'skipped', elapsedMs: 0, detail: 'missing binaryPath/cacheRoot' };
   }
+
+  let proc: DaemonSpawnProc;
   try {
-    const proc = spawnFn([binaryPath, 'daemon', 'start'], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-      env,
-    });
-    proc.unref();
-    return true;
+    proc = spawnFn([binaryPath, 'daemon', 'start'], { windowsHide: true, env });
   } catch (e) {
-    log?.('[oceanus] CBM daemon 预热失败(fail-open)', {
-      error: e instanceof Error ? e.message : String(e),
+    const msg = e instanceof Error ? e.message : String(e);
+    log?.('[oceanus] CBM daemon 预热 spawn 失败(fail-open)', {
+      error: msg,
+      elapsedMs: elapsedMs(),
     });
-    return false;
+    return { status: 'failed', elapsedMs: elapsedMs(), detail: msg };
   }
+
+  let timedOut = false;
+  // 就绪等待必须不被「子进程已退出但 stdio 管道仍被常驻 daemon 持有」卡死：
+  // 若 `close`（进程退出 + 流关闭）永不触发，race 的 timeout 分支保证返回。
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutP = new Promise<number | null>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      proc.kill();
+      resolve(null);
+    }, timeoutMs);
+  });
+  const code = await Promise.race([proc.exited, timeoutP]);
+  if (timer) clearTimeout(timer);
+  const output = proc.readOutput();
+  const spawnError = proc.readError();
+
+  if (timedOut) {
+    log?.('[oceanus] CBM daemon 预热超时(fail-open)', {
+      timeoutMs,
+      elapsedMs: elapsedMs(),
+      output: output.slice(0, 300),
+    });
+    return {
+      status: 'timeout',
+      elapsedMs: elapsedMs(),
+      detail: output.slice(0, 300) || `timed out after ${timeoutMs}ms`,
+    };
+  }
+  if (spawnError) {
+    log?.('[oceanus] CBM daemon 预热失败(fail-open)', {
+      error: spawnError,
+      elapsedMs: elapsedMs(),
+    });
+    return { status: 'failed', elapsedMs: elapsedMs(), detail: spawnError };
+  }
+  if (code !== 0) {
+    const detail = output.trim() || `daemon start exited ${code}`;
+    log?.('[oceanus] CBM daemon 预热失败(fail-open)', {
+      exitCode: code,
+      elapsedMs: elapsedMs(),
+      output: output.slice(0, 300),
+    });
+    return { status: 'failed', elapsedMs: elapsedMs(), detail: detail.slice(0, 300) };
+  }
+
+  const mode: DaemonReadyMode | undefined = output.includes('already active (permanent')
+    ? 'already-permanent'
+    : output.includes('already active (session-managed')
+      ? 'already-session'
+      : output.includes('started (permanent')
+        ? 'started'
+        : undefined;
+  log?.('[oceanus] CBM daemon 预热就绪', { mode, elapsedMs: elapsedMs() });
+  return { status: 'ready', mode, elapsedMs: elapsedMs(), detail: output.slice(0, 200) };
 }

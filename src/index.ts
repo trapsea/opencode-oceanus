@@ -10,7 +10,7 @@ import { createCommands } from './commands';
 import { registerCbmMcp } from './cbm/mcp';
 import { registerOceanusTools } from './tools';
 import { registerOceanusHooks } from './hooks';
-import { buildCbmSharedDeps, startDaemonPrewarm, type CbmWiringInjections } from './cbm/wiring';
+import { buildCbmSharedDeps, startDaemonPrewarm, waitForDaemonReady, type CbmWiringInjections } from './cbm/wiring';
 import type { PluginSetupContext } from './runtime/types';
 import { registerAutoUpdate } from './update';
 import { installStaged, resolveOpenCodeInstallContext } from './update/cache';
@@ -163,9 +163,13 @@ export interface RunSetupOptions {
  *   2. `startBackgroundInstall(installOptions)`，**不 await**（后台安装非阻塞）；
  *   3. 注册 agents / skills（agent 拓扑已收敛：metis/momus 并入 oracle 场景，见 src/review/）；
  *   4. 注册命令（仅 /preset；cbm 不再暴露用户命令，能力由 MCP 工具供 agent 调度）；
- *   5. **非阻塞**注册 `codebase-memory-mcp`（占位→安装完成启用，不阻塞插件启动）；
- *   6. 注册 CLI fallback 工具，传入共享 runDeps / indexer（env 经 config 推导）；
- *   7. 注册 guidance hooks，复用同一 indexer / runDeps。
+ *   5. `cbm-daemon` 阶段**前台等待** permanent daemon 就绪（默认 15s 上限，
+ *      超时/失败 fail-open）——必须先于 mcp 注册完成，使宿主 reload 后 spawn 的
+ *      stdio MCP server 全部 connect-to-warm，消除 daemon 冷启动竞态；
+ *   6. **非阻塞**注册 `codebase-memory-mcp`（占位→安装完成启用；安装完成路径
+ *      在 reload 前再次确保 daemon 就绪，不阻塞插件启动）；
+ *   7. 注册 CLI fallback 工具，传入共享 runDeps / indexer（env 经 config 推导）；
+ *   8. 注册 guidance hooks，复用同一 indexer / runDeps。
  *
  * 所有 CBM 接线独立 try/catch/fail-open：任一环节失败不阻塞其余子系统。
  */
@@ -364,15 +368,16 @@ export async function runSetup(
 
     {
       name: 'cbm-daemon',
-      run: () => {
-        // CBM daemon 预热必须先于 MCP 注册：宿主 reload 后 spawn 的 stdio MCP
-        // server 是首个 committed client，会立即以 session-managed 模式拉起
-        // daemon（随最后客户端断开而退出）；此后 `daemon start` 对已存在的
-        // session-managed daemon 退化为 no-op，permanent 常驻永远无法建立。
-        // 提前到 mcp.reload() 之前，宿主重启（daemon 已死）时才能抢先把
-        // daemon 以 permanent 模式拉起，后续 MCP 连接变为 connect-to-warm。
-        // 门控/环境构造在 wiring 层统一；fire-and-forget，失败 fail-open。
-        startDaemonPrewarm(shared, log);
+      run: async () => {
+        // CBM permanent daemon 前台等待式预热必须先于 MCP 注册完成：宿主
+        // reload 后 spawn 的 stdio MCP server 是首个 committed client，若落在
+        // daemon 冷启动窗口内会报 Connection closed / 30s 超时，并抢先以
+        // session-managed 拉起 daemon 使 permanent 永远无法建立。await 本阶段
+        // （就绪等待默认 15s 上限，超时/失败 fail-open 不阻塞）后再进入 mcp
+        // 注册，所有 stdio 连接变为 connect-to-warm。
+        await startDaemonPrewarm(shared, log, {
+          prewarm: options.cbm?.prewarm,
+        });
       },
     },
 
@@ -396,6 +401,11 @@ export async function runSetup(
           throw error;
         }
       },
+      // 首次安装完成、启用 server 前确保 daemon 就绪（reload 后宿主 spawn 的
+      // stdio server 才能 connect-to-warm；fail-open；prewarm 注入与 cbm-daemon
+      // 阶段对齐，便于集成测试以 fake 覆盖）。
+      ensureDaemonReady: (bin, cacheRoot) =>
+        waitForDaemonReady(cacheRoot, bin, log, options.cbm?.prewarm),
         });
         void Promise.resolve(pending).catch((e) => {
           report('mcp.async', e);

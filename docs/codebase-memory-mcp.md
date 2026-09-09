@@ -22,7 +22,7 @@ daemon 按缓存根目录隔离。若已经运行的 daemon 使用了不同的 c
 
 CBM 0.10.8 的 daemon 有两种形态：**session-managed**（随最后一个客户端断开而退出）与 **permanent**（跨空闲与会话存活）。上游默认由首个客户端以 session-managed 模式拉起；只有 `codebase-memory-mcp daemon start` 能建立 permanent daemon，且当 session-managed daemon 已存在时该命令退化为 no-op（不会自动升级为 permanent）。
 
-为避免宿主每次重启后 daemon 冷启动（及间歇性的「活着但不接受新客户端」30s 拒绝）导致的 MCP 连接失败，插件在 `setup` 的 `cbm-daemon` 阶段（先于 `mcp` 注册）执行一次 daemon 预热：宿主重启、daemon 已死时把 daemon 以 permanent 模式抢先拉起，后续 MCP 连接从 connect-or-start 变为 connect-to-warm。预热是 fire-and-forget，任何失败静默降级，不影响其它能力。
+为避免宿主每次重启后 daemon 冷启动（及间歇性的「活着但不接受新客户端」30s 拒绝）导致的 MCP 连接失败，插件在 `setup` 的 `cbm-daemon` 阶段（先于 `mcp` 注册）执行**前台等待式 daemon 预热**：宿主重启、daemon 已死时执行 `codebase-memory-mcp daemon start` 并等待其返回（0.10.8 语义下 exit 0 即 daemon 已可服务——permanent 新建或幂等命中），随后 MCP reload 时宿主 spawn 的所有 stdio MCP server 均 connect-to-warm，不再有首个连接落在冷启动窗口内。就绪等待默认上限 15s（实测冷启动 3-4s），超时或失败一律 fail-open：记录日志、不阻塞其它能力，MCP 可能缺失但 CLI wrapper 兜底。二进制缓存缺失（首次安装/下载中）时预热保持后台非阻塞，MCP 走 disabled 占位，安装完成、启用 server 前会再次确保 daemon 就绪后再 reload。
 
 wrapper 层另带有限自愈：当 CLI 报 `could not accept this client within`、版本/指纹冲突等 daemon 坏状态特征时，自动执行一次 `daemon stop` retire 后重试一次原调用（`daemon stop` 被 committed client 拒绝也无害——瞬时性 accept 拒绝靠直接重试即可恢复）。自愈最多一次，不循环。
 

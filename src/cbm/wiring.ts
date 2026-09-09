@@ -3,7 +3,7 @@ import type { PluginConfig } from '../config/schema';
 import { existsSync } from 'node:fs';
 import { getCacheRoot } from './paths';
 import { resolveExpectedBinaryPath } from './mcp';
-import { prewarmDaemon } from './daemon';
+import { ensurePermanentDaemon, type EnsurePermanentDaemonOptions } from './daemon';
 import { buildCbmEnv } from '../tools/cbm/args';
 import {
   ensureInstalled as provisionEnsureInstalled,
@@ -46,8 +46,15 @@ export interface CbmWiringInjections {
   ensureInstalled?: EnsureInstalledFn;
   repair?: RepairFn;
   createIndexer?: IndexerFactory;
+  /** daemon 预热等待实现（runSetup 的 cbm-daemon 阶段注入；测试用）。 */
+  prewarm?: DaemonEnsureFn;
   logger?: (message: string, meta?: Record<string, unknown>) => void;
 }
+
+/** daemon 预热等待函数签名（与 daemon.ensurePermanentDaemon 一致，测试可注入）。 */
+export type DaemonEnsureFn = (
+  options: EnsurePermanentDaemonOptions,
+) => Promise<import('./daemon').DaemonWaitResult>;
 
 /** 入口接线共用的 CBM 共享依赖。 */
 export interface CbmSharedDeps {
@@ -91,53 +98,107 @@ export function createFallbackIndexer(): IndexerHandle {
 
 /** {@link startDaemonPrewarm} 的可注入依赖（测试用）。 */
 export interface DaemonPrewarmInjections {
-  prewarm?: typeof prewarmDaemon;
+  prewarm?: DaemonEnsureFn;
   exists?: (path: string) => boolean;
+  /** 就绪等待超时上限（默认 daemon.DAEMON_READY_TIMEOUT_MS = 15s）。 */
+  timeoutMs?: number;
+}
+
+/** 构造与 CLI/MCP 通道一致的 daemon 环境（白名单基础 + CBM_CACHE_DIR 覆盖）。 */
+function buildDaemonEnv(cacheRoot: string): Record<string, string> {
+  return {
+    ...buildCbmEnv({}, process.env),
+    CBM_CACHE_DIR: cacheRoot,
+  } as Record<string, string>;
 }
 
 /**
- * CBM daemon 常驻预热编排（setup 阶段 fire-and-forget 调用）。
+ * 对已知二进制执行一次前台等待式 daemon 预热；失败/超时 fail-open 记录。
+ * 供 startDaemonPrewarm 与 mcp 安装完成路径复用。
+ */
+export async function waitForDaemonReady(
+  cacheRoot: string,
+  binaryPath: string,
+  log?: (message: string, meta?: Record<string, unknown>) => void,
+  ensure?: DaemonEnsureFn,
+  timeoutMs?: number,
+): Promise<void> {
+  const fn = ensure ?? ensurePermanentDaemon;
+  const result = await fn({
+    binaryPath,
+    cacheRoot,
+    env: buildDaemonEnv(cacheRoot),
+    log,
+    timeoutMs,
+  });
+  if (result.status !== 'ready') {
+    log?.('[oceanus] CBM daemon 预热未就绪(fail-open)', {
+      status: result.status,
+      elapsedMs: result.elapsedMs,
+      detail: result.detail,
+    });
+  } else {
+    log?.('[oceanus] CBM daemon 预热就绪', {
+      mode: result.mode,
+      elapsedMs: result.elapsedMs,
+    });
+  }
+}
+
+/**
+ * CBM daemon 前台等待式预热编排（setup 'cbm-daemon' 阶段调用，async）。
  *
  * 门控语义（与 MCP 通道及自动下载配置对齐）：
- * - `cm.binaryPath` 显式配置时直接用它预热，绝不触发 provision 下载；
- * - `autoDownload=false` 时仅当缓存中的期望二进制已存在才预热（离线/禁下载
+ * - `cm.binaryPath` 显式配置时直接等待它就绪，绝不触发 provision 下载；
+ * - `autoDownload=false` 时仅当缓存中的期望二进制已存在才等待（离线/禁下载
  *   场景不得因预热发起网络下载）；
- * - 其余情况经共享 `ensureInstalled`（缓存命中则瞬时返回路径）后预热。
+ * - 其余情况（autoDownload=true）：
+ *   - 缓存已存在期望二进制：直接等待就绪（service 冷启动主竞态场景）；
+ *   - 缓存缺失（首次安装/下载中）：fire-and-forget 后台预热，不阻塞 setup
+ *     （MCP 注册走 disabled 占位，安装完成由 mcp 通道再次确保 daemon 就绪）。
  *
- * 任何失败均 fail-open：预热只是优化，CLI 调用时仍会 connect-or-start。
+ * 调用方必须在宿主 MCP reload（spawn stdio MCP server）前 await 本函数：
+ * daemon 就绪后所有 stdio 连接变为 connect-to-warm，消除首个连接在 daemon
+ * 冷启动窗口内失败（Connection closed / 30s 超时）并防止 session-managed
+ * 抢先拉起导致 permanent 无法建立。任何失败均 fail-open，不抛异常。
  */
-export function startDaemonPrewarm(
+export async function startDaemonPrewarm(
   shared: CbmSharedDeps,
   log?: (message: string, extra?: Record<string, unknown>) => void,
   injections: DaemonPrewarmInjections = {},
-): void {
-  const prewarm = injections.prewarm ?? prewarmDaemon;
-  const exists = injections.exists ?? existsSync;
+): Promise<void> {
   if (!shared.cm.enabled) return;
-
-  const env = {
-    ...buildCbmEnv({}, process.env),
-    CBM_CACHE_DIR: shared.cacheRoot,
-  } as Record<string, string>;
-
-  const warm = (binaryPath: string | null | undefined): void => {
+  const exists = injections.exists ?? existsSync;
+  const warm = (binaryPath: string | null | undefined) => {
     if (!binaryPath) return;
-    prewarm({ binaryPath, cacheRoot: shared.cacheRoot, env, log });
+    return waitForDaemonReady(
+      shared.cacheRoot,
+      binaryPath,
+      log,
+      injections.prewarm,
+      injections.timeoutMs,
+    );
   };
 
   if (shared.cm.binaryPath) {
-    warm(shared.cm.binaryPath);
+    await warm(shared.cm.binaryPath);
     return;
   }
   if (!shared.cm.autoDownload) {
-    // 关闭自动下载：仅当缓存二进制已存在时预热，避免预热触发下载。
+    // 关闭自动下载：仅当缓存二进制已存在时等待，避免预热触发下载。
     const expected = resolveExpectedBinaryPath(shared.cm, shared.cacheRoot);
-    if (exists(expected)) warm(expected);
+    if (exists(expected)) await warm(expected);
+    return;
+  }
+  // 自动下载：缓存已有二进制 → 阻塞等待就绪（主场景）；缓存缺失 → 后台预热。
+  const expected = resolveExpectedBinaryPath(shared.cm, shared.cacheRoot);
+  if (exists(expected)) {
+    await warm(expected);
     return;
   }
   void shared
     .ensureInstalled()
-    .then(warm)
+    .then((bin) => warm(bin))
     .catch(() => {
       // 预热失败不影响功能：CLI 调用时仍会 connect-or-start。
     });

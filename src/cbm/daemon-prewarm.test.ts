@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { buildCbmSharedDeps, startDaemonPrewarm } from './wiring';
+import { startDaemonPrewarm } from './wiring';
 import type { CbmSharedDeps } from './wiring';
-import type { prewarmDaemon } from './daemon';
+import type { DaemonEnsureFn } from './wiring';
+import type { DaemonWaitResult } from './daemon';
 
 /** 构造最小 shared deps 形状的测试替身（不发网络、不落盘）。 */
 function fakeShared(overrides?: {
@@ -9,8 +10,8 @@ function fakeShared(overrides?: {
   autoDownload?: boolean;
   binaryPath?: string;
   ensureInstalled?: (opts?: unknown) => Promise<string | null>;
-}): { shared: CbmSharedDeps; installCalls: number } {
-  const installCalls = { n: 0 };
+}): { shared: CbmSharedDeps; installCalls: () => number } {
+  let installs = 0;
   const cm = {
     enabled: overrides?.enabled ?? true,
     autoDownload: overrides?.autoDownload ?? true,
@@ -24,8 +25,10 @@ function fakeShared(overrides?: {
     cacheRoot: '/cache/root',
     installOptions: {},
     ensureInstalled: async () => {
-      installCalls.n += 1;
-      return overrides?.ensureInstalled ? overrides.ensureInstalled() : '/cache/root/versions/0.10.8/linux-x64/codebase-memory-mcp';
+      installs += 1;
+      return overrides?.ensureInstalled
+        ? overrides.ensureInstalled()
+        : '/cache/root/versions/0.10.8/linux-x64/codebase-memory-mcp';
     },
     startBackground: async () => null,
     repair: async () => null,
@@ -33,28 +36,29 @@ function fakeShared(overrides?: {
     indexer: {} as CbmSharedDeps['indexer'],
     uiEnsureInstalled: async () => null,
   };
-  return { shared, installCalls: installCalls.n };
+  return { shared, installCalls: () => installs };
 }
 
-/** 可观察的 fake prewarm。 */
+/** 可观察的 fake daemon 预热（async：await 后记录就绪）。 */
 function fakePrewarm() {
   const calls: Array<{ binaryPath: string; cacheRoot: string; env: Record<string, string> }> = [];
-  const fn: typeof prewarmDaemon = (options) => {
+  const fn: DaemonEnsureFn = async (options) => {
     calls.push({ binaryPath: options.binaryPath, cacheRoot: options.cacheRoot, env: options.env });
-    return true;
+    const result: DaemonWaitResult = { status: 'ready', mode: 'started', elapsedMs: 1 };
+    return result;
   };
   return { calls, fn };
 }
 
-describe('startDaemonPrewarm：门控与分支', () => {
-  test('cm.enabled=false 时不做任何事', () => {
+describe('startDaemonPrewarm：门控与分支（async 等待语义）', () => {
+  test('cm.enabled=false 时不做任何事', async () => {
     const prewarm = fakePrewarm();
     const { shared } = fakeShared({ enabled: false });
-    startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn });
+    await startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn });
     expect(prewarm.calls).toHaveLength(0);
   });
 
-  test('binaryPath 显式配置时直接预热且不触发 ensureInstalled', () => {
+  test('binaryPath 显式配置时等待它就绪且不触发 ensureInstalled', async () => {
     const prewarm = fakePrewarm();
     const { shared, installCalls } = fakeShared({
       binaryPath: '/custom/cbm-binary',
@@ -62,14 +66,14 @@ describe('startDaemonPrewarm：门控与分支', () => {
         throw new Error('不应触发安装');
       },
     });
-    startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn });
+    await startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn });
     expect(prewarm.calls).toHaveLength(1);
     expect(prewarm.calls[0].binaryPath).toBe('/custom/cbm-binary');
     expect(prewarm.calls[0].env.CBM_CACHE_DIR).toBe('/cache/root');
-    expect(installCalls).toBe(0);
+    expect(installCalls()).toBe(0);
   });
 
-  test('autoDownload=false 且缓存无二进制时不预热、不下载', () => {
+  test('autoDownload=false 且缓存无二进制时不等待、不下载', async () => {
     const prewarm = fakePrewarm();
     const { shared } = fakeShared({
       autoDownload: false,
@@ -77,43 +81,60 @@ describe('startDaemonPrewarm：门控与分支', () => {
         throw new Error('不应触发安装');
       },
     });
-    startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn, exists: () => false });
+    await startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn, exists: () => false });
     expect(prewarm.calls).toHaveLength(0);
   });
 
-  test('autoDownload=false 但缓存二进制已存在时用缓存路径预热', () => {
+  test('autoDownload=false 但缓存二进制已存在时等待缓存路径就绪', async () => {
     const prewarm = fakePrewarm();
     const { shared } = fakeShared({ autoDownload: false });
-    startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn, exists: () => true });
+    await startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn, exists: () => true });
     expect(prewarm.calls).toHaveLength(1);
     expect(prewarm.calls[0].binaryPath).toContain('/cache/root/versions/');
   });
 
-  test('autoDownload=true 时经 ensureInstalled 解析路径后预热', async () => {
+  test('autoDownload=true 且缓存二进制已存在：直接等待就绪（主竞态场景）', async () => {
+    const prewarm = fakePrewarm();
+    const { shared, installCalls } = fakeShared({
+      ensureInstalled: () => {
+        throw new Error('缓存已存在不应触发安装');
+      },
+    });
+    await startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn, exists: () => true });
+    expect(prewarm.calls).toHaveLength(1);
+    expect(prewarm.calls[0].binaryPath).toContain('/cache/root/versions/');
+    expect(installCalls()).toBe(0);
+  });
+
+  test('autoDownload=true 且缓存缺失：后台经 ensureInstalled 预热，不阻塞', async () => {
     const prewarm = fakePrewarm();
     const { shared } = fakeShared({ ensureInstalled: async () => '/resolved/bin' });
-    startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn });
-    // ensureInstalled 是异步链：等待微任务队列清空
+    await startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn, exists: () => false });
+    // fire-and-forget 分支：等待微任务队列清空后应已调用预热。
     await new Promise((r) => setTimeout(r, 0));
     expect(prewarm.calls).toHaveLength(1);
     expect(prewarm.calls[0].binaryPath).toBe('/resolved/bin');
   });
 
-  test('ensureInstalled 失败/null 时静默跳过（fail-open）', async () => {
+  test('autoDownload=true、缓存缺失且 ensureInstalled 失败/null：静默跳过（fail-open）', async () => {
     const prewarm = fakePrewarm();
     const { shared } = fakeShared({ ensureInstalled: async () => null });
-    expect(() => startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn })).not.toThrow();
+    await expect(
+      startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn, exists: () => false }),
+    ).resolves.toBeUndefined();
     await new Promise((r) => setTimeout(r, 0));
     expect(prewarm.calls).toHaveLength(0);
   });
-});
 
-describe('startDaemonPrewarm 与 buildCbmSharedDeps 集成', () => {
-  test('真实 shared deps（默认启用+自动下载）下不抛异常', () => {
-    const shared = buildCbmSharedDeps(undefined);
-    const prewarm = fakePrewarm();
-    expect(() =>
-      startDaemonPrewarm(shared, undefined, { prewarm: prewarm.fn }),
-    ).not.toThrow();
+  test('预热返回非 ready 不抛异常（fail-open）', async () => {
+    const prewarm: DaemonEnsureFn = async () => ({
+      status: 'timeout',
+      elapsedMs: 15_000,
+      detail: 'timed out',
+    });
+    const { shared } = fakeShared({ binaryPath: '/custom/cbm-binary' });
+    await expect(
+      startDaemonPrewarm(shared, undefined, { prewarm }),
+    ).resolves.toBeUndefined();
   });
 });

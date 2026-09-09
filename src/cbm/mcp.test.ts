@@ -231,6 +231,45 @@ describe('CBM-08 二进制缺失：占位 + 安装成功后更新 + reload 一�
     expect(srv.environment?.[CBM_MANAGED_MARKER_ENV]).toBe('1');
   });
 
+  test('安装成功路径：enable 前先 await ensureDaemonReady（先于 reload）', async () => {
+    const cacheDir = newRoot();
+    const cfg = baseConfig(cacheDir);
+    const { draft } = makeFakeDraft();
+    const ctx = makeFakeMcpCtx(draft);
+    const readyCalls: Array<{ binary: string; cacheRoot: string; reloadsAtCall: number }> = [];
+    const res = await registerCbmMcp(ctx as never, cfg, {
+      ...installOpts(cacheDir),
+      ensureDaemonReady: async (binary, cacheRoot) => {
+        readyCalls.push({ binary, cacheRoot, reloadsAtCall: ctx.reloadCalls });
+      },
+    } as never);
+
+    expect(res.installed).toBe(true);
+    expect(readyCalls).toHaveLength(1);
+    expect(readyCalls[0].cacheRoot).toBe(cacheDir);
+    expect(readyCalls[0].binary).toContain(join(cacheDir, 'versions', '0.10.8'));
+    // daemon 就绪钩子执行时 reload 尚未发生 → 钩子先于宿主 spawn（reload）。
+    expect(readyCalls[0].reloadsAtCall).toBe(0);
+    expect(ctx.reloadCalls).toBe(1);
+  });
+
+  test('ensureDaemonReady 失败不影响安装成功（fail-open）', async () => {
+    const cacheDir = newRoot();
+    const cfg = baseConfig(cacheDir);
+    const { draft } = makeFakeDraft();
+    const ctx = makeFakeMcpCtx(draft);
+    const res = await registerCbmMcp(ctx as never, cfg, {
+      ...installOpts(cacheDir),
+      ensureDaemonReady: async () => {
+        throw new Error('daemon ready timeout');
+      },
+    } as never);
+
+    expect(res.installed).toBe(true);
+    expect(res.disabled).toBe(false);
+    expect(ctx.reloadCalls).toBe(1);
+  });
+
   test('安装失败：保留 disabled 占位，fail-open 不抛异常，reload 一次', async () => {
     const cacheDir = newRoot();
     const cfg = baseConfig(cacheDir, { autoDownload: true });
