@@ -70,6 +70,7 @@ describe('sidebar agent 排序', () => {
       expect.arrayContaining([
         'oceanus',
         'sisyphus',
+        'prometheus',
         'explorer',
         'librarian',
         'oracle',

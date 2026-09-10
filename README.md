@@ -20,6 +20,7 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 |-------|------|------|
 | `oceanus` | AI 编码编排器（颜色 `#0FFFFF`） | primary |
 | `sisyphus` | 六阶段工作流主导（intake → discuss → plan → execute → review → finish） | primary |
+| `prometheus` | 方案研究与规划（先研究后规划，产物回复内交付、不落盘，可并行委派只读研究 agent） | primary |
 | `explorer` | 快速代码库检索 | subagent |
 | `librarian` | 外部文档 / 库研究 | subagent |
 | `oracle` | 按需分析顾问（复杂架构或高风险业务 advisory） | subagent |
@@ -27,7 +28,7 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 | `fixer` | 逃生舱执行（大批量并行机械实现，需满足逃生舱三条件） | subagent |
 | `observer` | 视觉 / 多媒体分析（**默认禁用**，需要视觉模型） | subagent |
 
-`explorer`、`librarian`、`oracle` **只读**，不写任何文件、不委派、不执行 task（调研结果在回复中以七字段结构返回，不落盘）；`observer` 默认禁用（需要视觉模型）。
+`explorer`、`librarian`、`oracle` **只读**，不写任何文件、不委派、不执行 task（调研结果在回复中以七字段结构返回，不落盘）；`observer` 默认禁用（需要视觉模型）。`prometheus` 是受限主 agent：用户直接切换开启研究/规划会话，产出喂给执行的研究结论与可执行方案；不进入 preset 模型分层（跟随会话模型，可用 `agents.prometheus.model` 单独指定）。
 
 ### 复杂任务按需咨询：Oracle advisory
 
@@ -41,7 +42,9 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 
 ### 默认只读权限
 
-`explorer`、`librarian`、`oracle`、`observer` 在无显式 `agents.<name>.permission` 时，集中应用默认只读 v2 permission（allow `read`/`glob`/`grep`/`list`/`lsp`/`codesearch`/`webfetch`/`websearch`，deny `bash`/`edit`/`write`/`apply_patch`/`ast_grep_replace`/`task`/`todowrite`）。显式 `agents.<name>.permission` 始终覆盖该默认值。
+`explorer`、`librarian`、`oracle`、`observer` 在无显式 `agents.<name>.permission` 时，集中应用默认只读 v2 permission：allow `read`/`glob`/`grep`/`list`/`lsp`/`codesearch`/`webfetch`/`websearch`/`ast_grep_search` 与查询型 `cbm_*` 工具；`shell` 为对象形式规则（默认放行检查类命令，按模式拒绝 `rm`/`mv`/`cp`、git 写操作、包管理器安装与输出重定向等写模式）；deny `edit`/`write`/`apply_patch`/`ast_grep_replace`/`task`/`subagent`/`todowrite`/`clipboard_image`/`cbm_index`/`oceanus_config_generate`。显式 `agents.<name>.permission` 始终覆盖该默认值。
+
+`prometheus` 的受限权限由该只读表派生，差异仅四键：`question: allow`（主 agent 直接面对用户）、`skill: deny`（规划流程内联于 system prompt）、`task`/`subagent` 改为对象形式白名单（仅放行 `explorer`/`librarian`/`oracle`）。注意：显式 `agents.prometheus.permission` 会**整体替换**该表（非合并），调整请提供完整表。
 
 ### CBM 调度约定
 

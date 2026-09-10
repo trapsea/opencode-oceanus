@@ -5,6 +5,7 @@ import { createExplorerAgent } from './explorer';
 import { createOracleAgent } from './oracle';
 import { createLibrarianAgent } from './librarian';
 import { createFixerAgent } from './fixer';
+import { createPrometheusAgent } from './prometheus';
 import { OCEANUS_DISCUSS_SKILL } from '../skills/oceanus-discuss';
 import { OCEANUS_INTAKE_SKILL } from '../skills/oceanus-intake';
 import { OCEANUS_REVIEW_SKILL } from '../skills/oceanus-review';
@@ -121,6 +122,7 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(createOracleAgent().system).toContain(cbmSection('oracle'));
     expect(createLibrarianAgent().system).toContain(cbmSection('librarian'));
     expect(createFixerAgent().system).toContain(cbmSection('fixer'));
+    expect(createPrometheusAgent().system).toContain(cbmSection('prometheus'));
   });
 
   test('完整 CBM 生命周期下沉到 Skill，主 prompt 只保留摘要', () => {

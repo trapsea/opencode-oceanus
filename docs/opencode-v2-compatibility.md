@@ -8,7 +8,7 @@
 
 | 项目 | 当前值 | 证据 |
 |---|---|---|
-| 插件包 | `opencode-oceanus@0.50.1` | `package.json:2-4` |
+| 插件包 | `opencode-oceanus@0.52.0` | `package.json:2-4` |
 | OpenCode 插件 API | `@opencode-ai/plugin@0.0.0-beta-18743`，精确锁定 | `package.json:43-45`、`bun.lock` |
 | OpenCode schema | `@opencode-ai/schema@0.0.0-beta-18743`，精确锁定 | `package.json:44-45`、`bun.lock` |
 | 实测宿主 | `@opencode/cli@0.0.0-beta-19296`（CLI 宿主已迁新包名；`@opencode-ai/plugin` 无 19296 版本，npm E404） | 2026-09-09 宿主服务日志：插件加载、agents/skills/tools 注册、`ctx.mcp.transform` 注册 CBM server 均正常；npm beta tag `@opencode-ai/{plugin,schema}@0.0.0-beta-19271` 与 19242 差异全部为 optional 新增（详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md)），锁定 18743 无回归 |
@@ -33,6 +33,7 @@
 | `plugins` 与 TUI 配置 | CLI 和 TUI 是两个入口；配置字段/加载差异应以当前宿主文档和真实 Host 复测 | `README.md:124-147`；这是 README 声明，仓库代码未独立验证 |
 | `plugins` 本地路径必须是含 index 入口的目录（宿主 `0.0.0-beta-18721` 实测） | 配置条目指向目录时宿主在目录内解析 `index` 入口文件（`dist/` 目录含 `index.js` 可正常加载）；指向单文件报 WARN `configured plugin path must be a directory`，指向无 index 文件的目录报 WARN `configured plugin directory has no index entrypoint`，两种情况插件均被整体跳过、所有 agent 不注册 | 2026-08-31 实测：`~/.local/share/opencode/log/opencode.log` 服务日志 + `opencode2 api get "/api/agent?location[directory]=…"` 验证三种写法仅目录形式注册出 oceanus/sisyphus 全量 agent；README 安装示例已同步为 `dist` 目录写法 |
 | `ctx.mcp.transform` + `ctx.mcp.reload`（`MCPDomain = Pick<McpApi, "list">` 形态） | CBM server 注册只调用 `transform`（`draft.get/set/remove`）与 `reload`，两者在 beta-18721→19271 类型面均未变化（18743/19242/19271 三版 `mcp.d.ts` 对比：18743→19242 变化不影响本用法，19242→19271 零差异） | `src/cbm/mcp.ts:150-252`；宿主 `@opencode/cli@19296` 实测：日志出现 `server=codebase-memory-mcp` 连接尝试即证明 transform 注册生效（连接失败为 CBM daemon 生命周期问题，与注册契约无关，2026-09-09） |
+| permission 对象形式（资源级规则）经 `toPermissions` 转换 | `prometheus` 主 agent 依赖对象形式权限：`task`/`subagent` 为 `{'*': 'deny', 'task.explorer': 'allow', …}` 白名单（通配先声明、具体后声明，依赖宿主 findLast 后声明优先，与 `shell` 模式表同构）；`skill: 'deny'`、`question: 'allow'`。**真实宿主已验证（beta-19296，2026-09-10，隔离 serve 实例 + 工作区 dist）**：prometheus 以 `mode: primary` 注册、temperature 0.3、system prompt 注入正确；宿主接受资源级规则并按"基线在前、插件规则在后"合并（83 条规则，task/subagent 白名单与全部 deny 键形态正确）；宿主内置 build/plan 被移除。**仍待真实会话验证**：① 宿主运行时对 `task.explorer` 前缀式 resource 的评估语义（若按裸名匹配则 fail-closed 全拒，回退口径为 task/subagent 双键整体 `allow` + prompt 白名单纪律）；② `question`（插件自定义工具）在受限 primary 会话的阻塞行为 | `src/config/constants.ts`（`PROMETHEUS_PERMISSION`）、`src/index.ts:23-48`（`toPermissions` 资源级转换）、`src/agents/prometheus.ts`；隔离实例 API 验证记录见本行（验证用临时 serve 已清理，未触碰用户全局配置与共享服务） |
 
 ## 插件侧版本与运行时边界
 

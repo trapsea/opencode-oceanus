@@ -105,7 +105,7 @@ export const CBM_LIFECYCLE = {
 } as const;
 
 /** 角色 CBM 段落支持的角色集合。 */
-export type CbmRole = 'explorer' | 'oracle' | 'fixer' | 'librarian';
+export type CbmRole = 'explorer' | 'oracle' | 'fixer' | 'librarian' | 'prometheus';
 
 const EXPLORER_SECTION = `**代码库知识图谱优先级**：
 1. 默认使用 \`codebase-memory-mcp\` 命名空间工具：\`search_graph\`、\`trace_path\`、\`get_code_snippet\`（先 \`list_projects\` + \`index_status\` 确认当前 workspace 唯一健康 project）；
@@ -157,6 +157,21 @@ ${DIRECT_MCP_POLICY}
 
 ${CBM_QUERY_EXAMPLES}`;
 
+const PROMETHEUS_SECTION = `**代码库知识图谱优先级（研究编排视角）**：
+1. 自查顺序：\`codebase-memory-mcp\` 命名空间工具（\`search_graph\`、\`trace_path\`、\`get_code_snippet\`、\`detect_changes\`；先 \`list_projects\` + \`index_status\` 确认当前 workspace 唯一健康 project）；通道不可用时回退 \`cbm_search_graph\`、\`cbm_trace\`、\`cbm_code\`；再回退 \`grep/glob/read\`。
+2. 结构化大范围侦察委派给 \`@explorer\`，外部资料委派给 \`@librarian\`；委派 prompt 中附上你已确认的 CBM 项目状态，避免子 agent 重复探测。
+3. 研究场景只使用查询型工具；禁止调用 \`cbm_index\`（权限已拒绝），索引初始化与刷新由主编排工作流负责。
+
+${DIRECT_MCP_POLICY}
+
+${DIRECT_MCP_DEPTH_POLICY}
+
+${CBM_BOUNDARY_NOTE}
+
+${CBM_EVIDENCE_NOTE}
+
+${CBM_QUERY_EXAMPLES}`;
+
 // metis/momus 角色段已迁移至 src/review/scenes.ts 的历史兼容场景 checks。
 
 const SECTIONS: Record<CbmRole, string> = {
@@ -164,6 +179,7 @@ const SECTIONS: Record<CbmRole, string> = {
   oracle: ORACLE_SECTION,
   fixer: FIXER_SECTION,
   librarian: LIBRARIAN_SECTION,
+  prometheus: PROMETHEUS_SECTION,
 };
 
 /** 获取角色 CBM 段落（含公共边界句/证据句/示例的拼装）。 */

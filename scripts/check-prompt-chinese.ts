@@ -10,7 +10,7 @@ import { resolve } from 'node:path';
 const TARGET_FILES = [
   'src/agents/oceanus.ts', 'src/agents/sisyphus.ts', 'src/agents/explorer.ts',
   'src/agents/librarian.ts', 'src/agents/oracle.ts', 'src/agents/designer.ts',
-  'src/agents/fixer.ts', 'src/agents/observer.ts',
+  'src/agents/fixer.ts', 'src/agents/observer.ts', 'src/agents/prometheus.ts',
   'src/agents/orchestrator-context.ts', 'src/agents/protocol.ts',
   'src/review/scenes.ts', 'src/review/protocol.ts',
   'src/agents/index.ts', 'src/skills/clipboard-image-observer.ts', 'src/skills/opencode-oceanus.ts',
@@ -25,7 +25,7 @@ const TARGET_FILES = [
 ];
 
 const APPROVED_TOKENS = new Set([
-  'OpenCode', 'Oceanus', 'Sisyphus', 'CBM', 'Fixer', 'Explorer',
+  'OpenCode', 'Oceanus', 'Sisyphus', 'Prometheus', 'CBM', 'Fixer', 'Explorer',
   'Librarian', 'Oracle', 'Designer', 'Observer', 'README', 'Markdown', 'TypeScript',
   'ESM', 'Bun', 'API', 'UI', 'UX', 'TUI', 'JSON', 'OCR', 'PDF', 'YAGNI', 'TDD', 'SDD', 'L1', 'L2', 'L3', 'L4', 'L5',
    'AST', 'ast-grep', 'intake_report', 'open_questions', 'risks', 'clipboard-image-observer',

@@ -7,6 +7,7 @@ import {
 import type { AgentOverrideConfig, PluginConfig } from '../config/schema';
 import { getAgentOverride, getDisabledAgents } from '../config/utils';
 import { createSisyphusAgent } from './sisyphus';
+import { createPrometheusAgent } from './prometheus';
 import { createDesignerAgent } from './designer';
 import { createExplorerAgent } from './explorer';
 import { createFixerAgent } from './fixer';
@@ -196,7 +197,29 @@ export function createAgents(
     }
   }
 
-  return [oceanus, ...(sisyphus ? [sisyphus] : []), ...subAgents];
+  // 4. 创建 prometheus 规划主 agent（可禁用；受限权限在工厂内联设置，
+  //    不追加 CHILD_BLOCKING_RULE——primary 直接面对用户，无父 agent 可反馈）
+  const prometheusOverride = getAgentOverride(config, 'prometheus');
+  const prometheusDisabled = disabled.has('prometheus');
+  let prometheus: AgentDefinition | undefined;
+  if (!prometheusDisabled) {
+    prometheus = createPrometheusAgent(
+      getPrimaryModelFromOverride(prometheusOverride),
+      prometheusOverride?.prompt,
+      undefined,
+      disabled,
+    );
+    if (prometheusOverride) {
+      applyOverrides(prometheus, prometheusOverride);
+    }
+  }
+
+  return [
+    oceanus,
+    ...(sisyphus ? [sisyphus] : []),
+    ...(prometheus ? [prometheus] : []),
+    ...subAgents,
+  ];
 }
 
 /** 供插件入口使用的最终 agent 定义列表 */
