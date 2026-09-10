@@ -2,14 +2,16 @@
  * 内置厂商 blueprint：为 `/oceanus-config` 提供各家厂商的默认
  * agent → model/variant 映射，生成用户级配置中的 preset。
  *
- * 数据来源：用户现有 opencode-oceanus.jsonc（default/zai/openai/deepseek
- * 逐字迁移）+ 用户确认的默认建议（ollama-cloud/aliyun/opencode-go/
- * anthropic/gemini）。模型 ID 属可编辑数据，调整时只改本文件。
+ * 数据来源：用户现有 opencode-oceanus.jsonc（zai/openai/deepseek/
+ * ollama-cloud/opencode-go 逐字迁移，2026-09-10）+ 用户确认的默认建议
+ * （default 同 ollama-cloud；aliyun/anthropic/gemini 为内置建议）。
+ * 模型 ID 属可编辑数据，调整时只改本文件。
  *
  * agent 分层约定（沿用现有 jsonc 惯例）：
- * - 主力档：oceanus / sisyphus / oracle / metis / momus
+ * - 主力档：oceanus / sisyphus / prometheus / oracle（prometheus 与 oceanus 同模型）
  * - 轻量档：librarian / explorer
- * - 中间档：designer / fixer / observer（未提供中间模型时回落主力）
+ * - 中间档：designer / fixer / observer（档位因厂商而异，以各 preset 显式覆盖为准）
+ * - 已删除的 agent（metis/momus）不得再出现在任何 preset 中。
  */
 import type { AgentOverrideConfig } from './schema';
 import type { Preset } from './presets';
@@ -36,59 +38,28 @@ function p(model: string, variant?: string): AgentOverrideConfig {
 }
 
 /**
- * 按分层规则组装 preset。
- *
- * @param primary 主力模型（主力档 + 中间档回落）
- * @param light 轻量模型（librarian / explorer）
- * @param tiers 各 agent 的 variant 映射（supportsVariant 的厂商使用）
- * @param mid 可选中间档模型（designer / fixer / observer）
+ * 组装完整 9-agent preset：主力档默认覆盖 oceanus/sisyphus/prometheus/oracle，
+ * 轻量档覆盖 librarian/explorer，中间档（designer/fixer/observer）默认回落主力；
+ * 与默认档位不同的条目经 overrides 显式覆盖（以用户 jsonc 逐字迁移为准）。
  */
-function buildPreset(
+function preset(
   primary: string,
   light: string,
-  tiers: Record<string, string> = {},
-  mid?: string,
+  overrides: Partial<Record<string, AgentOverrideConfig>> = {},
 ): Preset {
   return {
-    oceanus: p(primary, tiers.oceanus),
-    sisyphus: p(primary, tiers.sisyphus),
-    oracle: p(primary, tiers.oracle),
-    metis: p(primary, tiers.metis),
-    momus: p(primary, tiers.momus),
-    librarian: p(light, tiers.librarian),
-    explorer: p(light, tiers.explorer),
-    designer: p(mid ?? primary, tiers.designer),
-    fixer: p(mid ?? primary, tiers.fixer),
-    observer: p(mid ?? primary, tiers.observer),
+    oceanus: p(primary),
+    sisyphus: p(primary),
+    prometheus: p(primary),
+    oracle: p(primary),
+    librarian: p(light),
+    explorer: p(light),
+    designer: p(primary),
+    fixer: p(primary),
+    observer: p(primary),
+    ...overrides,
   };
 }
-
-/** 与用户 jsonc 中 openai/deepseek 一致的 reasoning variant 分层。 */
-const TIERED_HIGH: Record<string, string> = {
-  oracle: 'high',
-  metis: 'high',
-  momus: 'high',
-  librarian: 'low',
-  explorer: 'low',
-  designer: 'medium',
-  fixer: 'low',
-  observer: 'medium',
-};
-
-const TIERED_DEEPSEEK: Record<string, string> = {
-  ...TIERED_HIGH,
-  designer: 'high',
-  observer: 'high',
-};
-
-/** default preset 的 variant 分层（oceanus/sisyphus 也带 high）。 */
-const TIERED_DEFAULT: Record<string, string> = {
-  ...TIERED_HIGH,
-  oceanus: 'high',
-  sisyphus: 'high',
-  librarian: 'default',
-  explorer: 'default',
-};
 
 /** 内置厂商清单（展示顺序即 question 选项顺序）。 */
 export const VENDOR_BLUEPRINTS: readonly VendorBlueprint[] = [
@@ -98,11 +69,17 @@ export const VENDOR_BLUEPRINTS: readonly VendorBlueprint[] = [
     providerPrefix: 'ollama-cloud',
     description: '现有默认配置：minimax-m3 主力 + deepseek-v4-flash 轻量，带 reasoning variant 分层。',
     supportsVariant: true,
-    preset: buildPreset(
-      'ollama-cloud/minimax-m3',
-      'ollama-cloud/deepseek-v4-flash',
-      TIERED_DEFAULT,
-    ),
+    preset: preset('ollama-cloud/minimax-m3', 'ollama-cloud/deepseek-v4-flash', {
+      oceanus: p('ollama-cloud/minimax-m3', 'high'),
+      sisyphus: p('ollama-cloud/minimax-m3', 'high'),
+      prometheus: p('ollama-cloud/minimax-m3', 'high'),
+      oracle: p('ollama-cloud/minimax-m3', 'high'),
+      librarian: p('ollama-cloud/deepseek-v4-flash', 'default'),
+      explorer: p('ollama-cloud/deepseek-v4-flash', 'default'),
+      designer: p('ollama-cloud/minimax-m3', 'medium'),
+      fixer: p('ollama-cloud/minimax-m3', 'low'),
+      observer: p('ollama-cloud/minimax-m3', 'medium'),
+    }),
   },
   {
     name: 'zai',
@@ -110,20 +87,25 @@ export const VENDOR_BLUEPRINTS: readonly VendorBlueprint[] = [
     providerPrefix: 'zai-coding-plan',
     description: 'GLM 编程套餐：glm-5.3 主力 + glm-4.7 轻量 + glm-5.3-flash 中间档，无 variant。',
     supportsVariant: false,
-    preset: buildPreset('zai-coding-plan/glm-5.3', 'zai-coding-plan/glm-4.7', {}, 'zai-coding-plan/glm-5.3-flash'),
+    preset: preset('zai-coding-plan/glm-5.3', 'zai-coding-plan/glm-4.7', {
+      designer: p('zai-coding-plan/glm-5.3-flash'),
+      observer: p('zai-coding-plan/glm-5.3-flash'),
+    }),
   },
   {
     name: 'openai',
     displayName: 'OpenAI',
     providerPrefix: 'openai',
-    description: 'gpt-5.6-luna 主力 + gpt-5.4-mini-fast 轻量 + gpt-5.6-luna-fast 中间档，带 variant 分层。',
+    description: 'gpt-5.6-terra 主力 + gpt-5.6-luna-fast 轻量，带 variant 分层。',
     supportsVariant: true,
-    preset: buildPreset(
-      'openai/gpt-5.6-luna',
-      'openai/gpt-5.4-mini-fast',
-      TIERED_HIGH,
-      'openai/gpt-5.6-luna-fast',
-    ),
+    preset: preset('openai/gpt-5.6-terra', 'openai/gpt-5.6-luna-fast', {
+      oracle: p('openai/gpt-5.6-terra', 'high'),
+      librarian: p('openai/gpt-5.6-luna-fast', 'low'),
+      explorer: p('openai/gpt-5.6-luna-fast', 'low'),
+      designer: p('openai/gpt-5.6-terra', 'medium'),
+      fixer: p('openai/gpt-5.6-luna-fast', 'low'),
+      observer: p('openai/gpt-5.6-terra', 'medium'),
+    }),
   },
   {
     name: 'deepseek',
@@ -131,7 +113,14 @@ export const VENDOR_BLUEPRINTS: readonly VendorBlueprint[] = [
     providerPrefix: 'deepseek',
     description: 'deepseek-v4-flash 全家族，主力/轻量同模型，靠 variant 分层控制强度。',
     supportsVariant: true,
-    preset: buildPreset('deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-flash', TIERED_DEEPSEEK),
+    preset: preset('deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-flash', {
+      oracle: p('deepseek/deepseek-v4-flash', 'high'),
+      librarian: p('deepseek/deepseek-v4-flash', 'low'),
+      explorer: p('deepseek/deepseek-v4-flash', 'low'),
+      designer: p('deepseek/deepseek-v4-flash', 'high'),
+      fixer: p('deepseek/deepseek-v4-flash', 'low'),
+      observer: p('deepseek/deepseek-v4-flash', 'high'),
+    }),
   },
   {
     name: 'ollama-cloud',
@@ -139,11 +128,17 @@ export const VENDOR_BLUEPRINTS: readonly VendorBlueprint[] = [
     providerPrefix: 'ollama-cloud',
     description: '与 default 相同的 Ollama Cloud 云端模型组合（独立 preset，便于与 default 区分管理）。',
     supportsVariant: true,
-    preset: buildPreset(
-      'ollama-cloud/minimax-m3',
-      'ollama-cloud/deepseek-v4-flash',
-      TIERED_DEFAULT,
-    ),
+    preset: preset('ollama-cloud/minimax-m3', 'ollama-cloud/deepseek-v4-flash', {
+      oceanus: p('ollama-cloud/minimax-m3', 'high'),
+      sisyphus: p('ollama-cloud/minimax-m3', 'high'),
+      prometheus: p('ollama-cloud/minimax-m3', 'high'),
+      oracle: p('ollama-cloud/minimax-m3', 'high'),
+      librarian: p('ollama-cloud/deepseek-v4-flash', 'default'),
+      explorer: p('ollama-cloud/deepseek-v4-flash', 'default'),
+      designer: p('ollama-cloud/minimax-m3', 'medium'),
+      fixer: p('ollama-cloud/minimax-m3', 'low'),
+      observer: p('ollama-cloud/minimax-m3', 'medium'),
+    }),
   },
   {
     name: 'aliyun',
@@ -151,18 +146,22 @@ export const VENDOR_BLUEPRINTS: readonly VendorBlueprint[] = [
     providerPrefix: 'aliyun-token-plan',
     description: 'qwen3.5-coder-plus 主力 + qwen3.5-coder-flash 轻量，无 variant。',
     supportsVariant: false,
-    preset: buildPreset(
-      'aliyun-token-plan/qwen3.5-coder-plus',
-      'aliyun-token-plan/qwen3.5-coder-flash',
-    ),
+    preset: preset('aliyun-token-plan/qwen3.5-coder-plus', 'aliyun-token-plan/qwen3.5-coder-flash'),
   },
   {
     name: 'opencode-go',
     displayName: 'OpenCode Go（OpenCode 官方套餐）',
-    providerPrefix: 'opencode',
-    description: '经 OpenCode 官方网关：gpt-5.6-luna 主力 + gpt-5.4-mini-fast 轻量，带 variant 分层。',
+    providerPrefix: 'opencode-go',
+    description: '经 OpenCode 官方网关的 GLM 套餐：glm-5.3 主力 + deepseek-v4-flash 轻量 + qwen-3.7-plus fixer 档，带 variant 分层。',
     supportsVariant: true,
-    preset: buildPreset('opencode/gpt-5.6-luna', 'opencode/gpt-5.4-mini-fast', TIERED_HIGH, 'opencode/gpt-5.6-luna-fast'),
+    preset: preset('opencode-go/glm-5.3', 'opencode-go/deepseek-v4-flash', {
+      oracle: p('opencode-go/glm-5.3', 'high'),
+      librarian: p('opencode-go/deepseek-v4-flash', 'low'),
+      explorer: p('opencode-go/deepseek-v4-flash', 'low'),
+      designer: p('opencode-go/glm-5.3-flash', 'medium'),
+      fixer: p('opencode-go/qwen-3.7-plus', 'low'),
+      observer: p('opencode-go/glm-5.3-flash', 'medium'),
+    }),
   },
   {
     name: 'anthropic',
@@ -170,7 +169,7 @@ export const VENDOR_BLUEPRINTS: readonly VendorBlueprint[] = [
     providerPrefix: 'anthropic',
     description: 'claude-opus-4.6 主力 + claude-haiku-4.4 轻量，无 variant。',
     supportsVariant: false,
-    preset: buildPreset('anthropic/claude-opus-4.6', 'anthropic/claude-haiku-4.4'),
+    preset: preset('anthropic/claude-opus-4.6', 'anthropic/claude-haiku-4.4'),
   },
   {
     name: 'gemini',
@@ -178,7 +177,7 @@ export const VENDOR_BLUEPRINTS: readonly VendorBlueprint[] = [
     providerPrefix: 'gemini',
     description: 'gemini-3-pro 主力 + gemini-3-flash 轻量，无 variant。',
     supportsVariant: false,
-    preset: buildPreset('gemini/gemini-3-pro', 'gemini/gemini-3-flash'),
+    preset: preset('gemini/gemini-3-pro', 'gemini/gemini-3-flash'),
   },
 ];
 

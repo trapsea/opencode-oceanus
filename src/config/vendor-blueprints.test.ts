@@ -18,9 +18,8 @@ import type { Preset } from './presets';
 const ALL_AGENTS = [
   'oceanus',
   'sisyphus',
+  'prometheus',
   'oracle',
-  'metis',
-  'momus',
   'librarian',
   'explorer',
   'designer',
@@ -43,10 +42,12 @@ describe('vendor blueprints', () => {
     ]);
   });
 
-  test('每套 blueprint 覆盖全部 agent 且 model 带 provider 前缀', () => {
+  test('每套 blueprint 覆盖全部 agent 且不含已删除的 metis/momus，model 带 provider 前缀', () => {
     for (const blueprint of VENDOR_BLUEPRINTS) {
       const agents = Object.keys(blueprint.preset).sort();
       expect(agents).toEqual([...ALL_AGENTS].sort());
+      expect(agents).not.toContain('metis');
+      expect(agents).not.toContain('momus');
       for (const [agent, override] of Object.entries(blueprint.preset)) {
         const model = override.model;
         expect(typeof model).toBe('string');
@@ -61,28 +62,40 @@ describe('vendor blueprints', () => {
     }
   });
 
-  test('default/zai/openai/deepseek 与用户现有 jsonc 关键映射一致', () => {
+  test('与用户现有 jsonc 逐字迁移一致，prometheus 与 oceanus 同档', () => {
     const jsoncExpectations: Record<string, Array<[string, string, string | undefined]>> = {
       default: [
         ['oceanus', 'ollama-cloud/minimax-m3', 'high'],
+        ['prometheus', 'ollama-cloud/minimax-m3', 'high'],
         ['librarian', 'ollama-cloud/deepseek-v4-flash', 'default'],
         ['fixer', 'ollama-cloud/minimax-m3', 'low'],
       ],
       zai: [
         ['oceanus', 'zai-coding-plan/glm-5.3', undefined],
+        ['prometheus', 'zai-coding-plan/glm-5.3', undefined],
         ['librarian', 'zai-coding-plan/glm-4.7', undefined],
         ['designer', 'zai-coding-plan/glm-5.3-flash', undefined],
+        ['fixer', 'zai-coding-plan/glm-5.3', undefined],
       ],
       openai: [
-        ['oceanus', 'openai/gpt-5.6-luna', undefined],
-        ['oracle', 'openai/gpt-5.6-luna', 'high'],
-        ['librarian', 'openai/gpt-5.4-mini-fast', 'low'],
+        ['oceanus', 'openai/gpt-5.6-terra', undefined],
+        ['prometheus', 'openai/gpt-5.6-terra', undefined],
+        ['oracle', 'openai/gpt-5.6-terra', 'high'],
+        ['librarian', 'openai/gpt-5.6-luna-fast', 'low'],
         ['fixer', 'openai/gpt-5.6-luna-fast', 'low'],
       ],
       deepseek: [
         ['oceanus', 'deepseek/deepseek-v4-flash', undefined],
+        ['prometheus', 'deepseek/deepseek-v4-flash', undefined],
         ['designer', 'deepseek/deepseek-v4-flash', 'high'],
         ['explorer', 'deepseek/deepseek-v4-flash', 'low'],
+      ],
+      'opencode-go': [
+        ['oceanus', 'opencode-go/glm-5.3', undefined],
+        ['prometheus', 'opencode-go/glm-5.3', undefined],
+        ['oracle', 'opencode-go/glm-5.3', 'high'],
+        ['fixer', 'opencode-go/qwen-3.7-plus', 'low'],
+        ['observer', 'opencode-go/glm-5.3-flash', 'medium'],
       ],
     };
     for (const [name, rows] of Object.entries(jsoncExpectations)) {
@@ -130,7 +143,7 @@ describe('generateVendorPreset', () => {
     expect(result.status).toBe('written');
     expect(df.writes).toHaveLength(1);
     expect(df.writes[0]?.name).toBe('gemini');
-    expect(result.summary?.length).toBe(10);
+    expect(result.summary?.length).toBe(9);
     expect(result.summary?.join('\n')).toContain('gemini/gemini-3-pro');
   });
 

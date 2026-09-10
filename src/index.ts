@@ -551,8 +551,14 @@ export async function runSetup(
   if (!agentStageFailed && agentRefreshState.registration) {
     const readPresetFingerprint = (): string | undefined => {
       try {
-        const preset = readUserConfig(getUserPresetConfigPath()).preset;
-        return typeof preset === 'string' ? preset : undefined;
+        const user = readUserConfig(getUserPresetConfigPath()) as {
+          preset?: string;
+          presets?: Record<string, unknown>;
+        };
+        if (typeof user.preset !== 'string') return undefined;
+        // 指纹纳入激活 preset 的完整内容：/oceanus-config 覆盖同名激活 preset
+        //（如补 prometheus、换模型）时名字不变，仅靠名字会漏触发重建。
+        return `${user.preset}\n${JSON.stringify(user.presets?.[user.preset] ?? {})}`;
       } catch {
         return undefined;
       }

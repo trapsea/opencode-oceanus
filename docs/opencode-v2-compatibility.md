@@ -8,7 +8,7 @@
 
 | 项目 | 当前值 | 证据 |
 |---|---|---|
-| 插件包 | `opencode-oceanus@0.52.0` | `package.json:2-4` |
+| 插件包 | `opencode-oceanus@0.52.1` | `package.json:2-4` |
 | OpenCode 插件 API | `@opencode-ai/plugin@0.0.0-beta-18743`，精确锁定 | `package.json:43-45`、`bun.lock` |
 | OpenCode schema | `@opencode-ai/schema@0.0.0-beta-18743`，精确锁定 | `package.json:44-45`、`bun.lock` |
 | 实测宿主 | `@opencode/cli@0.0.0-beta-19296`（CLI 宿主已迁新包名；`@opencode-ai/plugin` 无 19296 版本，npm E404） | 2026-09-09 宿主服务日志：插件加载、agents/skills/tools 注册、`ctx.mcp.transform` 注册 CBM server 均正常；npm beta tag `@opencode-ai/{plugin,schema}@0.0.0-beta-19271` 与 19242 差异全部为 optional 新增（详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md)），锁定 18743 无回归 |
