@@ -20,7 +20,7 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 |-------|------|------|
 | `oceanus` | AI 编码编排器（颜色 `#0FFFFF`） | primary |
 | `sisyphus` | 六阶段工作流主导（intake → discuss → plan → execute → review → finish） | primary |
-| `prometheus` | 方案研究与规划（先研究后规划，产物回复内交付、不落盘，可并行委派只读研究 agent） | primary |
+| `prometheus` | 方案研究与规划（先研究后规划，产物回复内交付、不落盘，全部自查、不委派 subagent） | primary |
 | `explorer` | 快速代码库检索 | subagent |
 | `librarian` | 外部文档 / 库研究 | subagent |
 | `oracle` | 按需分析顾问（复杂架构或高风险业务 advisory） | subagent |

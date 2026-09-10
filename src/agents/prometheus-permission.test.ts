@@ -9,8 +9,8 @@ import type { PluginConfig } from '../config/schema';
 
 /**
  * prometheus 受限 primary 权限契约：
- * 以 READONLY_DEFAULT_PERMISSION spread 派生，差异仅 question/skill/task/subagent
- * 四键；写路径全部拒绝；委派白名单只放行 explorer/librarian/oracle。
+ * 以 READONLY_DEFAULT_PERMISSION spread 派生，差异仅 question/skill 两键；
+ * 写路径全部拒绝；不委派任何 subagent（task/subagent 沿用只读表整体 deny）。
  * 注意：用户显式 agents.prometheus.permission 会整体替换本表（非合并）。
  */
 
@@ -24,16 +24,14 @@ describe('prometheus 受限 primary 权限契约', () => {
     expect(prometheus?.permission).toBe(PROMETHEUS_PERMISSION);
   });
 
-  test('权限表以只读默认权限派生，差异仅 question/skill/task/subagent 四键', () => {
+  test('权限表以只读默认权限派生，差异仅 question/skill 两键', () => {
     const base = READONLY_DEFAULT_PERMISSION as Record<string, unknown>;
     const derived = PROMETHEUS_PERMISSION as Record<string, unknown>;
     const diffKeys = new Set<string>();
     for (const key of new Set([...Object.keys(base), ...Object.keys(derived)])) {
       if (base[key] !== derived[key]) diffKeys.add(key);
     }
-    expect([...diffKeys].sort()).toEqual(
-      ['question', 'skill', 'subagent', 'task'].sort(),
-    );
+    expect([...diffKeys].sort()).toEqual(['question', 'skill']);
   });
 
   test('写路径全部拒绝，澄清放行，skill 拒绝', () => {
@@ -47,23 +45,11 @@ describe('prometheus 受限 primary 权限契约', () => {
     expect(perm.skill).toBe('deny');
   });
 
-  test('委派白名单：通配 deny 先声明，仅 explorer/librarian/oracle 放行（task/subagent 双键对称）', () => {
+  test('不委派任何 subagent：task/subagent 沿用只读表整体 deny', () => {
     const perm = PROMETHEUS_PERMISSION as Record<string, unknown>;
-    const task = perm.task as Record<string, string>;
-    const subagent = perm.subagent as Record<string, string>;
 
-    expect(task['*']).toBe('deny');
-    expect(task['task.explorer']).toBe('allow');
-    expect(task['task.librarian']).toBe('allow');
-    expect(task['task.oracle']).toBe('allow');
-    expect(subagent['*']).toBe('deny');
-    expect(subagent['subagent.explorer']).toBe('allow');
-    expect(subagent['subagent.librarian']).toBe('allow');
-    expect(subagent['subagent.oracle']).toBe('allow');
-
-    // Object.entries 保序：通配 deny 必须先声明（findLast 后声明优先）
-    expect(Object.keys(task)[0]).toBe('*');
-    expect(Object.keys(subagent)[0]).toBe('*');
+    expect(perm.task).toBe('deny');
+    expect(perm.subagent).toBe('deny');
   });
 
   test('disabled_agents 可禁用 prometheus', () => {
@@ -73,18 +59,11 @@ describe('prometheus 受限 primary 权限契约', () => {
     expect(agents.find((a) => a.name === 'prometheus')).toBeUndefined();
   });
 
-  test('工厂注入已禁用 agent 提示（不得调用或伪造其结果）', () => {
+  test('工厂不再注入已禁用 agent 提示（无委派语境下无意义）', () => {
     const plain = createPrometheusAgent().system!;
-    const withDisabled = createPrometheusAgent(
-      undefined,
-      undefined,
-      undefined,
-      new Set(['explorer', 'observer']),
-    ).system!;
 
     expect(plain).not.toContain('已禁用 agent');
-    expect(withDisabled).toContain('已禁用 agent：explorer、observer');
-    expect(withDisabled).toContain('不得调用或伪造其结果');
+    expect(plain).not.toContain('受限委派白名单');
   });
 
   test('prompt 契约：CBM 段来自注册表、含身份边界与输出契约', () => {
@@ -92,7 +71,7 @@ describe('prometheus 受限 primary 权限契约', () => {
     expect(system).toContain('你是 Prometheus');
     expect(system).toContain('先见之明');
     expect(system).toContain('不落盘');
-    expect(system).toContain('受限委派白名单');
+    expect(system).toContain('无委派');
     expect(system).not.toContain('缺少委派上下文时不要直接问用户');
   });
 });

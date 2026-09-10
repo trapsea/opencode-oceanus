@@ -187,16 +187,15 @@ export const WRITER_TOOL_PERMISSION: NonNullable<
 /**
  * Prometheus（primary 规划 agent）的受限权限：
  * 以只读默认权限 spread 派生（锁死与 READONLY_DEFAULT_PERMISSION 的漂移面，
- * 只读表未来增删键自动同步），差异仅四键：
+ * 只读表未来增删键自动同步），差异仅两键：
  * - question: allow —— primary 直接面对用户，owner-decision 必须能建立阻塞边界；
  * - skill: deny —— 规划流程全部内联 system prompt，不加载执行类 skill 指令文本；
- * - task/subagent: 对象形式白名单 —— 仅放行 explorer/librarian/oracle 三个只读
- *   研究 probe；通配 deny 先声明、具体 allow 后声明（宿主 permission 评估
- *   findLast 后声明优先，同 READONLY_SHELL_PERMISSION 的既有顺序模式）。
- *   委派工具名在 v2 宿主为 subagent（task 为兼容键），故双键对称配置；
- *   宿主实际 resource 匹配格式若与前缀式（task.explorer）不符，行为 fail-closed
- *   （全部委派被拒，降级自查），回退口径为 task/subagent 双键整体 allow + prompt
- *   白名单纪律。
+ * - task/subagent 沿用只读表整体 'deny' —— 不委派任何 subagent，全部研究自查。
+ *   历史：曾以对象形式白名单放行 explorer/librarian/oracle（前缀式 resource
+ *   `task.explorer` 等）；但宿主 task 工具以裸 agent 名评估——宿主 tool/task.ts
+ *   `ctx.ask({ permission: 'task', patterns: [params.subagent_type] })`，evaluate
+ *   走 `Wildcard.match(裸名, rule.pattern)`，前缀式 resource 永不匹配、findLast
+ *   命中 `{'*': 'deny'}`，真实会话 fail-closed 全拒（2026-09-10 实锤），遂移除。
  * 注意：用户显式 agents.prometheus.permission 会整体替换本表（非合并），未声明
  * 键回落宿主 `*:*` allow 基线；调整权限请提供完整表。
  * `execute`（Code Mode）与只读 subagent 同姿态：未声明，继承宿主基线。
@@ -207,16 +206,4 @@ export const PROMETHEUS_PERMISSION: NonNullable<
   ...READONLY_DEFAULT_PERMISSION,
   skill: 'deny',
   question: 'allow',
-  task: {
-    '*': 'deny',
-    'task.explorer': 'allow',
-    'task.librarian': 'allow',
-    'task.oracle': 'allow',
-  },
-  subagent: {
-    '*': 'deny',
-    'subagent.explorer': 'allow',
-    'subagent.librarian': 'allow',
-    'subagent.oracle': 'allow',
-  },
 };

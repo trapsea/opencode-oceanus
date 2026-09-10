@@ -207,7 +207,6 @@ export function createAgents(
       getPrimaryModelFromOverride(prometheusOverride),
       prometheusOverride?.prompt,
       undefined,
-      disabled,
     );
     if (prometheusOverride) {
       applyOverrides(prometheus, prometheusOverride);
