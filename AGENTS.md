@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-`opencode-oceanus` 是基于 OpenCode v2 beta 插件 API 的 TypeScript/Bun 插件，当前包版本为 `0.52.1`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。
+`opencode-oceanus` 是基于 OpenCode v2 beta 插件 API 的 TypeScript/Bun 插件，当前包版本为 `0.53.0`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。
 
 OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode-v2-compatibility.md`](docs/opencode-v2-compatibility.md)，变更 OpenCode 依赖或宿主 API 前必须先更新该文档。
 
@@ -30,7 +30,7 @@ OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode
 - 主 agent：`oceanus`（默认 agent，颜色 `#0FFFFF`）、`sisyphus`（六阶段工作流）、`prometheus`（方案研究与规划，颜色 `#FF8A3D`，受限 primary）。
 - 只读 subagent：`explorer`、`librarian`、`oracle`、`observer`。
 - 写入/设计 subagent：`designer`、`fixer`。
-- `observer` 默认禁用，需要视觉模型；只读 subagent（`explorer` / `librarian` / `oracle`）默认启用且不写任何文件、不委派、不执行 task；调研结果在回复中以七字段结构返回并在会话内复用，不落盘。
+- `observer` 默认启用，需要视觉模型，可经 `disabled_agents` 显式禁用；只读 subagent（`explorer` / `librarian` / `oracle` / `observer`）不写任何文件、不委派、不执行 task；调研结果在回复中以七字段结构返回并在会话内复用，不落盘。
 - `prometheus` 是首个带显式受限权限的主 agent：写路径与 `skill` 全部 deny（产物纯回复交付、不落盘），`question` allow；不委派任何 subagent（`task`/`subagent` 沿用只读表整体 deny，全部研究自查——宿主 task 工具按裸 agent 名评估权限，前缀式资源级白名单 `task.explorer` 已实测永不匹配并移除，见 `docs/opencode-v2-compatibility.md`）；不进 vendor preset 模型分层（跟随会话模型，可用 `agents.prometheus.model` 单独指定）；用户显式 `agents.prometheus.permission` 会整体替换默认权限表（非合并）。
 - 复杂任务遵循 `intake → discuss → plan → execute → review → finish`；执行配置由 Intake 前置的执行配置批问确认——一次 question 批量问三项（SDD/TDD/Review 循环执行），**三项默认推荐全部关闭**；仅实现类任务批问，调研/查询/方案设计等非实现类任务跳过批问并按默认关闭记录（not_asked: non-implementation）；漏答回落默认关闭并记录、不补问，Trivial 实现任务亦完整批问。Oracle 仅在复杂架构或高风险业务场景由 Sisyphus 按需调用，针对落盘 spec/plan 提供 advisory，不构成固定门禁。Review 发现 BLOCKER 后按「Review 循环执行」开关分流：开启时自动修复并重新 Review（复审闭环最多 3 轮，通过才进入 Finish）；关闭（默认）时一次性修复全部 BLOCKER 并取得当前状态验证证据后直接进入 Finish，不重新 Review；UNCERTAIN 在任何模式下都阻塞并请求用户决策。
 

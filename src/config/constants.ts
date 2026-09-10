@@ -110,8 +110,8 @@ export const READONLY_SHELL_PERMISSION: Record<string, 'allow' | 'deny'> = {
   '* | tee *': 'deny',
 };
 
-/** 默认禁用的 agent（observer 需要视觉模型，默认关闭） */
-export const DEFAULT_DISABLED_AGENTS: string[] = ['observer'];
+/** 默认禁用的 agent（默认全部启用；observer 需要视觉模型，可经 disabled_agents 显式禁用） */
+export const DEFAULT_DISABLED_AGENTS: string[] = [];
 
 /**
  * 默认只读 agent 集合。这些 agent 在无显式 agents.<name>.permission 时

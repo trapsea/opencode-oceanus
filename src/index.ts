@@ -637,7 +637,7 @@ export async function runSetup(
  * 通过 ctx.agent.transform 注册一组参考 oh-my-opencode-slim 的 agent：
  * - oceanus（主 agent，颜色 #0FFFFF）
    * - sisyphus（主 agent，六阶段工作流）
- * - explorer / librarian / oracle / designer / fixer / observer（子 agent，observer 默认禁用；
+ * - explorer / librarian / oracle / designer / fixer / observer（子 agent，observer 需要视觉模型；
  *   oracle 为统一分析顾问，三场景 consult/analysis/gate 见 src/review/scenes.ts）
  *
  * 同时通过 ctx.skill.transform 注入 sisyphus 工作流的六个阶段 Skill

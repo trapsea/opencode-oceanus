@@ -26,9 +26,9 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 | `oracle` | 按需分析顾问（复杂架构或高风险业务 advisory） | subagent |
 | `designer` | 视觉设计迭代（样式 / 布局 / 动效开发与润色） | subagent |
 | `fixer` | 逃生舱执行（大批量并行机械实现，需满足逃生舱三条件） | subagent |
-| `observer` | 视觉 / 多媒体分析（**默认禁用**，需要视觉模型） | subagent |
+| `observer` | 视觉 / 多媒体分析（**默认启用**，需要视觉模型） | subagent |
 
-`explorer`、`librarian`、`oracle` **只读**，不写任何文件、不委派、不执行 task（调研结果在回复中以七字段结构返回，不落盘）；`observer` 默认禁用（需要视觉模型）。`prometheus` 是受限主 agent：用户直接切换开启研究/规划会话，产出喂给执行的研究结论与可执行方案；不进入 preset 模型分层（跟随会话模型，可用 `agents.prometheus.model` 单独指定）。
+`explorer`、`librarian`、`oracle` **只读**，不写任何文件、不委派、不执行 task（调研结果在回复中以七字段结构返回，不落盘）；`observer` 默认启用（需要视觉模型；无视觉模型时可经 `disabled_agents` 显式禁用）。`prometheus` 是受限主 agent：用户直接切换开启研究/规划会话，产出喂给执行的研究结论与可执行方案；不进入 preset 模型分层（跟随会话模型，可用 `agents.prometheus.model` 单独指定）。
 
 ### 复杂任务按需咨询：Oracle advisory
 
@@ -158,8 +158,8 @@ OpenCode 会在 `tui.json` 中自动加载它。
 
 sidebar 显示 Oceanus 标题、当前会话 agent，以及已注册 Oceanus agents 的模型信息。
 agent 未配置专用模型时显示“跟随会话”；如果模型包含 variant，也会一并显示。
-`observer` 默认禁用（该 agent 需要视觉模型），如需启用，在配置中将其从
-`disabled_agents` 移除或设置 `"disabled_agents": []`。
+`observer` 默认启用（该 agent 需要视觉模型），如需禁用，在配置中设置
+`"disabled_agents": ["observer"]`。
 
 ### 内置 skill
 
@@ -311,7 +311,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 - `preset`：当前预设名称。插件先读取 `presets[preset]`；名称不存在时发出警告，并仅使用显式 `agents`。
 - `presets`：预设名到 agent 覆盖对象的映射。每个预设的内容与 `agents` 使用相同字段。
 - `agents`：按 agent 名称配置覆盖。它始终覆盖当前 preset 中同名 agent 的同名字段，适合放例外设置。
-- `disabled_agents`：禁用的 agent 名称；默认 `['observer']`，置空数组 `[]` 可启用全部 agent（`oceanus` 受保护，不可禁用）。
+- `disabled_agents`：禁用的 agent 名称；默认 `[]`（全部 agent 启用；`oceanus` 受保护，不可禁用）。
 - `disabled_tools`：禁用的工具名称数组，对工具拥有最终禁用权。
 - `disabled_hooks`：禁用的 Hook 名称数组，对 Hook 拥有最终禁用权。
 - `tools`：按工具名深合并的结构化配置（见下方「新增工具与运行时保护」）。

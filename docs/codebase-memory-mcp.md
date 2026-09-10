@@ -109,7 +109,7 @@ CBM 沿六阶段工作流形成三阶段主线：
 | `librarian` | 外部文档研究，不依赖 CBM | 使用 `webfetch`/`websearch` |
 | `oracle` | 复杂架构或高风险业务按需读取结构与调用链，为 spec/plan 提供 advisory | 静态检查并说明不确定性 |
 | `fixer` | 逃生舱场景实现前按需查询，写入仍用受控编辑工具 | 依据原生检索工具实现 |
-| `designer` / `observer` | UI/视觉任务按需使用 | 使用现有上下文；`observer` 默认禁用 |
+| `designer` / `observer` | UI/视觉任务按需使用 | 使用现有上下文；`observer` 需要视觉模型（默认启用） |
 
 矩阵是调度约定而非运行时强制路由；agent 必须如实报告 CBM 不可用及回退路径。
 
