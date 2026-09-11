@@ -163,20 +163,20 @@ async function guardForQuery(
     return { allow: true };
   }
   if (outcome.kind === 'index_started') {
-    return { allow: false, status: 'index_started', message: 'CBM 索引已触发但尚未确认完成，可回退 grep/read。' };
+    return { allow: false, status: 'index_started', message: 'CBM 索引已触发但尚未确认完成；索引就绪后重试本工具，确认失败再回退 grep/read。' };
   }
   if (outcome.kind === 'starting') {
     return {
       allow: false,
       status: 'starting', attempt: outcome.attempt, elapsedMs: outcome.elapsedMs,
-      message: `CBM 索引仍在启动（attempt ${outcome.attempt}，已耗时 ${outcome.elapsedMs}ms）。可回退 grep/read。`,
+      message: `CBM 索引仍在启动（attempt ${outcome.attempt}，已耗时 ${outcome.elapsedMs}ms）；稍后重试本工具，确认失败再回退 grep/read。`,
     };
   }
   if (outcome.kind === 'degraded') {
     const code = outcome.errorCode ? `:${outcome.errorCode}` : '';
     return {
       allow: false,
-      message: `CBM 索引检查失败（${outcome.reason}${code}）。${outcome.message ?? ''} 可回退 grep/read。`,
+      message: `CBM 索引检查失败（${outcome.reason}${code}）。${outcome.message ?? ''} 重试一次本工具，确认失败再回退 grep/read。`,
     };
   }
   if (outcome.kind === 'skipped_auto_index_disabled') {
@@ -185,7 +185,7 @@ async function guardForQuery(
       message: 'CBM 自动索引已关闭（codebaseMemory.autoIndex=false）。如需结构化查询请先运行 cbm_index。',
     };
   }
-  return { allow: false, message: '无法确认 CBM 项目索引状态，可回退 grep/read。' };
+  return { allow: false, message: '无法确认 CBM 项目索引状态；重试一次本工具，仍失败再回退 grep/read。' };
 }
 
 /** 查询型工具的公共执行路径：indexer 门控 → CLI → 结构化结果。 */
@@ -236,7 +236,7 @@ export function buildCbmIndexTool(
   return defineTool({
     name: 'cbm_index',
     description:
-      '显式触发 codebase-memory 对当前项目建索引。使用独立较长超时，返回进行中/完成状态。',
+      '显式触发 codebase-memory 对当前项目建索引（Intake 首次初始化与 Review 刷新使用；查询工具提示索引未就绪时也可显式调用一次）。使用独立较长超时，返回进行中/完成状态。',
     input: { type: 'object', properties: {} },
     async execute(_input, tctx) {
       const root = await rootOf(wctx, tctx);
@@ -269,7 +269,7 @@ export function buildCbmSearchGraphTool(
   return defineTool({
     name: 'cbm_search_graph',
     description:
-      '按名称/正则模式在代码知识图谱中定位函数、类、方法、接口与模块。返回结构化匹配。',
+      '符号定位首选：按名称/正则模式在代码知识图谱中定位函数、类、方法、接口与模块（"X 在哪里""查找 Y"类任务先用本工具而非 grep）。返回结构化匹配；纯文本/字符串内容搜索才用 grep。',
     input: {
       type: 'object',
       properties: {
@@ -300,7 +300,7 @@ export function buildCbmTraceTool(
   return defineTool({
     name: 'cbm_trace',
     description:
-      '追踪符号的调用链（inbound 谁调用它 / outbound 它调用谁）。映射 canonical trace_path，旧版本二进制自动回退 trace_call_path。',
+      '调用链查询首选：追踪符号的调用链（inbound 谁调用它 / outbound 它调用谁），"谁调用 X"类任务先用本工具，比多次 grep 更准。映射 canonical trace_path，旧版本二进制自动回退 trace_call_path。',
     input: {
       type: 'object',
       properties: {
@@ -339,7 +339,8 @@ export function buildCbmCodeTool(
 ): ToolDefinition {
   return defineTool({
     name: 'cbm_code',
-    description: '读取指定 qualified name 对应的源码片段（get_code_snippet）。',
+    description:
+      '符号源码读取：按 qualified name 读取函数/类/方法的精确源码片段（get_code_snippet）；已知符号 qualified name 时优先于整文件 read。',
     input: {
       type: 'object',
       properties: {
@@ -373,7 +374,7 @@ export function buildCbmQueryTool(
   return defineTool({
     name: 'cbm_query',
     description:
-      '对代码知识图谱执行只读 Cypher 查询。拒绝写入型语句（CREATE/MERGE/DELETE/DETACH/SET/REMOVE/FOREACH）。',
+      '多跳结构查询：对代码知识图谱执行只读 Cypher 查询（跨模块多跳关系、复杂依赖模式）。拒绝写入型语句（CREATE/MERGE/DELETE/DETACH/SET/REMOVE/FOREACH）。',
     input: {
       type: 'object',
       properties: {
@@ -402,7 +403,8 @@ export function buildCbmDetectChangesTool(
 ): ToolDefinition {
   return defineTool({
     name: 'cbm_detect_changes',
-    description: '检测项目变更/影响面（detect_changes），返回变更文件与结构。',
+    description:
+      '影响面评估首选：检测项目变更的影响面（detect_changes，scope=impact 含受影响调用方），返回变更文件与结构；评估"改动波及谁"时优先用本工具而非手工 grep 排查。',
     input: {
       type: 'object',
       properties: {

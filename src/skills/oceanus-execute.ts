@@ -1,4 +1,6 @@
 import type { SkillDefinition } from './types';
+import { CBM_LOOKUP_ORDER_NOTE } from '../cbm/registry';
+import { CODEMODE_CALLING_PROTOCOL } from '../agents/protocol';
 
 const OCEANUS_EXECUTE_SKILL: SkillDefinition = {
   name: 'oceanus-execute',
@@ -36,7 +38,7 @@ Sisyphus 主 Agent 持有计划、实现、ledger 与验收上下文；默认自
 ## 步骤
 1. **加载计划与 ledger** — SDD 开启时从 \`.oceanus/plan/\` 与 \`.oceanus/progress/<plan-name>.md\` 加载；SDD 关闭时使用会话内计划与 todo。若本轮由 Review 回退，先读取 Review 输出的完整 **BLOCKER 清单**，将每项登记为待执行任务并核对其文件、依赖、验证命令和验收标准；不得遗漏、拆散后等待用户续接或只处理第一项。按 plan 任务顺序取下一个任务；其依赖未达终态时先完成前置任务，不跳序。
 2. **主 agent 直接实现** — 按 plan 任务顺序逐个由主 agent 自己实现：读代码、编辑、运行测试、修复。动手前检查上下文缺口：缺口 → 委派 @explorer 补侦察（调研简报：附检索范围与返回格式），拿到浓缩事实再动手，禁止自己全量扫库重建认知。只读调研（@explorer/@librarian/@oracle 场景/@observer）相互独立时可在同一轮并行派发，不占用写入面、不参与文件所有权计算。遇到故障时先完成 oceanus-debugging 的四阶段，不得先写猜测式补丁。
-3. **高风险与大输入处理** — 高风险公共符号、接口或配置契约修改前 → 先以 codebase-memory-mcp 的 \`search_graph\` 定位 exact symbol，再做 \`trace_path(project, function_name, direction, depth)\`（先 list_projects 确认唯一健康 project）；仅当 catalog 无该 server 或出现允许的通道错误时，回退 \`cbm_search_graph\` → \`cbm_trace(symbol, direction, depth)\`，或委派 @oracle(consult) 咨询影响面与方案。Cypher 保持 \`cbm_query\`。网页/外部文档 → @librarian，图像/PDF → @observer，预期超过 ~2000 行的命令输出 → shell 管道截断或委派 @explorer。**Code Mode 调用纪律**：在 \`execute\` 的 JS 内，工具一律 \`tools.<ns>.<name>(...)\` 形态调用；\`search\` 是全局内置函数、不在 \`tools\` 命名空间内（\`tools.search(...)\` 会报 \`Unknown tool 'search'\`，已在真实会话复现）——不确定路径先 \`search({ query: "..." })\` 查询再按返回 path 调用；宿主新版本可能改挂 \`tools.$codemode.search\`，以运行时目录提示为准，两种形态不得混用。
+3. **高风险与大输入处理** — 高风险公共符号、接口或配置契约修改前 → ${CBM_LOOKUP_ORDER_NOTE}：先用 search_graph 定位 exact symbol，再做 trace_path 调用链/影响面追踪（depth 按 depth 场景规则），或委派 @oracle(consult) 咨询影响面与方案。Cypher 保持 \`cbm_query\`。网页/外部文档 → @librarian，图像/PDF → @observer，预期超过 ~2000 行的命令输出 → shell 管道截断或委派 @explorer。**Code Mode 调用纪律**：${CODEMODE_CALLING_PROTOCOL}
 4. **任务开工前更新（SDD 模式）** — SDD 开启时，任务开工前把该任务 ledger 行从 \`pending\` 更新为 \`in_progress\`（含执行者与时间戳），ledger 由主 agent 串行写入。SDD 关闭时用 \`todowrite\` 同步 todo 即可，不写文件。绝不要因为更新 progress-ledger 而中断或推迟当前任务。
 5. **每个任务完成即验证并更新** — 任一任务完成后，立即运行或核验其声明的验证（typecheck/test/适用时真实表面验证），然后记录 \`completed\`/\`failed\`/\`blocked\`（SDD 模式写入 ledger 行，含证据、时间戳、备注；非 SDD 更新 todo）。同时记录该任务**实际实现代码 diff 行数**（git diff --stat 或等价方式，测试代码不计入），与 plan 预估行数一并写入备注，供 review 对比。
 6. **执行委派逃生舱（唯一并行执行例外）** — 仅当「文件集完全不相交 + 改动机械同构 + 任务数 ≥3」三条件同时满足时，才把该批量任务拆给多个 @fixer 并行：在同一轮发起多个独立的 \`subagent({ agent, description, prompt, background: true })\` 调用（每个任务的 description 中都要有 lane marker），依赖任务等待其终态结果，返回后由主 agent 核验其声明的验证再记终态。三条件任一不满足时不得拆分，一律主 agent 自己实现。
@@ -118,7 +120,7 @@ Sisyphus 主 Agent 持有计划、实现、ledger 与验收上下文；默认自
 ## 检查清单
 - [ ] 已按 plan 任务顺序执行：依赖未终态时先完成前置任务，不跳序
 - [ ] 每个任务由主 agent 直接实现（读代码、编辑、测试）；上下文缺口已委派 @explorer 补侦察，而非自行全量扫库
-- [ ] 高风险修改前已完成 codebase-memory-mcp 的 search_graph → trace_path（唯一健康 project 已确认），或通道不可用时完成 cbm_search_graph → cbm_trace 兜底 / @oracle(consult)；大输入已隔离（@librarian/@observer/输出截断）
+- [ ] 高风险修改前已完成 CBM 符号定位与调用链/影响面追踪（按 CBM 检索顺序，唯一健康 project 已确认）或 @oracle(consult)；大输入已隔离（@librarian/@observer/输出截断）
 - [ ] 逃生舱拆分仅在「文件集完全不相交 + 改动机械同构 + 任务数 ≥3」三条件同时满足时发生，且每个 @fixer 任务使用不同 lane marker、依赖任务已等待终态结果
 - [ ] 已核验并整合全部结果、解决冲突
 - [ ] SDD 模式：ledger 在任务开工前与每任务终态后更新；非 SDD：todo 与任务状态一致

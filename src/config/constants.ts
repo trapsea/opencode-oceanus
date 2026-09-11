@@ -1,4 +1,10 @@
 import type { AgentOverrideConfig } from './schema';
+import {
+  NO_SHELL_READ_NOTE,
+  SHELL_OS_NOTE,
+  TOOL_SELECTION_MATRIX,
+  TOOL_SOURCE_NOTE,
+} from './tool-matrix';
 
 // Agent 名称
 export const AGENT_ALIASES: Record<string, string> = {
@@ -44,23 +50,29 @@ export const DEFAULT_MODELS: Record<AgentName, string | undefined> = {
   observer: undefined,
 };
 
-/** 写权限 agent（designer/fixer）的文件操作规则 */
+/**
+ * 写权限 agent（designer/fixer）的文件操作规则。
+ * 公共句（工具来源/shell 注意/禁 shell 读文件）与工具选择矩阵由
+ * `./tool-matrix` 单一来源拼装；本常量只保留写入差异段。
+ */
 export const WRITABLE_FILE_OPERATIONS_RULES = `**文件操作规则**：
-- 工具来源：read/grep/glob/list/lsp/codesearch/webfetch/websearch 是宿主提供的工具——按照当前会话工具目录直接按名称调用；绝不能通过 Code Mode \`execute\` 代理调用，也绝不能臆造目录中不存在的工具名。文本/正则搜索使用 \`grep\`；不存在通用的 \`search\` 工具。
- - 常规代码工作优先使用专用文件工具：用 glob/grep/ast_grep_search 进行发现，用 read 读取文件内容，用 edit/write/apply_patch 进行有针对性的源代码修改。
+- ${TOOL_SOURCE_NOTE}
+ - 符号与调用链检索按下方工具选择矩阵走 CBM 通道；文件定位与读取使用专用文件工具——用 glob/grep/ast_grep_search 进行发现，用 read 读取文件内容，用 edit/write/apply_patch 进行有针对性的源代码修改。
+${TOOL_SELECTION_MATRIX}
 - 新增或修改文件必须遵循目标项目现有的格式与语言规范，适用于代码、文档及其他文件类型；不得为了节省行数而压缩内容。
-- 使用 bash 工具执行自动化操作：git、包管理器、测试、构建、脚本、诊断及 shell 原生文件系统操作。注意：bash 工具的实际 shell 以其工具描述中的 OS/Shell 标注为准（Windows 上通常是 PowerShell 或 cmd.exe，并非 bash）——命令动词、引号与连接符必须跟随该 shell（Windows PowerShell 5.1 不支持 \`&&\`，用 \`cmd1; if ($?) { cmd2 }\`），不要默认 Unix 语法（grep/sed/cat 在 PowerShell/cmd 下通常不存在）。
+- 使用 bash 工具执行自动化操作：git、包管理器、测试、构建、脚本、诊断及 shell 原生文件系统操作。${SHELL_OS_NOTE}
 - 批量或机械文件变更在比逐项编辑更清晰或安全时可以使用 Shell（例如截断生成日志、移除构建产物、批量重命名/移动），尤其是用户明确要求该 Shell 操作时。
 - 进行破坏性或大范围 Shell 操作前，核实目标集合并引用路径；可行时优先先做 dry-run/列举。
-- 不要仅为读取代码而使用 cat/head/tail/sed/awk（或其 Windows 等价物 type/Get-Content/Select-String）；使用 read/grep，除非 Shell 管道确实更适合诊断。`;
+${NO_SHELL_READ_NOTE}`;
 
-/** 只读 agent（explorer/librarian/oracle/observer）的文件操作规则 */
+/** 只读 agent（explorer/librarian/oracle/observer）的文件操作规则：公共句与矩阵由 `./tool-matrix` 单一来源拼装，只保留只读差异段。 */
 export const READONLY_FILE_OPERATIONS_RULES = `**文件操作规则**：
-- 工具来源：read/grep/glob/list/lsp/codesearch/webfetch/websearch 是宿主提供的工具——按照当前会话工具目录直接按名称调用；绝不能通过 Code Mode \`execute\` 代理调用，也绝不能臆造目录中不存在的工具名。文本/正则搜索使用 \`grep\`；不存在通用的 \`search\` 工具。
+- ${TOOL_SOURCE_NOTE}
  - 只读：检查并报告；不要修改文件。
- - 代码库检查优先使用专用文件工具：用 glob/grep/ast_grep_search 进行发现，用 read 读取文件内容。
-- 当 bash 工具最清晰时，允许用它执行不修改文件的诊断和 shell 原生检查，但不得用于修改文件。注意：bash 工具的实际 shell 以其工具描述中的 OS/Shell 标注为准（Windows 上通常是 PowerShell 或 cmd.exe，并非 bash）——命令动词、引号与连接符必须跟随该 shell（Windows PowerShell 5.1 不支持 \`&&\`），不要默认 Unix 语法（grep/sed/cat 在 PowerShell/cmd 下通常不存在）。
-- 不要仅为读取代码而使用 cat/head/tail/sed/awk（或其 Windows 等价物 type/Get-Content/Select-String）；使用 read/grep，除非 Shell 管道确实更适合诊断。`;
+ - 符号与调用链检索按下方工具选择矩阵走 CBM 通道；文件定位与读取使用专用文件工具——用 glob/grep/ast_grep_search 进行发现，用 read 读取文件内容。
+${TOOL_SELECTION_MATRIX}
+- 当 bash 工具最清晰时，允许用它执行不修改文件的诊断和 shell 原生检查，但不得用于修改文件。${SHELL_OS_NOTE}
+${NO_SHELL_READ_NOTE}`;
 
 /**
  * 只读 agent 的 shell 工具规则：默认允许检查，按命令模式拦截明显写操作。

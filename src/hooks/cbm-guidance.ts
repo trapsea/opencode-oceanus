@@ -57,12 +57,14 @@ export function createDirectMcpWriteGuard() {
 /** 默认索引检查/状态查询超时（毫秒）。 */
 const DEFAULT_CBM_GUIDANCE_TIMEOUT_MS = 30_000;
 
-/** 组装重复 grep/read 的建议提示文案。 */
+/** 组装重复 grep/read 的建议提示文案（任务触发词版）。 */
 export function buildGrepReadHint(projectPath?: string): string {
   const scope = projectPath ? `项目 ${projectPath}` : '当前项目';
   return (
-    `${CBM_GREP_READ_HINT_MARKER} 已索引${scope}，反复 grep/read 定位代码较慢；` +
-    '优先使用 codebase-memory-mcp（list_projects 按 root_path 确认 project 后调用 search_graph / trace_path / get_code_snippet）。仅当会话无 codebase-memory-mcp 或通道失败时，才用 cbm_search_graph / cbm_trace / cbm_code 兜底。'
+    `${CBM_GREP_READ_HINT_MARKER} 已索引${scope}。` +
+    '查找符号定义、调用链或影响面时优先 CBM 检索（list_projects 按 root_path 确认 project 后调用 search_graph / trace_path / get_code_snippet；' +
+    '会话无 codebase-memory-mcp 或通道失败时用 cbm_search_graph / cbm_trace / cbm_code 兜底）；' +
+    '纯文本或文件名检索继续用 grep/glob 即可。'
   );
 }
 

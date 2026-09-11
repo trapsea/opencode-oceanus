@@ -31,7 +31,7 @@ const SKILL_ANCHORS: Record<
   'oceanus-discuss': {
     must: [
        /claim|evidence|status|source_version|impact|open_questions|negative_findings/,
-       /cbm_search_graph|cbm_trace/,
+       /CBM 检索顺序|cbm_search_graph|cbm_trace/,
       /全量索引|不.*(索引|触发)/,
     ],
     mustNot: [/cbm_index/, /autoIndex[\s\S]{0,80}cbm_status/],

@@ -83,6 +83,16 @@ export const CBM_EVIDENCE_NOTE =
   '不把图谱结果当作完整证明。';
 
 /**
+ * CBM 检索顺序短句（场景文案单一来源）：各 skill / review 场景 / 运行时提示
+ * 引用本句表达「direct 优先 → wrapper 兜底 → 项目确认」三要素，不复述完整通道协议；
+ * 具体工具组合（如 trace_path/detect_changes）由引用方按场景列举。
+ */
+export const CBM_LOOKUP_ORDER_NOTE =
+  `CBM 检索顺序：优先 \`${DIRECT_MCP_SERVER}\` 原生工具（先 list_projects 按 root_path 确认唯一健康 project），` +
+  '仅当 catalog 无该 server 或出现允许的通道错误时，回退同义 `cbm_*` wrapper；' +
+  '通道错误清单与参数契约以 codebase-memory-mcp 优先规则为准。';
+
+/**
  * 六阶段 CBM 主线（完整文本）。
  * 只注入 sisyphus 主 agent 一处；oceanus 等其他 prompt 仅拼装片段
  * （`CBM_BOUNDARY_NOTE` / `CBM_QUERY_EXAMPLES`），防止双重注入。

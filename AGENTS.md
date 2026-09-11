@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-`opencode-oceanus` 是基于 OpenCode v2 beta 插件 API 的 TypeScript/Bun 插件，当前包版本为 `0.61.0`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。
+`opencode-oceanus` 是基于 OpenCode v2 beta 插件 API 的 TypeScript/Bun 插件，当前包版本为 `0.62.0`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。
 
 OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode-v2-compatibility.md`](docs/opencode-v2-compatibility.md)，变更 OpenCode 依赖或宿主 API 前必须先更新该文档。
 
@@ -16,7 +16,7 @@ OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode
 | `src/skills/` | 8 个内置 skill，包括 `opencode-oceanus`、6 个 Sisyphus 阶段和视觉分析 skill |
 | `src/tools/` | 9 个核心工具；`src/tools/cbm/` 另有 7 个受配置门控的 CBM 工具 |
 | `src/hooks/` | 工具输入输出、循环、任务登记、CBM 和图片处理保护 |
-| `src/config/` | Zod schema、配置加载、preset、默认值与路径 |
+| `src/config/` | Zod schema、配置加载、preset、默认值、路径与工具选择矩阵单一来源（`tool-matrix.ts`） |
 | `src/runtime/` | task coordinator、任务索引、宿主桥接、workspace 与 dispatch guard |
 | `src/cbm/` | CBM 下载、校验、进程、索引、MCP、CLI 与 wiring |
 | `src/update/` | npm 版本检查、OpenCode 安装上下文、staging 与原子更新 |

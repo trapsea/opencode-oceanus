@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { buildOceanusPrompt } from './oceanus';
 import { createSisyphusAgent } from './sisyphus';
 import { createExplorerAgent } from './explorer';
@@ -9,7 +11,8 @@ import { createPrometheusAgent } from './prometheus';
 import { OCEANUS_DISCUSS_SKILL } from '../skills/oceanus-discuss';
 import { OCEANUS_INTAKE_SKILL } from '../skills/oceanus-intake';
 import { OCEANUS_REVIEW_SKILL } from '../skills/oceanus-review';
-import { CBM_LIFECYCLE, CBM_TOOLS, cbmSection } from '../cbm/registry';
+import { CBM_LIFECYCLE, CBM_LOOKUP_ORDER_NOTE, CBM_TOOLS, cbmSection } from '../cbm/registry';
+import { READONLY_FILE_OPERATIONS_RULES, WRITABLE_FILE_OPERATIONS_RULES } from '../config/constants';
 import { SISYPHUS_WORKFLOW_PROTOCOL } from './protocol';
 
 /** 注册工具名来自注册表单一来源（src/cbm/registry.ts）。 */
@@ -186,5 +189,70 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(sys).toContain('impact_estimate');
     expect(sys).toContain('Oracle 在 Review 阶段执行正式只读审查');
     expect(sys).not.toContain('plan-gate 的预估');
+  });
+});
+
+describe('方案 B 反重复契约：工具选择规则单一来源', () => {
+  const collectSrc = (dir: string): string[] =>
+    readdirSync(join(__dirname, dir), { withFileTypes: true }).flatMap((entry) => {
+      const rel = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) return collectSrc(rel);
+      return entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') ? [rel] : [];
+    });
+  const readSrc = (rel: string) => readFileSync(join(__dirname, rel), 'utf8');
+
+  test('工具来源/禁 shell 读文件公共句只定义于 tool-matrix.ts', () => {
+    const offenders = collectSrc('..')
+      .filter((p) => !p.endsWith('config/tool-matrix.ts'))
+      .map((p) => [p, readSrc(p)] as const)
+      .filter(([, src]) =>
+        src.includes('工具来源：read/grep/glob') ||
+        src.includes('不要仅为读取代码而使用 cat/head/tail/sed/awk'),
+      );
+    expect(offenders.map(([p]) => p)).toEqual([]);
+    const matrix = readSrc('../config/tool-matrix.ts');
+    for (const fragment of ['工具来源：read/grep/glob', '不要仅为读取代码而使用 cat/head/tail/sed/awk']) {
+      expect(matrix).toContain(fragment);
+    }
+  });
+
+  test('DIRECT_MCP_POLICY 特征复述（仅当 catalog 无 + binary_missing）仅存在于 registry 定义本体', () => {
+    const offenders = collectSrc('..')
+      .filter((p) => !p.endsWith('cbm/registry.ts'))
+      .map((p) => [p, readSrc(p)] as const)
+      .filter(([, src]) => src.includes('仅当 catalog 无') && src.includes('binary_missing'));
+    expect(offenders.map(([p]) => p)).toEqual([]);
+  });
+
+  test('文件操作规则不含旧的全称「优先使用专用文件工具」句，任务语言矩阵已并入', () => {
+    for (const rules of [WRITABLE_FILE_OPERATIONS_RULES, READONLY_FILE_OPERATIONS_RULES]) {
+      expect(rules).not.toContain('常规代码工作优先使用专用文件工具');
+      expect(rules).not.toContain('代码库检查优先使用专用文件工具');
+      expect(rules).toContain('符号与调用链检索按下方工具选择矩阵走 CBM 通道');
+      expect(rules).toContain('找函数/类/接口/方法的定义或位置');
+      expect(rules).toContain('谁调用 X');
+      expect(rules).toContain('grep（不用 CBM）');
+      // 通道语义保持 direct 优先原样（决策③）
+      expect(rules).toContain('search_graph');
+      expect(rules).toContain('cbm_search_graph');
+    }
+  });
+
+  test('explorer 本地无 CBM 分支决策表已收敛到矩阵', () => {
+    const explorer = createExplorerAgent().system!;
+    expect(explorer).not.toContain('**文本/正则模式**');
+    expect(explorer).toContain('工具选择矩阵');
+    expect(explorer).toContain('先走矩阵的 CBM 检索行');
+  });
+
+  test('场景/阶段文案经 CBM_LOOKUP_ORDER_NOTE 拼装，无通道顺序三要素复述', () => {
+    const offenders = collectSrc('..')
+      .filter((p) => !p.endsWith('cbm/registry.ts'))
+      .map((p) => [p, readSrc(p)] as const)
+      .filter(([, src]) => /优先 codebase-memory-mcp 原生工具/.test(src) && /确认唯一健康 project/.test(src));
+    expect(offenders.map(([p]) => p)).toEqual([]);
+    for (const content of [OCEANUS_DISCUSS_SKILL.content, OCEANUS_REVIEW_SKILL.content]) {
+      expect(content).toContain(CBM_LOOKUP_ORDER_NOTE);
+    }
   });
 });
