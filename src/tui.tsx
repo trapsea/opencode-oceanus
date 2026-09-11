@@ -272,7 +272,8 @@ function matchesAgent(agent: { id: string; name: string }, agentID: string | und
   return normalizeAgentKey(agent.id) === key || normalizeAgentKey(agent.name) === key;
 }
 
-function isRunningStatus(status: LocalSessionStatus): boolean {
+function isRunningStatus(status: LocalSessionStatus | undefined): boolean {
+  if (status === undefined) return false;
   return typeof status === 'string' ? status === 'running' : status.type !== 'idle';
 }
 
@@ -311,6 +312,33 @@ export function decideCalibration(options: {
     return 'clear-stale';
   }
   return 'keep';
+}
+
+/**
+ * 权威快照正向补亮（纯函数，便于测试）：
+ * beta-19296 事件面缺口（2026-09-11 受控实测）——run 进行中以 steer 语义
+ * 提交的输入（TUI 默认提交路径，ESC 中断后立即再输入即落入此时序）只发
+ * `session.inbox.enqueued`，不发 `execution.started` / `inbox.delivered`，
+ * localStatuses 与 TUI store 双双停留 idle，而 server 端 run 实际在跑。
+ * `/api/session/active` 权威快照（coordinator active 集合）是唯一正确事实源。
+ * 只做正向补亮（快照有而本地未亮 → running），不做反向熄灭——run 终态事件
+ * 实测全场景发布，熄灭交给事件路径 + stale 兜底，零误杀风险。
+ */
+export function applyActiveSnapshot(
+  state: { localStatuses: Map<string, LocalSessionStatus>; deletedSessionIDs: Set<string> },
+  runningIDs: Iterable<string>,
+  statusAt: Map<string, number>,
+  now: number,
+): boolean {
+  let changed = false;
+  for (const sessionID of runningIDs) {
+    if (state.deletedSessionIDs.has(sessionID)) continue;
+    if (isRunningStatus(state.localStatuses.get(sessionID))) continue;
+    statusAt.set(sessionID, now);
+    state.localStatuses.set(sessionID, 'running');
+    changed = true;
+  }
+  return changed;
 }
 
 export function getRelatedRunningSessions(context: Context, sessionID: string, localStatuses: Map<string, LocalSessionStatus>, deletedSessionIDs: Set<string>) {
@@ -533,7 +561,7 @@ interface PanelWire {
   dispose: () => void;
 }
 
-function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
+function wirePanel(context: Context, reactivity?: PanelReactivity, reSlot?: () => void): PanelWire {
   // 热重载代际护栏：宿主按 mtime 重载插件时可能不清理旧代际的订阅，
   // 监听器会随代际堆积（事件被重复处理）。globalThis 上保留当前代际的
   // dispose，新代际启动前先释放旧代际，保证同进程只有一代存活。
@@ -569,8 +597,15 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
     dirtySessions.clear();
     const commit = () => {
       // tick 信号优先：宿主共享 reactive graph 里重建面板树（beta-18721+
-      // 契约）；requestRender 兜底旧宿主/无 solid 实例时的重绘请求。
+      // 契约）；re-claim 重挂载为主驱动（真实宿主实证插件侧 solid graph
+      // 与渲染树不互通，tick 可能静默失效——见 setup 的 re-claim 注释）；
+      // requestRender 兜底重绘帧。
       state.reactivity?.bump();
+      try {
+        reSlot?.();
+      } catch {
+        /* 重挂载失败（宿主 slot 异常）：保留旧面板，下次刷新再试 */
+      }
       try {
         context.renderer?.requestRender?.();
       } catch {
@@ -738,7 +773,41 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
     }
     if (changed) scheduleFlush();
   };
-  const calibrateTimer = setInterval(calibrateRunningSessions, STATUS_CALIBRATE_MS);
+  // ── 权威快照正向补亮（α，2026-09-11 beta-19296 受控实测）──
+  // 宿主事件面缺口：run 进行中以 steer 语义提交的输入（TUI 默认提交路径，
+  // ESC 中断后立即再输入即落入此时序）只发 session.inbox.enqueued，不发
+  // execution.started / inbox.delivered——localStatuses 与 TUI store 双双停留
+  // idle，而 server 端 run 实际在跑（模型在干活）。唯一正确反映该状态的是
+  // server 权威快照 /api/session/active（读 coordinator active 集合；实测
+  // steer 续跑期间持续返回 running，宿主自身在 server.connected 时也用它
+  // 重建 store）。策略：只做正向补亮（active 有而本地未亮 → bump-running），
+  // 不做反向熄灭——run 终态事件（succeeded/failed/interrupted）实测全场景
+  // 发布，熄灭交给事件路径 + stale 兜底，零误杀风险。client 缺失时跳过
+  // （fail-open，事件路径不受影响）。
+  let pollActiveInFlight = false;
+  const pollActiveSessions = async (): Promise<void> => {
+    const active = (context.client as
+      | { session?: { active?: () => Promise<Record<string, unknown>> } }
+      | undefined
+    )?.session?.active;
+    if (!active || pollActiveInFlight) return;
+    pollActiveInFlight = true;
+    try {
+      const running = await active();
+      if (applyActiveSnapshot(state, Object.keys(running ?? {}), statusAt, Date.now())) {
+        scheduleFlush();
+      }
+    } catch {
+      // 快照拉取失败（网络/权限）：本周期跳过，下个周期重试。
+    } finally {
+      pollActiveInFlight = false;
+    }
+  };
+  const calibrateAll = () => {
+    calibrateRunningSessions();
+    void pollActiveSessions();
+  };
+  const calibrateTimer = setInterval(calibrateAll, STATUS_CALIBRATE_MS);
 
   const setLocalStatus = (sessionID: string, status: LocalSessionStatus) => {
     statusAt.set(sessionID, Date.now());
@@ -842,6 +911,13 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
     onData('session.deleted', (event) => {
       removeLocalStatus(event.data.sessionID);
       calibrateStatus(event.data.sessionID);
+    }),
+    // 重连恢复（beta-19296 实证事件存在，TUI store 自身也在此事件时用
+    // /api/session/active 重建）：断连窗口的事件缺口由权威快照补——立即
+    // 拉取 + 刷新，重启/重连时正在执行的会话在秒内重新点亮。
+    onData('server.connected', () => {
+      void pollActiveSessions();
+      flushNow();
     }),
   ];
 
@@ -1013,17 +1089,30 @@ function renderPanel(context: Context, state: PanelState): JSX.Element {
 
 export async function setup(context: Context) {
   const reactivity = await loadPanelReactivity();
-  const wire = wirePanel(context, reactivity);
-  const disposeSlot = context.ui.slot({
-    append: 'sidebar.content',
-    render: ({ sessionID }) => {
-      const state = panelStateOf.get(context);
-      if (state) state.sessionID = sessionID;
-      return state ? renderPanel(context, state) : <box />;
-    },
-  });
+  // ── re-claim 驱动刷新（2026-09-11 tmux 真实宿主实证后引入）──
+  // 实测（beta-19296 + 本地 dist 插件）：loadPanelReactivity 命中「宿主别名」
+  // 候选且自检通过，但其 graph 与 SlotHost 渲染树不互通（observer 只跑首
+  // 次、tick bump 后面板不重建）——插件侧 solid 实例归属不可控。改为每次
+  // 刷新用全新 claim 对象（render 闭包身份不同）：宿主 SlotHost 按 claim
+  // 集合 diff 视为变化 → 重挂载 render → 以最新 state 重建面板。该机制
+  // 完全走宿主自身 slot 通路，不依赖任何 solid 实例。
+  let disposeCurrentSlot: (() => void) | undefined;
+  const reSlot = () => {
+    disposeCurrentSlot?.();
+    disposeCurrentSlot = context.ui.slot({
+      append: 'sidebar.content',
+      render: ({ sessionID }) => {
+        const state = panelStateOf.get(context);
+        if (state) state.sessionID = sessionID;
+        return state ? renderPanel(context, state) : <box />;
+      },
+    });
+  };
+  const wire = wirePanel(context, reactivity, reSlot);
+  reSlot();
   return () => {
-    disposeSlot();
+    disposeCurrentSlot?.();
+    disposeCurrentSlot = undefined;
     wire.dispose();
   };
 }

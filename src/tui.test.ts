@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import {
+  applyActiveSnapshot,
   createPresetWatcher,
   decideCalibration,
   getRelatedRunningSessions,
@@ -789,6 +790,123 @@ describe('宿主 store 驱动刷新（beta-prime observer）', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       const litRows = getRows(context as never, 'root1', new Map(), new Set());
       expect(litRows.find((row) => row.id === 'explorer')?.active).toBe(true);
+    } finally {
+      await dispose();
+    }
+  });
+});
+
+describe('权威快照正向补亮（alpha：steer 事件缺口）', () => {
+  test('run 进行中 steer 输入无 execution 事件时，active 快照补亮点亮', async () => {
+    // beta-19296 受控实测（2026-09-11）：run 进行中以 steer 语义提交的输入
+    // 只发 session.inbox.enqueued，不发 execution.started / inbox.delivered
+    // ——localStatuses 与 host store 双 idle 而 server 端 run 实际在跑。
+    // 唯一正确事实源是 /api/session/active 权威快照（client.session.active）。
+    const solidClient = (await import('solid-js/dist/solid.js')) as unknown as {
+      createSignal: <T>(initial: T) => [() => T, (update: (prev: T) => T) => T];
+    };
+    const [active] = solidClient.createSignal<Record<string, string>>({
+      root1: 'idle',
+      child1: 'idle',
+    });
+    const sessions: FakeSession[] = [
+      { id: 'root1', agent: 'oceanus', time: { created: 1 }, location: { directory: '/w' } },
+      { id: 'child1', agent: 'explorer', time: { created: 2 }, location: { directory: '/w' } },
+    ];
+    const agents = [
+      { id: 'oceanus', name: 'oceanus', mode: 'primary' },
+      { id: 'explorer', name: 'explorer', mode: 'subagent' },
+    ];
+    const handlers = new Map<string, (event: unknown) => void>();
+    let activeSnapshot: Record<string, { type: 'running' }> = {};
+    let renderCalls = 0;
+    const context = {
+      location: { directory: '/w' },
+      theme: { text: '#fff', textMuted: '#888' },
+      renderer: {
+        requestRender() {
+          renderCalls += 1;
+        },
+      },
+      app: { version: 't', channel: 't' },
+      client: {
+        session: {
+          active: () => Promise.resolve(activeSnapshot),
+        },
+      },
+      ui: { slot: () => () => {} },
+      data: {
+        on: (type: string, handler: (event: unknown) => void) => {
+          handlers.set(type, handler);
+          return () => {};
+        },
+        session: {
+          list: () => sessions,
+          get: (id: string) => sessions.find((session) => session.id === id),
+          root: (id: string) => (id === 'child1' ? 'root1' : id),
+          family: (id: string) => (id === 'root1' ? ['root1', 'child1'] : [id]),
+          status: (id: string) => active()[id] ?? 'idle',
+          sync: () => Promise.resolve(),
+          invalidate() {},
+          pending: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          message: { list: () => [], get: () => undefined, sync: () => Promise.resolve(), invalidate() {} },
+          permission: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          form: { list: () => [], sync: () => Promise.resolve(), invalidate() {}, reply() {}, cancel() {} },
+        },
+        project: { list: () => [], get: () => undefined, sync: () => Promise.resolve(), invalidate() {} },
+        shell: { list: () => [], get: () => undefined, sync: () => Promise.resolve(), invalidate() {} },
+        location: {
+          default: () => ({ directory: '/w' }),
+          sync: () => Promise.resolve(),
+          invalidate() {},
+          vcs: { info: () => undefined, sync: () => Promise.resolve(), invalidate() {} },
+          agent: { list: () => agents, sync: () => Promise.resolve(), invalidate() {} },
+          command: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          integration: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          mcp: {
+            server: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+            resource: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          },
+          model: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          provider: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          reference: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          skill: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+        },
+      },
+    };
+    const dispose = await setup(context as never);
+    try {
+      // 初始：无任何事件、快照为空 → 不亮。
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(
+        getRows(context as never, 'root1', new Map(), new Set()).find((row) => row.id === 'explorer')?.active,
+      ).toBe(false);
+
+      // steer 缺口场景：server 端 child1 在跑（权威快照），但插件侧零执行
+      // 事件、host store 也 idle。server.connected 触发快照补亮。
+      activeSnapshot = { child1: { type: 'running' } };
+      handlers.get('server.connected')?.({});
+      // scheduleFlush 的 80ms trailing 窗口后 commit → requestRender。
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(renderCalls).toBeGreaterThan(0);
+
+      // 校正结果可直接观察：纯函数 applyActiveSnapshot 已把 child1 写为
+      // running（与上述管线共用同一实现）。
+      const localStatuses = new Map<string, unknown>();
+      expect(applyActiveSnapshot(
+        { localStatuses, deletedSessionIDs: new Set<string>() },
+        Object.keys(activeSnapshot),
+        new Map<string, number>(),
+        Date.now(),
+      )).toBe(true);
+      expect(localStatuses.get('child1')).toBe('running');
+      // 已 running 的会话不再变更（幂等，changed=false）。
+      expect(applyActiveSnapshot(
+        { localStatuses, deletedSessionIDs: new Set<string>() },
+        Object.keys(activeSnapshot),
+        new Map<string, number>(),
+        Date.now(),
+      )).toBe(false);
     } finally {
       await dispose();
     }
