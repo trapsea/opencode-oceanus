@@ -32,7 +32,7 @@ export const CBM_TOOLS = [
 
 export type CbmTool = (typeof CBM_TOOLS)[number];
 
-/** Oceanus 托管的直接 MCP server 名；实际调用前仍须检查当前会话 catalog。 */
+/** Oceanus 托管的直接 MCP server 名；工具经 codemode:false 进入会话直接工具目录，按目录实际名称调用。 */
 export const DIRECT_MCP_SERVER = 'codebase-memory-mcp';
 
 /** 查询型工具集合：不触发全量索引，只读分析使用。 */
@@ -60,7 +60,7 @@ export const CBM_QUERY_EXAMPLES =
  * 边界与索引生命周期，后者保留本地只读 Cypher 拦截。
  */
 export const DIRECT_MCP_POLICY = `**codebase-memory-mcp 优先规则**：
-1. 结构化代码发现默认使用当前会话 tool catalog 中的 \`${DIRECT_MCP_SERVER}\` 原生工具：\`search_graph\`、\`trace_path\`、\`get_code_snippet\`、\`detect_changes\`（及 \`index_status\` 项目确认、只读 \`get_graph_schema\`/\`query_graph\`）。调用前先 \`${DIRECT_MCP_SERVER}.list_projects\`，并用 \`index_status({ project })\` 确认当前 workspace \`root_path\` 的唯一健康项目，再以原生参数契约调用（direct 字段 \`function_name\`/\`qualified_name\` 等，不套用 wrapper 字段名）。
+1. 结构化代码发现默认按名称直接调用会话工具目录中的 \`${DIRECT_MCP_SERVER}\` 原生工具（不经 Code Mode \`execute\`；目录实际名称以会话工具目录为准）：\`search_graph\`、\`trace_path\`、\`get_code_snippet\`、\`detect_changes\`（及 \`index_status\` 项目确认、只读 \`get_graph_schema\`/\`query_graph\`）。调用前先 \`list_projects\`，并用 \`index_status({ project })\` 确认当前 workspace \`root_path\` 的唯一健康项目，再以原生参数契约调用（direct 字段 \`function_name\`/\`qualified_name\` 等，不套用 wrapper 字段名）。
 2. 仅当 catalog 无 \`${DIRECT_MCP_SERVER}\`、\`list_projects\`/\`index_status\` 失败、传输/超时、工具缺失或明确参数协议拒绝时，才回退到同义的 \`cbm_*\` wrapper：\`cbm_search_graph(query)\`、\`cbm_trace(symbol, direction, depth)\`、\`cbm_code(qualified_name)\`、\`cbm_detect_changes(since, direction, depth)\`。注意字段映射：\`cbm_trace.symbol\` ↔ direct \`function_name\`，未找到或歧义时返回诊断并缩小搜索，不把 wrapper/direct 字段名混用。
 3. 索引生命周期与 Cypher 保持 wrapper 专用：首次索引和 Review 刷新使用 \`cbm_index\`（workspace 边界与生命周期控制），Cypher 只使用 \`cbm_query\`（本地只读拦截）；两者不切到 direct。
 4. 业务空结果、符号未解析、歧义、workspace 边界拒绝或写入拒绝不是切换通道的条件。\`cbm_*\` 出现 \`binary_missing\`、\`spawn_failed\`、\`timeout\`、daemon/传输失败、\`invalid_json\` 等通道错误，或两条通道均不可用时，回退 \`grep/read/glob\`。禁止调用 \`delete_project\`、\`ingest_traces\`、\`manage_adr\` 或其他写入型 MCP 工具。`;
@@ -100,7 +100,7 @@ export const CBM_LOOKUP_ORDER_NOTE =
 export const CBM_LIFECYCLE = {
   /** 一句话摘要（供简要引用场景）。 */
   brief:
-    'Intake 首次初始化与 Review 受控 cbm_index → codebase-memory-mcp（direct MCP）优先查询 → cbm_* wrapper 兜底 → Plan/Review 记录 impact_estimate 与降级证据。',
+    'Intake 首次初始化与 Review 受控 cbm_index（各至多一次：不重复触发、不用于状态轮询，状态查询用 cbm_status）→ codebase-memory-mcp（direct MCP）优先查询 → cbm_* wrapper 兜底 → Plan/Review 记录 impact_estimate 与降级证据。',
   /** 完整主线（`## CBM 阶段边界` 段正文）。 */
   full: [
       '- intake: Sisyphus 直接完成边界收集；代码/混合任务仅尝试一次首次 cbm_index，失败/超时/starting 必须故障开放并记录。',
@@ -118,7 +118,7 @@ export const CBM_LIFECYCLE = {
 export type CbmRole = 'explorer' | 'oracle' | 'fixer' | 'librarian' | 'prometheus';
 
 const EXPLORER_SECTION = `**代码库知识图谱优先级**：
-1. 默认使用 \`codebase-memory-mcp\` 命名空间工具：\`search_graph\`、\`trace_path\`、\`get_code_snippet\`（先 \`list_projects\` + \`index_status\` 确认当前 workspace 唯一健康 project）；
+1. 默认按名称直接调用 \`codebase-memory-mcp\` 工具（已进会话工具目录）：\`search_graph\`、\`trace_path\`、\`get_code_snippet\`（先 \`list_projects\` + \`index_status\` 确认当前 workspace 唯一健康 project）；
 2. catalog 无该 server 或出现允许的通道错误时，回退 \`cbm_search_graph\`、\`cbm_trace\`、\`cbm_code\`；
 3. \`ast_grep_search\` 做 AST 模式搜索；
 4. \`grep/glob/read\` 处理文本、文件发现和最终 fallback。
@@ -168,7 +168,7 @@ ${DIRECT_MCP_POLICY}
 ${CBM_QUERY_EXAMPLES}`;
 
 const PROMETHEUS_SECTION = `**代码库知识图谱优先级（研究编排视角）**：
-1. 自查顺序：\`codebase-memory-mcp\` 命名空间工具（\`search_graph\`、\`trace_path\`、\`get_code_snippet\`、\`detect_changes\`；先 \`list_projects\` + \`index_status\` 确认当前 workspace 唯一健康 project）；通道不可用时回退 \`cbm_search_graph\`、\`cbm_trace\`、\`cbm_code\`；再回退 \`grep/glob/read\`。
+1. 自查顺序：\`codebase-memory-mcp\` 直接工具（会话工具目录按名称调用：\`search_graph\`、\`trace_path\`、\`get_code_snippet\`、\`detect_changes\`；先 \`list_projects\` + \`index_status\` 确认当前 workspace 唯一健康 project）；通道不可用时回退 \`cbm_search_graph\`、\`cbm_trace\`、\`cbm_code\`；再回退 \`grep/glob/read\`。
 2. 结构化大范围侦察委派给 \`@explorer\`，外部资料委派给 \`@librarian\`；委派 prompt 中附上你已确认的 CBM 项目状态，避免子 agent 重复探测。
 3. 研究场景只使用查询型工具；禁止调用 \`cbm_index\`（权限已拒绝），索引初始化与刷新由主编排工作流负责。
 

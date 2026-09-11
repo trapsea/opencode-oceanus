@@ -88,7 +88,7 @@ function managedLocal(cfg?: Partial<MCPServerConfigLike>): MCPServerConfigLike {
     command: ['/cache/versions/0.10.8/linux-x64/codebase-memory-mcp'],
     environment: { [CBM_MANAGED_MARKER_ENV]: '1' },
     disabled: false,
-    codemode: true,
+    codemode: false,
     ...cfg,
   };
 }
@@ -155,7 +155,8 @@ describe('CBM-08 二进制已就绪：draft.set 参数与完整配置', () => {
     expect(Array.isArray(local.command)).toBe(true);
     expect(local.command).toEqual([binary]);
     expect(local.disabled).toBe(false);
-    expect(local.codemode).toBe(true);
+    // direct MCP 工具必须进会话直接工具目录（codemode: false），而非 Code Mode catalog。
+    expect(local.codemode).toBe(false);
     // 环境白名单：只含白名单键 + marker
     const envKeys = Object.keys(local.environment ?? {});
     for (const k of envKeys) expect(MCP_ENV_WHITELIST).toContain(k);

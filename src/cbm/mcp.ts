@@ -127,7 +127,14 @@ export function resolveExpectedBinaryPath(
   return join(cacheDir, 'versions', cfg.version, platformKey, platform.binaryName);
 }
 
-/** 构造本地 MCP server 配置（真实 `McpDraft` 形状，command 为数组）。 */
+/**
+ * 构造本地 MCP server 配置（真实 `McpDraft` 形状，command 为数组）。
+ *
+ * `codemode: false`：direct MCP 工具（search_graph/trace_path/...）进入会话
+ * 直接工具目录，全部 agent 可按名称直接调用（2026-09 用户决策，修复
+ * 「提示词要求 direct 优先但 Code Mode 调用摩擦导致实际全走 cbm_* wrapper」）。
+ * 写入型 MCP 工具（delete_project 等）由 createDirectMcpWriteGuard 运行时拦截。
+ */
 export function buildLocalConfig(
   cfg: CodebaseMemoryResolvedConfig,
   binary: string,
@@ -139,7 +146,7 @@ export function buildLocalConfig(
     command: [binary],
     environment: buildMcpEnvironment(cacheDir),
     disabled,
-    codemode: true,
+    codemode: false,
   };
 }
 

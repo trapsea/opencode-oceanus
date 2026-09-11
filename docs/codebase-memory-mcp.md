@@ -34,7 +34,7 @@ CBM 子进程使用受限环境变量白名单，不继承 provider token；调�
 
 > 实现单一来源：通道协议与公共句以 `src/cbm/registry.ts`（`DIRECT_MCP_POLICY` / `CBM_LOOKUP_ORDER_NOTE` / 边界句）为准，「什么任务用什么工具」的任务语言决策表以 `src/config/tool-matrix.ts`（`TOOL_SELECTION_MATRIX`）为准，并经契约测试防止复述漂移；本节为运维参考与人类可读说明。
 
-结构化代码发现默认使用宿主注册的 `codebase-memory-mcp` MCP server 原生工具：`search_graph`、`trace_path`、`get_code_snippet`、`detect_changes`（及 `index_status` 项目确认、只读 `get_graph_schema`/`query_graph`）。调用前必须先调用 `list_projects` 并用 `index_status({ project })` 确认当前 workspace 绝对 `root_path` 的唯一健康项目；没有匹配、存在多个匹配或 catalog 不可用时，不得猜测项目名，直接回退 `grep/read/glob`。direct 参数与 wrapper 字段不混用：
+结构化代码发现默认直接调用宿主注册的 `codebase-memory-mcp` MCP server 原生工具——server 以 `codemode: false` 注册（`src/cbm/mcp.ts`），其工具进入会话直接工具目录，全部 agent 按名称直接调用（不经 Code Mode `execute`；会话目录实际名称以宿主渲染为准）：`search_graph`、`trace_path`、`get_code_snippet`、`detect_changes`（及 `index_status` 项目确认、只读 `get_graph_schema`/`query_graph`）。写入型 MCP 工具（`delete_project`/`ingest_traces`/`manage_adr`）由运行时 guard 拒绝。调用前必须先调用 `list_projects` 并用 `index_status({ project })` 确认当前 workspace 绝对 `root_path` 的唯一健康项目；没有匹配、存在多个匹配或 catalog 不可用时，不得猜测项目名，直接回退 `grep/read/glob`。direct 参数与 wrapper 字段不混用：
 
 | 目的 | direct MCP（默认主通道） | 关键参数 |
 |---|---|---|
