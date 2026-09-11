@@ -279,20 +279,22 @@ function isRunningStatus(status: LocalSessionStatus): boolean {
 /**
  * 周期校准的单会话决策（纯函数，便于测试）：
  *
- * 宿主事实（beta-19296 二进制实证）：
+ * 宿主事实（beta-19296 二进制实证，2026-09-10/11）：
  * - `context.data.session.status(id)` 内部为 `store.session.active[id] ?? 'idle'`，
- *   而 `store.session.active` 只由已无人发布的 `session.execution.*` 事件更新，
- *   因此在现行宿主上该接口恒返回 `'idle'`——它**不能**作为 running 的反向证据；
- * - 会话活跃的权威事件是 `session.status`（每次 run 开始必发 busy、结束必发
- *   idle）与 deprecated 的 `session.idle`。
+ *   active 由 `session.execution.*` 事件与 `server.connected` 时拉取的
+ *   `/api/session/active` 权威快照维护——并非恒 'idle'，可作正向点亮信号，
+ *   但仍不作反向清除依据（防御快照与事件的竞态）；
+ * - `session.execution.started/succeeded/failed/interrupted` 有真实发布者
+ *   （run coordinator，主/子会话统一管线）且到达 TUI 插件（宿主内置插件
+ *   同通道消费）；`session.status`/`session.idle` 在 beta-19296 仅有 schema
+ *   定义、无发布者（订阅空转；main 源码线已改为 SessionStatus.set 必发，
+ *   保留订阅面向未来版本）。
  *
- * 旧实现每 2s 把 localStatuses 中 running 反向校正为 host status，在 host 恒
- * 返回 'idle' 的宿主上会把刚由 busy 事件点亮的 ● 在 ≤2s 内误杀（第二次任务
- * 事件少，表现为 ● 完全不再点亮）。因此改为：
+ * 决策规则（事件权威制，running 不被 host 快照反向清除）：
  * - 不亮且 host 明确 running → bump-running（正向补亮，覆盖漏事件窗口）；
  * - running 且超过 staleRunningMs 无任何该会话状态事件 → clear-stale（防御
  *   宿主事件缺口导致的 ● 滞留，远超正常 step 间隔，不误杀真实任务）；
- * - 其余 keep。host 恒 idle/缺失不再触发反向清除。
+ * - 其余 keep。
  */
 export function decideCalibration(options: {
   localRunning: boolean;
@@ -397,7 +399,7 @@ type SolidModuleSurface = {
   Show: unknown;
   /** 自检用；注入的测试表面可缺省（缺省时跳过自检，保持旧契约）。 */
   createEffect?: (fn: () => void) => void;
-  createRoot?: (fn: () => unknown) => unknown;
+  createRoot?: (fn: (dispose: () => void) => unknown) => unknown;
 };
 
 interface PanelReactivity {
@@ -405,6 +407,14 @@ interface PanelReactivity {
   bump: () => void;
   /** 包裹静态 JSX 构建器：when getter 读取 tick 建立依赖，变化时重建 children。 */
   dynamic: (build: () => JSX.Element) => JSX.Element;
+  /**
+   * 在共享 solid graph 内创建观察 effect：fn 内读取宿主 data 域（solid
+   * store）即建立依赖，store 变化自动重跑（fn 内自行 bump 即驱动面板
+   * 重建）——封死事件丢失/静默窗口导致的面板冻结（2026-09-11 真实 dist
+   * 沙箱实验实证）。实例缺少 createEffect/createRoot 时为 undefined
+   * （fail-open，事件 flush 与 degraded 轮询兜底）。
+   */
+  observe?: (fn: () => void) => () => void;
 }
 
 /**
@@ -486,6 +496,18 @@ export async function loadPanelReactivity(injected?: SolidModuleSurface): Promis
     }
     // tick 从 1 起：keyed Show 的 when 为 falsy 时不渲染 children。
     const [readTick, writeTick] = solid.createSignal(1);
+    // β'：宿主 store 驱动刷新的 effect 工厂——必须用同一实例创建，跨
+    // graph 的 effect 读宿主 store 不建立依赖（沙箱实验实锤）。
+    const observe =
+      typeof solid.createEffect === 'function' && typeof solid.createRoot === 'function'
+        ? (fn: () => void) =>
+            solid.createRoot!((dispose) => {
+              solid.createEffect!(() => {
+                fn();
+              });
+              return dispose;
+            }) as () => void
+        : undefined;
     return {
       bump: () => {
         writeTick((tick) => tick + 1);
@@ -501,6 +523,7 @@ export async function loadPanelReactivity(injected?: SolidModuleSurface): Promis
           // 返回、不求值）。
           children: (_tickValue: number) => build(),
         }),
+      observe,
     };
   }
   return undefined;
@@ -643,16 +666,20 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
   };
 
   // ── running 状态周期校准（事件权威制）──
-  // 宿主事实（beta-19296 二进制实证）：`context.data.session.status(id)` 的宿主
-  // data 层实现为 `store.session.active[id] ?? 'idle'`，而 `active` 只由已无
-  // 发布者的 `session.execution.*` 事件更新 → 该接口在现行宿主恒返回 'idle'。
-  // 旧实现每 2s 把 localStatuses 中 running 反向校正为 host status，等价于把
-  // 刚由权威 `session.status`(busy) 事件点亮的 ● 在 ≤2s 内误杀——第二次任务
-  // （正常完成后同会话再输入）事件少、无 session.created 掩盖，表现为 ● 完全
-  // 不再点亮。修复：running 只由权威事件熄灭；周期校准仅做
-  // 1) host 明确 busy 而本地未亮时的正向补亮（漏事件窗口）；
-  // 2) 超过 STALE_RUNNING_MS 无任何该会话状态事件时的滞留兜底（防御宿主事件
-  //    缺口导致的 ● 滞留；10min 远超正常 step 间隔，不误杀真实任务）。
+  // 宿主事实（beta-19296 二进制实证，2026-09-10/11）：
+  // - `context.data.session.status(id)` 内部为 `store.session.active[id] ?? 'idle'`，
+  //   active 由 `session.execution.*` 事件与 `server.connected` 时拉取的
+  //   `/api/session/active` 权威快照维护——并非恒 'idle'，可作正向点亮信号，
+  //   但仍不作反向清除依据（防御快照与事件的竞态）；
+  // - `session.execution.started/succeeded/failed/interrupted` 有真实发布者
+  //   （run coordinator，主/子会话统一管线）且到达 TUI 插件（宿主内置插件
+  //   同通道消费）；`session.status`/`session.idle` 在 beta-19296 仅有 schema
+  //   定义、无发布者（订阅空转；main 源码线已改为 SessionStatus.set 必发，
+  //   保留订阅面向未来版本）。
+  // 周期校准策略：running 只由事件（或下方 store observer 的重建）熄灭；
+  // 周期校准仅做 1) host 明确 running 而本地未亮时的正向补亮（漏事件窗口）；
+  // 2) 超过 STALE_RUNNING_MS 无任何该会话状态事件时的滞留兜底（防御宿主
+  // 事件缺口导致的 ● 滞留；10min 远超正常 step 间隔，不误杀真实任务）。
   const STATUS_CALIBRATE_MS = 2000;
   const STALE_RUNNING_MS = 10 * 60 * 1000;
   const statusAt = new Map<string, number>();
@@ -664,6 +691,26 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
       )?.status?.(sessionID);
     } catch {
       return undefined;
+    }
+  };
+  const hostSessionRoot = (sessionID: string): string | undefined => {
+    try {
+      return (context.data?.session as
+        | { root?: (id: string) => string | undefined }
+        | undefined
+      )?.root?.(sessionID);
+    } catch {
+      return undefined;
+    }
+  };
+  const hostSessionList = (): Array<{ id: string }> => {
+    try {
+      return (context.data?.session as
+        | { list?: () => Array<{ id: string }> | undefined }
+        | undefined
+      )?.list?.() ?? [];
+    } catch {
+      return [];
     }
   };
   const calibrateRunningSessions = () => {
@@ -798,6 +845,33 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
     }),
   ];
 
+  // ── 宿主 store 驱动刷新（β'，2026-09-11 沙箱实验实证可行）──
+  // 宿主 data 域读 solid store（beta-19296 二进制实证：status() 读
+  // store.session.active，list/family/root 读 info/family map；由
+  // session.execution.* 事件、session.created 自动 sync 与 server.connected
+  // 时拉取的 /api/session/active 权威快照共同维护）。在共享 solid graph 内
+  // 以 effect 读取同一批状态即建立依赖 → store 任何变化自动 bump → 面板
+  // 整树重建。沙箱实验对照（真实 dist 产物）：无此 observer 时 store 更新后
+  // 面板重建 0 次（TUI 启动/重连静默窗口冻结实锤）；有则重建且点亮/熄灭
+  // 双向传播。读取面与 buildPanelTree/getRelatedRunningSessions 一致；bump
+  // 幂等，与事件 flush 的 bump 无竞态。reactivity 降级（observe undefined）
+  // 时自动缺失，由事件 flush 与 degraded 轮询兜底。
+  const disposeStoreObserver = state.reactivity?.observe?.(() => {
+    try {
+      hostSessionRoot(state.sessionID);
+      listSessionFamily(context, state.sessionID);
+      for (const session of hostSessionList()) {
+        hostSessionStatus(session.id);
+        hostSessionRoot(session.id);
+      }
+      listAgents(context);
+    } catch {
+      // 防御：个别读取失败不把异常传播进宿主 graph；下次 store 变化再试。
+      return;
+    }
+    state.reactivity?.bump();
+  });
+
   panelStateOf.set(context, state);
 
   refreshAgents();
@@ -817,6 +891,7 @@ function wirePanel(context: Context, reactivity?: PanelReactivity): PanelWire {
     if (flushTimer) clearTimeout(flushTimer);
     if (degradedTimer) clearInterval(degradedTimer);
     clearInterval(calibrateTimer);
+    disposeStoreObserver?.();
     disposePresetWatcher();
     pendingRefreshes.forEach((timer) => clearTimeout(timer));
     pendingRefreshes.clear();

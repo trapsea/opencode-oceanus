@@ -687,3 +687,110 @@ describe('panel reactivity 响应式自检', () => {
     expect(typeof reactivity!.bump).toBe('function');
   });
 });
+
+describe('宿主 store 驱动刷新（beta-prime observer）', () => {
+  test('零事件下宿主状态更新触发面板重建（点亮与熄灭双向）', async () => {
+    // bun test 环境下 loadPanelReactivity 第二候选命中 client solid（裸名在
+    // node 条件解析 server 构建被自检拒绝），与真实宿主共享实例机制等价：
+    // 同一 graph 内 effect 读宿主 data 域（solid store）驱动 bump。
+    // 沙箱实验对照（2026-09-11，真实 dist 产物）：无 observer 时 store 更新后
+    // 面板重建 0 次；有 observer 则重建且点亮/熄灭双向传播。
+    const solidClient = (await import('solid-js/dist/solid.js')) as unknown as {
+      createSignal: <T>(initial: T) => [() => T, (update: (prev: T) => T) => T];
+      createRoot: (fn: (dispose: () => void) => unknown) => unknown;
+    };
+    let listReads = 0;
+    const sessions: FakeSession[] = [
+      { id: 'root1', agent: 'oceanus', time: { created: 1 }, location: { directory: '/w' } },
+      { id: 'child1', agent: 'explorer', time: { created: 2 }, location: { directory: '/w' } },
+    ];
+    // mock data 域必须读 signal（等价宿主读 solid store），依赖才能建立。
+    const [active, setActive] = solidClient.createSignal<Record<string, string>>({
+      root1: 'idle',
+      child1: 'idle',
+    });
+    const agents = [
+      { id: 'oceanus', name: 'oceanus', mode: 'primary' },
+      { id: 'explorer', name: 'explorer', mode: 'subagent' },
+    ];
+    let renderFn: ((input: { sessionID: string }) => unknown) | undefined;
+    const context = {
+      location: { directory: '/w' },
+      theme: { text: '#fff', textMuted: '#888' },
+      renderer: { requestRender() {} },
+      app: { version: 't', channel: 't' },
+      client: {},
+      ui: {
+        slot: (opts: { render: (input: { sessionID: string }) => unknown }) => {
+          renderFn = opts.render;
+          return () => {};
+        },
+      },
+      data: {
+        on: () => () => {},
+        session: {
+          list: () => {
+            listReads += 1;
+            return sessions;
+          },
+          get: (id: string) => sessions.find((session) => session.id === id),
+          root: (id: string) => (id === 'child1' ? 'root1' : id),
+          family: (id: string) => (id === 'root1' ? ['root1', 'child1'] : [id]),
+          status: (id: string) => active()[id] ?? 'idle',
+          sync: () => Promise.resolve(),
+          invalidate() {},
+          pending: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          message: { list: () => [], get: () => undefined, sync: () => Promise.resolve(), invalidate() {} },
+          permission: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          form: { list: () => [], sync: () => Promise.resolve(), invalidate() {}, reply() {}, cancel() {} },
+        },
+        project: { list: () => [], get: () => undefined, sync: () => Promise.resolve(), invalidate() {} },
+        shell: { list: () => [], get: () => undefined, sync: () => Promise.resolve(), invalidate() {} },
+        location: {
+          default: () => ({ directory: '/w' }),
+          sync: () => Promise.resolve(),
+          invalidate() {},
+          vcs: { info: () => undefined, sync: () => Promise.resolve(), invalidate() {} },
+          agent: { list: () => agents, sync: () => Promise.resolve(), invalidate() {} },
+          command: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          integration: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          mcp: {
+            server: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+            resource: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          },
+          model: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          provider: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          reference: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+          skill: { list: () => [], sync: () => Promise.resolve(), invalidate() {} },
+        },
+      },
+    };
+    const dispose = await setup(context as never);
+    try {
+      // 不挂载真面板树（keyed Show children 会走真 jsxDEV，测试环境无
+      // OpenTUI renderer 会抛错——真实宿主有 renderer 不受影响）。observer
+      // 在 wirePanel 内独立挂载，其读取面重跑即证明「store 更新 → effect
+      // → bump」链路；keyed Show 重建行为由既有 reactivity 用例覆盖。
+      // 等 observer effect 首跑建立依赖（solid effect 微任务级调度）。
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const before = listReads;
+      // 模拟宿主 store 更新（execution 事件写入宿主 store / server.connected
+      // 重灌），插件侧零事件——唯一重跑源应是 beta-prime observer。
+      setActive({ root1: 'idle', child1: 'running' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(listReads).toBeGreaterThan(before);
+
+      // 熄灭方向：store 回到 idle 后计算面收敛（getRows 纯计算，不碰 jsxDEV）。
+      setActive({ root1: 'idle', child1: 'idle' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const rows = getRows(context as never, 'root1', new Map(), new Set());
+      expect(rows.find((row) => row.id === 'explorer')?.active).toBe(false);
+      setActive({ root1: 'idle', child1: 'running' });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const litRows = getRows(context as never, 'root1', new Map(), new Set());
+      expect(litRows.find((row) => row.id === 'explorer')?.active).toBe(true);
+    } finally {
+      await dispose();
+    }
+  });
+});
