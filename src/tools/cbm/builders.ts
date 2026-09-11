@@ -63,6 +63,22 @@ export type CbmToolName = (typeof CBM_TOOLS)[number];
 /** 全量 cbm_index 的独立较长超时（10 分钟）。 */
 const CBM_INDEX_TIMEOUT_MS = 600_000;
 
+/**
+ * cbm_index 会话级防重复冷却窗（毫秒）：同 session+root 在窗口内的重复触发
+ * 直接返回结构化错误（必达 LLM），不真实执行。与 hooks 层
+ * createCbmIndexRepeatGuard 语义一致，作为工具级双保险（hook 未挂载/被
+ * 禁用时仍生效）。放行即登记，窗口同时覆盖「进行中」与「刚完成」。
+ */
+const CBM_INDEX_TOOL_COOLDOWN_MS = 300_000;
+
+/** sessionID::root → 最近一次 cbm_index 放行触发的时间戳。 */
+const cbmIndexLastTrigger = new Map<string, number>();
+
+/** 清空 cbm_index 工具级冷却状态（测试隔离用；运行时无需调用）。 */
+export function resetCbmIndexCooldown(): void {
+  cbmIndexLastTrigger.clear();
+}
+
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 const asNumber = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? v : undefined;
@@ -236,11 +252,29 @@ export function buildCbmIndexTool(
   return defineTool({
     name: 'cbm_index',
     description:
-      '受控兜底的显式索引工具（优先使用 codebase-memory-mcp 的 index_repository 直调；本工具用于 direct 工具缺失或通道失败时，自带 workspace 边界与并发去重）。同一任务至多成功触发一次：索引已触发或已在建时不得重复调用——重复调用不会加速索引，且冷却期内会被运行时 guard 拦截。查询索引就绪状态用 cbm_status，或直接调用查询型工具（索引就绪后自动放行）。使用独立较长超时，返回进行中/完成状态。',
+      '索引初始化/刷新的唯一入口（codebase-memory-mcp 的 direct index_repository 因项目名生成规则不同会造成双索引，不用它建索引）。自动以 workspace 目录名作为项目名。同一任务至多成功触发一次：索引已触发或已在建时不得重复调用——重复调用不会加速索引，冷却期内会被拒绝。查询索引就绪状态用 cbm_status，或直接调用查询型工具（索引就绪后自动放行）。使用独立较长超时，返回进行中/完成状态。',
     input: { type: 'object', properties: {} },
     async execute(_input, tctx) {
       const root = await rootOf(wctx, tctx);
       if (!root) return errorResult('无法解析当前会话的工作区根目录');
+      // 工具级防重复（必达 LLM 的结构化错误；与 hooks 层 guard 双保险）。
+      const sid = typeof tctx?.sessionID === 'string' ? tctx.sessionID : '';
+      if (sid) {
+        const k = `${sid}::${root}`;
+        const now = Date.now();
+        const last = cbmIndexLastTrigger.get(k);
+        if (last !== undefined && now - last < CBM_INDEX_TOOL_COOLDOWN_MS) {
+          const elapsedSec = Math.round((now - last) / 1000);
+          const waitSec = Math.ceil((CBM_INDEX_TOOL_COOLDOWN_MS - (now - last)) / 1000);
+          return errorResult(
+            `索引已于 ${elapsedSec} 秒前触发（可能仍在进行，也可能上次失败——失败同样进入冷却），冷却期内不得重复调用 cbm_index。` +
+              '先用 cbm_status 核实索引状态，查询型工具在索引就绪后自动放行；' +
+              `确需重建请在 ${waitSec} 秒冷却后重试。`,
+            { status: 'cooldown' },
+          );
+        }
+        cbmIndexLastTrigger.set(k, now);
+      }
       const cfg = getToolConfig(config, 'cbm_index');
       const opts = execOpts(
         env,
@@ -269,7 +303,7 @@ export function buildCbmSearchGraphTool(
   return defineTool({
     name: 'cbm_search_graph',
     description:
-      '符号定位首选：按名称/正则模式在代码知识图谱中定位函数、类、方法、接口与模块（"X 在哪里""查找 Y"类任务先用本工具而非 grep）。返回结构化匹配；纯文本/字符串内容搜索才用 grep。',
+      '符号定位（codebase-memory-mcp 的 search_graph 优先，本工具为其兜底；相对 grep 优先）：按名称/正则模式在代码知识图谱中定位函数、类、方法、接口与模块（"X 在哪里""查找 Y"类任务优先本工具而非 grep）。返回结构化匹配；纯文本/字符串内容搜索才用 grep。',
     input: {
       type: 'object',
       properties: {
@@ -300,7 +334,7 @@ export function buildCbmTraceTool(
   return defineTool({
     name: 'cbm_trace',
     description:
-      '调用链查询首选：追踪符号的调用链（inbound 谁调用它 / outbound 它调用谁），"谁调用 X"类任务先用本工具，比多次 grep 更准。映射 canonical trace_path，旧版本二进制自动回退 trace_call_path。',
+      '调用链查询（codebase-memory-mcp 的 trace_path 优先，本工具为其兜底；相对多次 grep 优先）：追踪符号的调用链（inbound 谁调用它 / outbound 它调用谁）。映射 canonical trace_path，旧版本二进制自动回退 trace_call_path。',
     input: {
       type: 'object',
       properties: {
@@ -404,7 +438,7 @@ export function buildCbmDetectChangesTool(
   return defineTool({
     name: 'cbm_detect_changes',
     description:
-      '影响面评估首选：检测项目变更的影响面（detect_changes，scope=impact 含受影响调用方），返回变更文件与结构；评估"改动波及谁"时优先用本工具而非手工 grep 排查。',
+      '影响面评估（codebase-memory-mcp 的 detect_changes 优先，本工具为其兜底；相对手工 grep 排查优先）：检测项目变更的影响面（scope=impact 含受影响调用方），返回变更文件与结构。',
     input: {
       type: 'object',
       properties: {

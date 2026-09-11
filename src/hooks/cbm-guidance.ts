@@ -89,7 +89,7 @@ export function createCbmIndexRepeatGuard(opts: {
         const waitSec = Math.ceil((cooldown - (now - last)) / 1000);
         throw new Error(
           `${CBM_INDEX_REPEAT_MARKER} 索引已于 ${elapsedSec} 秒前触发（可能仍在进行，也可能上次触发失败——失败同样进入冷却），冷却期内不得重复触发——重复调用不会加速索引。` +
-            '先用 cbm_status / index_status 核实索引状态再决策；查询型工具在索引就绪后自动放行。' +
+            '索引只用 cbm_index 这一个入口：先用 cbm_status / index_status 核实索引状态再决策；查询型工具在索引就绪后自动放行。' +
             `确需重建索引请在 ${waitSec} 秒冷却后重试。`,
         );
       }

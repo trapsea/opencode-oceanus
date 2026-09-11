@@ -1,5 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { buildCbmTools } from './index';
+import { resetCbmIndexCooldown } from './builders';
 import type { IndexerHandle, IndexerRunCli } from '../../cbm/indexer';
 import { CBM_TOOLS } from '../../cbm/registry';
 import type { PluginConfig } from '../../config/schema';
@@ -183,6 +184,8 @@ describe('cbm_status：不触发索引', () => {
 // ─────────────────────────── cbm_index 显式索引 ───────────────────────────
 
 describe('cbm_index：显式触发索引', () => {
+  beforeEach(() => resetCbmIndexCooldown());
+
   test('调用 index_repository 并带 repository_path=workspace root', async () => {
     const { ctx, root } = createMockCtx();
     const records: Array<{ tool: string; args: unknown }> = [];
@@ -201,6 +204,21 @@ describe('cbm_index：显式触发索引', () => {
     const tool = find(buildCbmTools(ctx, {}, { runCli: recordingRun(records), indexer: failIndexer() }), 'cbm_index');
     await exec(tool, {});
     expect(records[0]).toMatchObject({ tool: 'index_repository', args: { repository_path: root } });
+  });
+
+  test('工具级冷却：同 session 窗口内第二次触发返回结构化 cooldown 错误且不执行 CLI', async () => {
+    const { ctx } = createMockCtx();
+    const records: Array<{ tool: string; args: unknown }> = [];
+    const tool = find(buildCbmTools(ctx, {}, { runCli: recordingRun(records), indexer: failIndexer() }), 'cbm_index');
+    const first = await exec(tool, {});
+    expect(first.in_progress).toBe(true);
+    expect(records).toHaveLength(1);
+    const second = await exec(tool, {});
+    expect(second.error).toBeTruthy();
+    expect(String(second.error)).toMatch(/冷却/);
+    expect(second.status).toBe('cooldown');
+    // 冷却拦截不触发第二次真实索引
+    expect(records).toHaveLength(1);
   });
 });
 

@@ -12,8 +12,8 @@ describe('Review CBM budget/fail-open contract', () => {
     expect(content).toMatch(/首次.*30 秒/);
     expect(content).toMatch(/最多确认一次.*60 秒|最多.*确认一次.*60 秒/);
     expect(content).toMatch(/总预算.*90 秒/);
-    // 重触发被运行时 guard 拦截的口径必须与预算段共存
-    expect(content).toMatch(/冷却期内重触发会被运行时 guard 拦截/);
+    // 重触发被运行时拦截的口径必须与预算段共存
+    expect(content).toMatch(/冷却期内重触发会被运行时拦截/);
   });
 
   test('预算耗尽 fail-open 并记录 stale', () => {

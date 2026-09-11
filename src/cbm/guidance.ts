@@ -36,7 +36,7 @@ export const INDEXING_IN_PROGRESS_MESSAGE =
 /** 未索引且自动索引关闭时的操作性提示（允许 fallback）。 */
 export const AUTO_INDEX_DISABLED_MESSAGE =
   '项目尚未建立 CBM 索引，且自动索引已关闭（autoIndex=false）。' +
-  '可调用 codebase-memory-mcp 的 index_repository（direct）或 cbm_index 手动建索引（一次即可，索引状态用 cbm_status 查询）；当前已允许回退到原生工具（grep/glob/read）。';
+  '可调用 cbm_index 手动建索引（一次即可，索引状态用 cbm_status 查询；勿用 direct index_repository——其项目名按全路径拼接会造成双索引）；当前已允许回退到原生工具（grep/glob/read）。';
 
 /** 无有效项目路径时的提示。 */
 export const NO_PROJECT_MESSAGE =

@@ -10,8 +10,9 @@
  *   段落（差异化语义保留，工具名/示例/公共句从本模块拼装）。
  *
  * 主线语义（三阶段闭环）：
- * 1. Intake：代码/混合任务由 Sisyphus 直接触发一次首次索引初始化（direct
- *    index_repository 优先、cbm_index 受控兜底），fail-open；
+ * 1. Intake：代码/混合任务由 Sisyphus 直接触发一次首次 `cbm_index`（唯一
+ *    索引入口，目录名项目；direct index_repository 因项目名生成规则不同
+ *    会造成双索引，不用于建索引），fail-open；
  * 2. Plan 自查影响面预估：计划阶段校验 impact_estimate 是否覆盖已知影响面；
  *    Oracle 仅按需提供 advisory，不承担门禁；
  * 3. Review 影响面复查：按最终 diff 需要时刷新索引后再次排查，并与 Plan 自查预估
@@ -63,7 +64,7 @@ export const CBM_QUERY_EXAMPLES =
 export const DIRECT_MCP_POLICY = `**codebase-memory-mcp 优先规则**：
 1. 结构化代码发现默认按名称直接调用会话工具目录中的 \`${DIRECT_MCP_SERVER}\` 原生工具（不经 Code Mode \`execute\`；目录实际名称以会话工具目录为准）：\`search_graph\`、\`trace_path\`、\`get_code_snippet\`、\`detect_changes\`（及 \`index_status\` 项目确认、只读 \`get_graph_schema\`/\`query_graph\`）。调用前先 \`list_projects\`，并用 \`index_status({ project })\` 确认当前 workspace \`root_path\` 的唯一健康项目，再以原生参数契约调用（direct 字段 \`function_name\`/\`qualified_name\` 等，不套用 wrapper 字段名）。
 2. 仅当 catalog 无 \`${DIRECT_MCP_SERVER}\`、\`list_projects\`/\`index_status\` 失败、传输/超时、工具缺失或明确参数协议拒绝时，才回退到同义的 \`cbm_*\` wrapper：\`cbm_search_graph(query)\`、\`cbm_trace(symbol, direction, depth)\`、\`cbm_code(qualified_name)\`、\`cbm_detect_changes(since, direction, depth)\`。注意字段映射：\`cbm_trace.symbol\` ↔ direct \`function_name\`，未找到或歧义时返回诊断并缩小搜索，不把 wrapper/direct 字段名混用。
-3. 索引初始化/刷新优先 direct \`index_repository\`（\`repo_path\` 传当前工作区绝对路径，以会话工具 schema 为准；同一任务至多触发一次，冷却期内重复触发会被运行时 guard 拦截）；\`cbm_index\` 为受控兜底（workspace 边界与并发去重，direct 工具缺失或通道失败时使用）。Cypher 只使用 \`cbm_query\`（本地只读拦截），不切到 direct。
+3. 索引初始化/刷新只用 \`cbm_index\`（唯一入口：自动以 workspace 目录名为项目名，带边界校验、并发去重与会话冷却防重复；同一任务至多触发一次）。**不要用 direct \`index_repository\` 建索引**——它只认 \`repo_path\`，项目名按全路径拼接生成，与查询用的目录名不匹配，会造成双索引。Cypher 只使用 \`cbm_query\`（本地只读拦截），不切到 direct。
 4. 业务空结果、符号未解析、歧义、workspace 边界拒绝或写入拒绝不是切换通道的条件。\`cbm_*\` 出现 \`binary_missing\`、\`spawn_failed\`、\`timeout\`、daemon/传输失败、\`invalid_json\` 等通道错误，或两条通道均不可用时，回退 \`grep/read/glob\`。禁止调用 \`delete_project\`、\`ingest_traces\`、\`manage_adr\` 或其他写入型 MCP 工具。`;
 
 export const DIRECT_MCP_DEPTH_POLICY = `**depth 场景规则**：
@@ -101,15 +102,15 @@ export const CBM_LOOKUP_ORDER_NOTE =
 export const CBM_LIFECYCLE = {
   /** 一句话摘要（供简要引用场景）。 */
   brief:
-    'Intake 首次初始化与 Review 刷新优先 codebase-memory-mcp 的 index_repository（direct；cbm_index 受控兜底。各至多一次：重复触发由运行时 guard 拦截，状态查询用 cbm_status/index_status）→ codebase-memory-mcp（direct MCP）优先查询 → cbm_* wrapper 兜底 → Plan/Review 记录 impact_estimate 与降级证据。',
+    'Intake 首次初始化与 Review 刷新只用 cbm_index（唯一索引入口：目录名项目、各至多一次；重复触发被运行时拦截，状态查询用 cbm_status）→ codebase-memory-mcp（direct MCP）优先查询 → cbm_* wrapper 兜底 → Plan/Review 记录 impact_estimate 与降级证据。',
   /** 完整主线（`## CBM 阶段边界` 段正文）。 */
   full: [
-      '- intake: Sisyphus 直接完成边界收集；代码/混合任务仅尝试一次首次索引初始化（优先 direct index_repository，cbm_index 受控兜底），失败/超时/starting 必须故障开放并记录。',
+      '- intake: Sisyphus 直接完成边界收集；代码/混合任务仅尝试一次首次 cbm_index（唯一索引入口；勿用 direct index_repository 建索引），失败/超时/starting 必须故障开放并记录。',
        '- discuss: 复用 Intake 报告与已建索引；按 codebase-memory-mcp 优先规则做必要的架构/符号定位，不重复初始化 CBM，不因普通文本探索触发全量索引。',
       '- plan: 复用 Intake 报告与已建索引；按 codebase-memory-mcp 优先规则定位符号/调用链，不重复初始化 CBM。',
        '- plan 影响面预估自查: 计划阶段校验 Plan 的 impact_estimate 是否覆盖计划声明的修改文件/公共符号及已知受影响调用方/契约；必要时按 codebase-memory-mcp 优先规则抽查关键点，不要求全量 trace。记录缺口供 Review 对比并写入 plan status；Oracle 仅按需提供 advisory 建议，不授予权限、不输出放行 verdict；只做查询、不重建索引；CBM 不可用时 fail-open，标注不确定性，不虚构影响面；简单任务跳过校验需记录理由。',
        '- execute: 高风险公共符号修改前按 codebase-memory-mcp 优先规则做 trace/impact；Cypher 保持 cbm_query。普通机械修改不强制查询。',
-       '- review: 影响面复查——按最终 diff 需要时刷新索引（优先 direct index_repository，cbm_index 受控兜底），再按 codebase-memory-mcp 优先规则对实际 diff 再次排查影响面，并与 Plan 自查的预估对比；CBM 不可用时记录 cbm: stale、降级工具、覆盖范围和残余风险。',
+       '- review: 影响面复查——按最终 diff 需要时用 cbm_index 刷新索引（唯一索引入口），再按 codebase-memory-mcp 优先规则对实际 diff 再次排查影响面，并与 Plan 自查的预估对比；CBM 不可用时记录 cbm: stale、降级工具、覆盖范围和残余风险。',
      '- finish: 不调用 CBM，只读 Review 报告汇总。',
     '- 阶段 skill 只能补充工作流步骤，不能覆盖上述 CBM 调度边界或把 CBM 强制用于不适合的文本/AST 任务。',
   ].join('\n'),
