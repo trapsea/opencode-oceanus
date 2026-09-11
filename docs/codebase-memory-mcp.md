@@ -43,7 +43,7 @@ CBM 子进程使用受限环境变量白名单，不继承 provider token；调�
 | 符号源码 | `codebase-memory-mcp.get_code_snippet` | `project`、`qualified_name` |
 | 影响面 | `codebase-memory-mcp.detect_changes` | `project`、`since`、`direction`、`depth` |
 
-仅当会话 tool catalog 无 `codebase-memory-mcp`、`list_projects`/`index_status` 失败、传输/超时、工具缺失或明确参数协议拒绝时，才回退到 `cbm_*` wrapper（由 `src/cbm/registry.ts` 的 `CBM_TOOLS` 注册）：`cbm_search_graph(query)`、`cbm_trace(symbol, direction, depth)`、`cbm_code(qualified_name)`、`cbm_detect_changes(since, direction, depth)`、`cbm_status`；`cbm_trace` 使用 canonical `trace_path`，旧二进制才回退 `trace_call_path`。索引生命周期与 Cypher 保持 wrapper 专用：首次索引与 Review 刷新使用 `cbm_index`，Cypher 只使用 `cbm_query`（本地拦截写入型语句）。追踪前先定位 exact symbol；`cbm_trace.symbol` 传函数/方法名，不把 wrapper 字段 `symbol` 与 direct 字段 `function_name` 混用。未找到、歧义、空结果是业务结论：缩小搜索或返回诊断，不是切换通道的理由。两条通道均不可用时回退 `grep/read/glob`。
+仅当会话 tool catalog 无 `codebase-memory-mcp`、`list_projects`/`index_status` 失败、传输/超时、工具缺失或明确参数协议拒绝时，才回退到 `cbm_*` wrapper（由 `src/cbm/registry.ts` 的 `CBM_TOOLS` 注册）：`cbm_search_graph(query)`、`cbm_trace(symbol, direction, depth)`、`cbm_code(qualified_name)`、`cbm_detect_changes(since, direction, depth)`、`cbm_status`；`cbm_trace` 使用 canonical `trace_path`，旧二进制才回退 `trace_call_path`。索引初始化/刷新优先 direct `index_repository`（`repo_path` 传当前工作区绝对路径，以会话工具 schema 为准；同一任务至多触发一次，冷却期内重复触发会被运行时 guard 拦截）；`cbm_index` 为受控兜底（workspace 边界与并发去重）。Cypher 只使用 `cbm_query`（本地拦截写入型语句），不切到 direct。追踪前先定位 exact symbol；`cbm_trace.symbol` 传函数/方法名，不把 wrapper 字段 `symbol` 与 direct 字段 `function_name` 混用。未找到、歧义、空结果是业务结论：缩小搜索或返回诊断，不是切换通道的理由。两条通道均不可用时回退 `grep/read/glob`。
 
 不得调用 `delete_project`、`ingest_traces`、`manage_adr` 或其他写入型 MCP 工具。
 
@@ -98,9 +98,9 @@ Windows 支持下载 `.zip`、`.exe` 二进制及缓存路径；若 Windows 上 
 
 CBM 沿六阶段工作流形成三阶段主线：
 
-1. **Intake 首次初始化**：在任何代码调研开始之前，Intake 基于用户请求预判代码相关性并立即触发受控 `cbm_index`（预判非代码不触发）；正式分类后修正偏差（漏判补触发、误判记录不回滚）；失败、超时或 in-progress 均 fail-open 并记录。
+1. **Intake 首次初始化**：在任何代码调研开始之前，Intake 基于用户请求预判代码相关性并立即触发一次首次索引初始化（优先 direct `index_repository`，`cbm_index` 受控兜底；预判非代码不触发）；正式分类后修正偏差（漏判补触发、误判记录不回滚）；失败、超时或 in-progress 均 fail-open 并记录。同 session 同 workspace 的重复触发由运行时 guard 在冷却窗内拦截。
 2. **Discuss / Plan / Execute 查询**：优先 `codebase-memory-mcp`（direct，先 `list_projects` 确认唯一健康 project）；catalog 无该 server 或出现允许的通道错误时回退 `cbm_*` wrapper。复杂架构或高风险业务仍有未知时，Sisyphus 可按需咨询 Oracle advisory。
-3. **Review 影响面复查**：开始时按实际 diff 判断是否以 `cbm_index` 刷新；索引后优先 direct `trace_path`/`detect_changes`，catalog 无该 server 或出现允许的通道错误时回退 `cbm_trace`/`cbm_detect_changes`。CBM 失败时记录 `cbm: stale`、降级工具、覆盖范围和残余风险，继续使用 grep/read 与手工 diff 复查；发现遗漏时解释或退回 execute。
+3. **Review 影响面复查**：开始时按实际 diff 判断是否刷新索引（优先 direct `index_repository`，`cbm_index` 受控兜底）；索引后优先 direct `trace_path`/`detect_changes`，catalog 无该 server 或出现允许的通道错误时回退 `cbm_trace`/`cbm_detect_changes`。CBM 失败时记录 `cbm: stale`、降级工具、覆盖范围和残余风险，继续使用 grep/read 与手工 diff 复查；发现遗漏时解释或退回 execute。
 
 查询型工具可由需要的 agent 使用；finish 阶段不调用 CBM，只读 Review 报告汇总。CBM 仅提供 advisory 证据，不是依赖门控、权限边界或完成事实；Ledger/Review schema 不得伪造宿主状态。
 
@@ -115,7 +115,7 @@ CBM 沿六阶段工作流形成三阶段主线：
 
 矩阵是调度约定而非运行时强制路由；agent 必须如实报告 CBM 不可用及回退路径。
 
-调用示例：优先 codebase-memory-mcp 的 `search_graph({ project, name_pattern: ".*OrderHandler.*", limit: 20 })`、`trace_path({ project, function_name: "OrderHandler", direction: "inbound", depth: 3 })`、`get_code_snippet({ project, qualified_name: "pkg/orders.OrderHandler" })`、`detect_changes({ project, since: "HEAD~1", direction: "inbound", depth: 3 })`（project 先经 `list_projects` 按 `root_path` 确认）。索引初始化由 Sisyphus Intake 与 Review 的 `cbm_index` 负责；Cypher 使用 `cbm_query({ query: "MATCH (n) RETURN n LIMIT 20" })`。仅当 catalog 无 codebase-memory-mcp 或出现允许的通道错误时，才回退 wrapper 同义调用：`cbm_search_graph({ query: ".*OrderHandler.*", limit: 20 })`、`cbm_trace({ symbol: "OrderHandler", direction: "inbound", depth: 3 })`、`cbm_code({ qualified_name: "pkg/orders.OrderHandler" })`、`cbm_detect_changes({ since: "HEAD~1", direction: "inbound", depth: 3 })`。
+调用示例：优先 codebase-memory-mcp 的 `search_graph({ project, name_pattern: ".*OrderHandler.*", limit: 20 })`、`trace_path({ project, function_name: "OrderHandler", direction: "inbound", depth: 3 })`、`get_code_snippet({ project, qualified_name: "pkg/orders.OrderHandler" })`、`detect_changes({ project, since: "HEAD~1", direction: "inbound", depth: 3 })`（project 先经 `list_projects` 按 `root_path` 确认）。索引初始化/刷新优先 direct `index_repository`，Sisyphus Intake 与 Review 各至多一次（`cbm_index` 受控兜底）；Cypher 使用 `cbm_query({ query: "MATCH (n) RETURN n LIMIT 20" })`。仅当 catalog 无 codebase-memory-mcp 或出现允许的通道错误时，才回退 wrapper 同义调用：`cbm_search_graph({ query: ".*OrderHandler.*", limit: 20 })`、`cbm_trace({ symbol: "OrderHandler", direction: "inbound", depth: 3 })`、`cbm_code({ qualified_name: "pkg/orders.OrderHandler" })`、`cbm_detect_changes({ since: "HEAD~1", direction: "inbound", depth: 3 })`。
 
 ### CBM CLI 参数契约
 

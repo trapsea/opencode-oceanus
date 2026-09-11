@@ -2,8 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildGrepReadHint,
   createDirectMcpWriteGuard,
+  createCbmIndexRepeatGuard,
+  isIndexTriggerTool,
   CBM_GREP_READ_HINT_MARKER,
   CBM_GUIDANCE_MARKER,
+  CBM_INDEX_REPEAT_MARKER,
+  CBM_INDEX_REPEAT_COOLDOWN_MS,
   createCbmGuidanceHook,
   DEFAULT_CBM_GREP_READ_MIN_CALLS,
 } from './cbm-guidance';
@@ -91,6 +95,55 @@ describe('direct MCP 写入保护', () => {
     await expect(guard({ tool: 'codebase-memory-mcp_delete_project' })).rejects.toThrow('只读查询');
     await expect(guard({ tool: 'codebase-memory-mcp.ingest_traces' })).rejects.toThrow('只读查询');
     await expect(guard({ tool: 'codebase-memory-mcp_search_graph' })).resolves.toBeUndefined();
+  });
+});
+
+describe('cbm 索引重复触发 guard', () => {
+  test('isIndexTriggerTool 匹配 wrapper 与 direct 两种命名形态', () => {
+    expect(isIndexTriggerTool('cbm_index')).toBe(true);
+    expect(isIndexTriggerTool('codebase-memory-mcp_index_repository')).toBe(true);
+    expect(isIndexTriggerTool('codebase-memory-mcp.index_repository')).toBe(true);
+    expect(isIndexTriggerTool('cbm_search_graph')).toBe(false);
+    expect(isIndexTriggerTool('codebase-memory-mcp_search_graph')).toBe(false);
+    expect(isIndexTriggerTool(undefined)).toBe(false);
+  });
+
+  test('同一 session 冷却窗内第二次触发被拦截，非索引工具不受影响', async () => {
+    const guard = createCbmIndexRepeatGuard({ resolveRoot: async () => '/ws', cooldownMs: 300_000 });
+    await expect(guard({ tool: 'cbm_index', sessionID: 's1' })).resolves.toBeUndefined();
+    await expect(guard({ tool: 'cbm_index', sessionID: 's1' })).rejects.toThrow(CBM_INDEX_REPEAT_MARKER);
+    await expect(guard({ tool: 'codebase-memory-mcp_index_repository', sessionID: 's1' })).rejects.toThrow(
+      /冷却/,
+    );
+    // 非索引工具不经过 guard
+    await expect(guard({ tool: 'cbm_search_graph', sessionID: 's1' })).resolves.toBeUndefined();
+    await expect(guard({ tool: 'read', sessionID: 's1' })).resolves.toBeUndefined();
+  });
+
+  test('冷却窗外的触发放行；不同 session / 不同 root 相互独立', async () => {
+    const guard = createCbmIndexRepeatGuard({ resolveRoot: async () => '/ws', cooldownMs: 50 });
+    await expect(guard({ tool: 'cbm_index', sessionID: 's1' })).resolves.toBeUndefined();
+    // 不同 session 同 root 不受 s1 冷却影响
+    await expect(guard({ tool: 'cbm_index', sessionID: 's2' })).resolves.toBeUndefined();
+    await new Promise((r) => setTimeout(r, 60));
+    // 冷却结束放行
+    await expect(guard({ tool: 'cbm_index', sessionID: 's1' })).resolves.toBeUndefined();
+  });
+
+  test('resolveRoot 失败/无 sessionID 时 fail-open 不拦截', async () => {
+    const guard = createCbmIndexRepeatGuard({ resolveRoot: async () => null });
+    await expect(guard({ tool: 'cbm_index', sessionID: 's1' })).resolves.toBeUndefined();
+    const throwing = createCbmIndexRepeatGuard({
+      resolveRoot: async () => {
+        throw new Error('boom');
+      },
+    });
+    await expect(throwing({ tool: 'cbm_index', sessionID: 's1' })).resolves.toBeUndefined();
+    await expect(guard({ tool: 'cbm_index' })).resolves.toBeUndefined();
+  });
+
+  test('默认冷却窗常量为 5 分钟', () => {
+    expect(CBM_INDEX_REPEAT_COOLDOWN_MS).toBe(300_000);
   });
 });
 

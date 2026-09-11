@@ -43,7 +43,63 @@ export const CBM_GREP_READ_HINT_MARKER = '[oceanus:cbm]';
 /** 结构化查询引导追加的标记前缀。 */
 export const CBM_GUIDANCE_MARKER = '[oceanus:cbm-guidance]';
 
+/** 索引重复触发拦截的标记前缀。 */
+export const CBM_INDEX_REPEAT_MARKER = '[oceanus:cbm-index-repeat]';
+
+/** 索引重复触发冷却窗（毫秒）：窗口内同一 session/workspace 只放行第一次。 */
+export const CBM_INDEX_REPEAT_COOLDOWN_MS = 300_000;
+
 const DIRECT_MCP_WRITE_TOOL = /^(?:codebase-memory-mcp[._])(?:delete_project|ingest_traces|manage_adr)$/;
+
+/** 触发索引的工具：wrapper（cbm_index）与 direct（index_repository 两种命名形态）。 */
+export function isIndexTriggerTool(tool: unknown): boolean {
+  if (typeof tool !== 'string') return false;
+  if (tool === 'cbm_index') return true;
+  return /^(?:codebase-memory-mcp[._])index_repository$/.test(tool);
+}
+
+/**
+ * 索引重复触发 guard（fail-closed 拦截，独立于 cbm-guidance 的 fail-open 语义）。
+ *
+ * 修复真实会话实测问题（2026-09）：单次提问触发多次 cbm_index / index_repository
+ * （提示词层「至多一次」约束不足以打断连发）。同一 session 同一 workspace 在
+ * 冷却窗内只放行第一次触发，其余直接 throw 结构化提示；冷却从触发时刻起算
+ * （覆盖「进行中」与「刚完成」两类重复），无需 after 配对、无状态泄漏。
+ * resolveRoot 等基础设施异常 fail-open（不拦截合法索引）。
+ */
+export function createCbmIndexRepeatGuard(opts: {
+  resolveRoot: (sessionID: string) => Promise<string | null>;
+  cooldownMs?: number;
+}) {
+  const cooldown = opts.cooldownMs ?? CBM_INDEX_REPEAT_COOLDOWN_MS;
+  /** sessionID::root → 最近一次放行触发的时间戳。 */
+  const lastTrigger = new Map<string, number>();
+  return async (event: { tool?: unknown; sessionID?: unknown }) => {
+    if (!isIndexTriggerTool(event?.tool)) return;
+    const sid = typeof event?.sessionID === 'string' ? event.sessionID : '';
+    if (!sid) return;
+    try {
+      const root = await opts.resolveRoot(sid);
+      if (!root) return;
+      const k = `${sid}::${root}`;
+      const now = Date.now();
+      const last = lastTrigger.get(k);
+      if (last !== undefined && now - last < cooldown) {
+        const elapsedSec = Math.round((now - last) / 1000);
+        const waitSec = Math.ceil((cooldown - (now - last)) / 1000);
+        throw new Error(
+          `${CBM_INDEX_REPEAT_MARKER} 索引已于 ${elapsedSec} 秒前触发（可能仍在进行，也可能上次触发失败——失败同样进入冷却），冷却期内不得重复触发——重复调用不会加速索引。` +
+            '先用 cbm_status / index_status 核实索引状态再决策；查询型工具在索引就绪后自动放行。' +
+            `确需重建索引请在 ${waitSec} 秒冷却后重试。`,
+        );
+      }
+      lastTrigger.set(k, now);
+    } catch (e) {
+      // 拦截提示必须穿透；仅基础设施异常 fail-open。
+      if (e instanceof Error && e.message.includes(CBM_INDEX_REPEAT_MARKER)) throw e;
+    }
+  };
+}
 
 /** 运行时拒绝 direct MCP 写入工具，不能只依赖 prompt 约束。 */
 export function createDirectMcpWriteGuard() {

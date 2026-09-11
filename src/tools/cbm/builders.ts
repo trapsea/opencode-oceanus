@@ -236,7 +236,7 @@ export function buildCbmIndexTool(
   return defineTool({
     name: 'cbm_index',
     description:
-      '显式触发 codebase-memory 对当前项目建索引。同一任务至多成功触发一次：索引已触发或已在建时不得重复调用——重复调用不会加速索引。查询索引就绪状态用 cbm_status，或直接调用查询型工具（索引就绪后自动放行）。使用独立较长超时，返回进行中/完成状态。',
+      '受控兜底的显式索引工具（优先使用 codebase-memory-mcp 的 index_repository 直调；本工具用于 direct 工具缺失或通道失败时，自带 workspace 边界与并发去重）。同一任务至多成功触发一次：索引已触发或已在建时不得重复调用——重复调用不会加速索引，且冷却期内会被运行时 guard 拦截。查询索引就绪状态用 cbm_status，或直接调用查询型工具（索引就绪后自动放行）。使用独立较长超时，返回进行中/完成状态。',
     input: { type: 'object', properties: {} },
     async execute(_input, tctx) {
       const root = await rootOf(wctx, tctx);

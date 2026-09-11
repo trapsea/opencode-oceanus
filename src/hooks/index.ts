@@ -21,7 +21,12 @@ import { createApplyPatchHook } from './apply-patch';
 import { applyJsonErrorRecovery } from './json-error-recovery';
 import { createToolOutputTruncator } from './tool-output-truncator';
 import { createToolLoopGuardHook } from './tool-loop-guard';
-import { createCbmGuidanceHook, createDirectMcpWriteGuard } from './cbm-guidance';
+import {
+  buildGrepReadHint,
+  createCbmGuidanceHook,
+  createCbmIndexRepeatGuard,
+  createDirectMcpWriteGuard,
+} from './cbm-guidance';
 import { createSecretReadGuardHook } from './secret-read-guard';
 import { createPlanningWriteGuardHook } from './planning-write-guard';
 import { registerImageMaterializer } from './image-materializer';
@@ -219,6 +224,18 @@ export async function registerOceanusHooks(
       await ctx.tool.hook('execute.before', createDirectMcpWriteGuard() as never);
     } catch (e) {
       log('[oceanus] 注册 direct MCP 写入保护 hook 失败', { error: messageOf(e) });
+    }
+    // 索引重复触发 guard（cbm_index + direct index_repository 双通道，fail-closed）：
+    // 同 session/workspace 冷却窗内只放行第一次触发；同样不依赖可关闭的 guidance。
+    try {
+      await ctx.tool.hook(
+        'execute.before',
+        createCbmIndexRepeatGuard({
+          resolveRoot: (sessionID) => resolveWorkspaceRoot(ctx.session, sessionID),
+        }) as never,
+      );
+    } catch (e) {
+      log('[oceanus] 注册 cbm 索引重复触发保护 hook 失败', { error: messageOf(e) });
     }
   }
 

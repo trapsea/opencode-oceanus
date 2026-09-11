@@ -70,7 +70,7 @@ Review 是 Execute 完成后的正式审查阶段；Intake、discuss、Plan 和 
 
 ## 步骤
 0. **当前目录范围**——审查始终针对当前目录中的实际 diff 执行；不创建或合并隔离工作区。
-1. **审查查询前规划 CBM 预算**——先根据实际 diff 分类：纯文档 diff（仅 Markdown、注释或文案，且不影响代码契约）跳过刷新，记录 \`cbm: skipped (docs-only)\`。其余 diff 在 Review 开始允许调用 \`cbm_index\` 刷新索引，成功后再执行查询：首次尝试最多 30 秒；若状态为 starting/in-progress 或超时，最多再重试一次、最多 60 秒；总预算严格为 90 秒。预算耗尽、失败或工具不可用时记录 \`cbm: stale\`，改用 grep/read 与手工 diff 复查，记录降级证据、覆盖范围和残余风险，但不得仅因 CBM 故障阻断 Review。
+1. **审查查询前规划 CBM 预算**——先根据实际 diff 分类：纯文档 diff（仅 Markdown、注释或文案，且不影响代码契约）跳过刷新，记录 \`cbm: skipped (docs-only)\`。其余 diff 在 Review 开始允许刷新索引（优先 codebase-memory-mcp 的 \`index_repository\` 直调，\`cbm_index\` 受控兜底），成功后再执行查询：首次尝试最多 30 秒；状态为 starting/in-progress 或超时时，用 \`cbm_status\`/\`index_status\` 确认状态而非重复触发索引（冷却期内重触发会被运行时 guard 拦截），最多确认一次、最多 60 秒；总预算严格为 90 秒。预算耗尽、失败或工具不可用时记录 \`cbm: stale\`，改用 grep/read 与手工 diff 复查，记录降级证据、覆盖范围和残余风险，但不得仅因 CBM 故障阻断 Review。
 2. **在实际 diff 上重新检查影响面**——索引完成后，${CBM_LOOKUP_ORDER_NOTE}：用 trace_path / detect_changes 对实际 diff 排查影响面（depth 按 depth 场景规则）。以实际代码为准，并与 plan 的 \`impact_estimate\` 普通对比；差异解释或退回 execute。
 3. **与计划预估普通对比**——将实际 diff 的影响面与 plan 的 \`impact_estimate\` 对比；一致则记为证据，不一致则解释差异或退回 execute。同时对比每任务实际与预估 diff 行数，显著偏差记为 plan 质量信号。
 4. **执行最终审查门禁**——在进入 Finish 前，根据 spec 和 plan 审查最终实际输出。

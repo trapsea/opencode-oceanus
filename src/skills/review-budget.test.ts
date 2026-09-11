@@ -8,10 +8,12 @@ describe('Review CBM budget/fail-open contract', () => {
     expect(content).toMatch(/纯文档 diff[\s\S]{0,100}跳过.*cbm_index/);
   });
 
-  test('首次成功与一次重试受预算约束', () => {
+  test('首次成功与一次状态确认受预算约束（guard 语义下不重复触发索引）', () => {
     expect(content).toMatch(/首次.*30 秒/);
-    expect(content).toMatch(/最多.*重试一次.*60 秒/);
+    expect(content).toMatch(/最多确认一次.*60 秒|最多.*确认一次.*60 秒/);
     expect(content).toMatch(/总预算.*90 秒/);
+    // 重触发被运行时 guard 拦截的口径必须与预算段共存
+    expect(content).toMatch(/冷却期内重触发会被运行时 guard 拦截/);
   });
 
   test('预算耗尽 fail-open 并记录 stale', () => {

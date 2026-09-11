@@ -48,7 +48,7 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 
 ### CBM 调度约定
 
-CBM 沿六阶段工作流形成三阶段主线。**Intake 首次初始化**：在任何代码调研开始之前基于请求预判代码相关性并立即触发首次 `cbm_index`（预判非代码不触发），正式分类后修正偏差（漏判补触发、误判记录不回滚），失败、超时或 in-progress 均 fail-open 并记录；discuss/Plan 不重复首次初始化。**Plan 自查**：Plan 根据 spec 自查修改文件、公共符号、依赖和验证方式；复杂架构或高风险业务仍有关键未知时，Sisyphus 可按需咨询 Oracle advisory。**Review 影响面复查**：按最终 diff 需要时刷新索引，再用 `cbm_trace`/`cbm_detect_changes` 排查并记录证据；CBM 不可用时记录 `cbm: stale`、降级工具、覆盖范围和残余风险。查询型工具可由需要的 agent 使用，finish 阶段不调用 CBM。详见 `docs/codebase-memory-mcp.md`。
+CBM 沿六阶段工作流形成三阶段主线。**Intake 首次初始化**：在任何代码调研开始之前基于请求预判代码相关性并立即触发一次首次索引初始化（优先 direct `index_repository`，`cbm_index` 受控兜底；预判非代码不触发），正式分类后修正偏差（漏判补触发、误判记录不回滚），失败、超时或 in-progress 均 fail-open 并记录；同会话重复触发由运行时 guard 在冷却窗内拦截；discuss/Plan 不重复首次初始化。**Plan 自查**：Plan 根据 spec 自查修改文件、公共符号、依赖和验证方式；复杂架构或高风险业务仍有关键未知时，Sisyphus 可按需咨询 Oracle advisory。**Review 影响面复查**：按最终 diff 需要时刷新索引（同 direct 优先口径），再用 direct `trace_path`/`detect_changes` 排查并记录证据（wrapper 兜底）；CBM 不可用时记录 `cbm: stale`、降级工具、覆盖范围和残余风险。查询型工具可由需要的 agent 使用，finish 阶段不调用 CBM。详见 `docs/codebase-memory-mcp.md`。
 
 ## 安装
 
