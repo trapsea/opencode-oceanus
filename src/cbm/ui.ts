@@ -262,6 +262,8 @@ export function uiCrossSpawn(command: string[], options: SpawnOptions = {}): UiS
     cwd: options.cwd,
     env: options.env as NodeJS.ProcessEnv | undefined,
     shell: false,
+    // Windows 上隐藏子进程控制台窗口（Node 默认 false 会闪弹 cmd 窗口）。
+    windowsHide: true,
   };
   const child: ChildProcess = nodeSpawn(file, args, spawnOptions);
   return {

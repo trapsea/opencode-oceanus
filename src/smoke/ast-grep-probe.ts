@@ -60,6 +60,7 @@ export function probeAstGrep(timeoutMs = 3000): AstGrepProbeResult {
     const res = spawnSync(candidate, ['--version'], {
       encoding: 'utf8',
       timeout: timeoutMs,
+      windowsHide: true,
     });
     stdout = (res.stdout ?? '') as string;
     stderr = (res.stderr ?? '') as string;

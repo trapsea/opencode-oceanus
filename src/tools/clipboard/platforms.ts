@@ -74,7 +74,8 @@ export function nodeSpawnBin(
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = nodeSpawn(file, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+      // windowsHide：Windows 上隐藏子进程控制台窗口（默认 false 会闪弹 cmd 窗口）。
+      child = nodeSpawn(file, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     } catch (e) {
       reject(e);
       return;
