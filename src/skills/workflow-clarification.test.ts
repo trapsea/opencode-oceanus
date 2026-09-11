@@ -105,7 +105,7 @@ describe('Sisyphus 工作流澄清契约', () => {
     expect(skill('oceanus-review').content).toContain('刷新');
   });
 
-  test('Intake CBM 初始化先于代码调研：步骤 0 预判触发 + 步骤 5 分类修正', () => {
+  test('Intake CBM 初始化先于代码调研：步骤 1 预判触发 + 步骤 7 分类修正', () => {
     const intake = skill('oceanus-intake').content;
     expect(intake).toContain('CBM 预判初始化');
     expect(intake).toContain('先于任何代码调研');
@@ -114,9 +114,18 @@ describe('Sisyphus 工作流澄清契约', () => {
     expect(intake).toContain('不回滚，如实记录偏差');
     // 非代码任务不因普通文本工作触发索引的规则保留
     expect(intake).toContain('非代码任务不索引');
-    // 步骤 8 核对语义与 cbm 字段触发时机枚举
+    // 步骤 10 核对语义与 cbm 字段触发时机枚举
     expect(intake).toContain('核对 CBM 初始化与记录');
     expect(intake).toContain('未触发及原因');
+    // 技术环境调研步骤存在且产出 tech_context 字段
+    expect(intake).toContain('技术环境调研');
+    expect(intake).toContain('tech_context');
+    // 步骤编号从 1 开始连续递增（1-12），无步骤 0 残留
+    const stepNumbers = [...intake.matchAll(/^\d+\.\s/gm)].map((m) =>
+      Number(m[0].replace(/[.\s]/g, '')),
+    );
+    expect(stepNumbers).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(intake).not.toContain('步骤 0');
   });
 
   test('Finish 不要求人工批准且不写入经验文件', () => {

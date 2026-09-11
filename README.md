@@ -42,9 +42,9 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 
 ### 默认只读权限
 
-`explorer`、`librarian`、`oracle`、`observer` 在无显式 `agents.<name>.permission` 时，集中应用默认只读 v2 permission：allow `read`/`glob`/`grep`/`list`/`lsp`/`codesearch`/`webfetch`/`websearch`/`ast_grep_search` 与查询型 `cbm_*` 工具；`shell` 为对象形式规则（默认放行检查类命令，按模式拒绝 `rm`/`mv`/`cp`、git 写操作、包管理器安装与输出重定向等写模式）；deny `edit`/`write`/`apply_patch`/`ast_grep_replace`/`task`/`subagent`/`todowrite`/`clipboard_image`/`cbm_index`/`oceanus_config_generate`。显式 `agents.<name>.permission` 始终覆盖该默认值。
+`explorer`、`librarian`、`oracle`、`observer` 在无显式 `agents.<name>.permission` 时，集中应用默认只读 v2 permission：allow `read`/`glob`/`grep`/`list`/`lsp`/`codesearch`/`webfetch`/`websearch`/`ast_grep_search` 与查询型 `cbm_*` 工具；`bash`（宿主 shell 工具的权限键，与实际运行 bash/PowerShell/cmd 无关；另保留 `shell` 键兼容双写）为对象形式规则——默认放行检查类命令，按模式拒绝跨 shell 写动词（POSIX `rm`/`mv`/`cp`、cmd `del`/`move`/`copy`、PowerShell `Remove-Item`/`Set-Content`/`Out-File` 等）、git 写操作、包管理器安装与各 shell 重定向写模式；deny `edit`/`write`/`apply_patch`/`ast_grep_replace`/`task`/`subagent`/`todowrite`/`clipboard_image`/`cbm_index`/`oceanus_config_generate`。显式 `agents.<name>.permission` 始终覆盖该默认值。
 
-`prometheus` 的受限权限由该只读表派生，差异仅四键：`question: allow`（主 agent 直接面对用户）、`skill: deny`（规划流程内联于 system prompt）、`task`/`subagent` 改为对象形式白名单（仅放行 `explorer`/`librarian`/`oracle`）。注意：显式 `agents.prometheus.permission` 会**整体替换**该表（非合并），调整请提供完整表。
+`prometheus` 的受限权限由该只读表 spread 派生，差异仅两键：`question: allow`（主 agent 直接面对用户）、`skill: deny`（规划流程内联于 system prompt）；`task`/`subagent` 沿用只读表整体 deny（宿主 task 工具按裸 agent 名评估权限，前缀式资源级白名单永不匹配，已实测移除）。注意：显式 `agents.prometheus.permission` 会**整体替换**该表（非合并），调整请提供完整表。
 
 ### CBM 调度约定
 
@@ -173,7 +173,7 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 | `clipboard-image-observer` | 图片/PDF 路径处理、L1-L5 分级与 observer 视觉验收流程 |
 | `oceanus-discuss` | 读取 Intake 已确认的执行配置、研究优先澄清需求、按复杂度分层呈现方案（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）、再以方案总批准单问完成方向批准；SDD 开启时保存设计 spec 到 `.oceanus/spec/` |
 | `oceanus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、依据 spec 自查影响面，并消费 Intake 的 SDD/TDD/Review 循环执行决策（不重复提问） |
-| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、任务分类、SDD/TDD/Review 循环执行三项执行配置批问与先于代码调研的 CBM 首次初始化（预判触发 + 分类修正） |
+| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、代码项目技术环境调研（优先说明文档，按需读构建配置确定框架/运行时/验证命令）、任务分类、SDD/TDD/Review 循环执行三项执行配置批问与先于代码调研的 CBM 首次初始化（预判触发 + 分类修正） |
 | `oceanus-execute` | 按计划实现；默认主 agent 执行，只有三条件同时满足时才并行 fixer，并同步 todo 状态 |
 | `oceanus-review` | Execute 后的最终 diff、影响面和证据化评审；按需转交 @oracle，验证发现后才接受 |
 
@@ -189,7 +189,7 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 
 | 阶段 | 职责 | 产物 / 落点 |
 |------|------|-------------|
-| **Intake** | `Sisyphus 直接了解背景、完成最小需求 intake、分类任务，并在代码调研开始前预判触发 CBM 首次初始化（分类后修正偏差）；不做方案决策 | Intake 结构化摘要 |
+| **Intake** | `Sisyphus 直接了解背景、完成最小需求 intake、技术环境调研（代码项目：优先说明文档，按需读构建配置）、分类任务，并在代码调研开始前预判触发 CBM 首次初始化（分类后修正偏差）；不做方案决策 | Intake 结构化摘要 |
 | **discuss** | Sisyphus 消费 Intake 已确认的执行配置，负责研究、澄清与方案决策；复杂架构或高风险业务取舍可按需委派 `@oracle`（analysis）提供 advisory；澄清完成后以方案总批准单问完成方向批准 | `.oceanus/spec/` |
 | **Plan** | Sisyphus 负责拆分任务、依据 spec 自查依赖/范围/验证并维护进度台账；复杂架构或高风险业务可按需咨询 Oracle advisory | `.oceanus/plan/` + 批准记录 |
 | **Execute** | 主 agent 按计划顺序直接执行（读代码/编辑/测试），上下文缺口委派 `@explorer` 补侦察；批量机械任务满足逃生舱三条件（文件集完全不相交 + 机械同构 + 任务数 ≥3）时并行 `@fixer`；视觉迭代任务 `@designer`；需求变化回 discuss，结构变化回 Plan | 代码变更 + 更新后的计划 |
@@ -245,7 +245,15 @@ Hook 通过 `execute.before` / `execute.after` 注册，每个 Hook 独立容错
 bun add -D @ast-grep/cli   # 或 cargo install ast-grep、brew install ast-grep
 ```
 
-或设置 `AST_GREP_BIN=/path/to/ast-grep` 指向已有二进制。环境中没有真正可用的 ast-grep 时，工具会返回诊断信息；测试（`src/smoke/host-smoke.test.ts`）也会**明确 skip 真实 CLI 集成并输出诊断**，而不是把环境缺失误报为产品失败。真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内执行插件时验证；当前 beta 插件类型未暴露 `session.active` 时，运行时会探测并诚实降级，当前 bun test 环境无真实 host 时相关 smoke 会 skip，仅用 mock ctx 验证注册契约，不声称真实 host 已通过。
+或设置 `AST_GREP_BIN` 指向已有二进制（Windows 上的缓存目录为 `%LOCALAPPDATA%\opencode-oceanus\ast-grep\bin\ast-grep.exe`）：
+
+```bash
+export AST_GREP_BIN=/path/to/ast-grep          # bash / zsh
+$env:AST_GREP_BIN = "C:\path\to\ast-grep.exe"  # PowerShell
+set AST_GREP_BIN=C:\path\to\ast-grep.exe       # cmd.exe
+```
+
+环境中没有真正可用的 ast-grep 时，工具会返回诊断信息；测试（`src/smoke/host-smoke.test.ts`）也会**明确 skip 真实 CLI 集成并输出诊断**，而不是把环境缺失误报为产品失败。真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内执行插件时验证；当前 beta 插件类型未暴露 `session.active` 时，运行时会探测并诚实降级，当前 bun test 环境无真实 host 时相关 smoke 会 skip，仅用 mock ctx 验证注册契约，不声称真实 host 已通过。
 
 
 ## 配置

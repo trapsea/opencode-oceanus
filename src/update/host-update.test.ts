@@ -4,6 +4,7 @@ import {
   hasNativePluginUpdate,
   hostPluginVersion,
   serviceRegistryPath,
+  serviceRegistryPaths,
   updateViaHost,
   waitForHostVersion,
 } from './host-update';
@@ -11,12 +12,46 @@ import {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 describe('host-update 桥接层', () => {
-  test('service.json 路径遵循 XDG_STATE_HOME 并有默认值', () => {
-    expect(serviceRegistryPath({ XDG_STATE_HOME: '/tmp/state' } as NodeJS.ProcessEnv)).toBe('/tmp/state/opencode/service.json');
-    expect(serviceRegistryPath({} as NodeJS.ProcessEnv)).toContain(joinSep(['.local', 'state', 'opencode', 'service.json']));
+  test('注册文件候选：首选 server.json（当前宿主 daemon），兼容 service.json（历史版本）', () => {
+    expect(serviceRegistryPath({ XDG_STATE_HOME: '/tmp/state' } as NodeJS.ProcessEnv)).toBe('/tmp/state/opencode/server.json');
+    expect(serviceRegistryPaths({ XDG_STATE_HOME: '/tmp/state' } as NodeJS.ProcessEnv)).toEqual([
+      '/tmp/state/opencode/server.json',
+      '/tmp/state/opencode/service.json',
+    ]);
+    expect(serviceRegistryPath({} as NodeJS.ProcessEnv)).toContain(joinSep(['.local', 'state', 'opencode', 'server.json']));
   });
 
-  test('discoverServiceAuth：合法注册返回 url/password；非法与缺失返回 null', () => {
+  test('discoverServiceAuth：当前宿主协议（server.json + 同目录 password 文件）优先', () => {
+    const fs: Record<string, string> = {
+      '/x/opencode/server.json': '{"url":"http://127.0.0.1:1","pid":123}',
+      '/x/opencode/password': '  base64url-secret\n',
+    };
+    const read = (p: string) => {
+      if (p in fs) return fs[p]!;
+      throw new Error('ENOENT');
+    };
+    const info = discoverServiceAuth({ XDG_STATE_HOME: '/x' } as NodeJS.ProcessEnv, read);
+    expect(info).toEqual({ url: 'http://127.0.0.1:1', password: 'base64url-secret' });
+  });
+
+  test('discoverServiceAuth：server.json 缺失时回退 service.json（旧协议 password 内联）', () => {
+    const fs: Record<string, string> = {
+      '/x/opencode/service.json': '{"url":"http://127.0.0.1:2","password":"inline-pw"}',
+    };
+    const read = (p: string) => {
+      if (p in fs) return fs[p]!;
+      throw new Error('ENOENT');
+    };
+    const info = discoverServiceAuth({ XDG_STATE_HOME: '/x' } as NodeJS.ProcessEnv, read);
+    expect(info).toEqual({ url: 'http://127.0.0.1:2', password: 'inline-pw' });
+  });
+
+  test('discoverServiceAuth：无 password 文件时返回无密码注册（Basic 头省略）；非法与缺失返回 null', () => {
+    const read = (p: string) => {
+      if (p.endsWith('server.json')) return '{"url":"http://127.0.0.1:3"}';
+      throw new Error('ENOENT');
+    };
+    expect(discoverServiceAuth({} as NodeJS.ProcessEnv, read)).toEqual({ url: 'http://127.0.0.1:3' });
     const ok = discoverServiceAuth({} as NodeJS.ProcessEnv, () => '{"url":"http://127.0.0.1:1","password":"pw"}');
     expect(ok).toEqual({ url: 'http://127.0.0.1:1', password: 'pw' });
     expect(discoverServiceAuth({} as NodeJS.ProcessEnv, () => 'not json')).toBe(null);

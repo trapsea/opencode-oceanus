@@ -52,7 +52,7 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
   signature），不在 `tools` 命名空间内。模型高频混淆点：把 `search` 写成
   `tools.search(...)` / `tools["search"](...)` 会触发
   `Unknown tool 'search'`（真实会话已复现；错误提示
-  "Use search to find available tools" 指的正是全局函数形态）。正确纪律：
+  `Use search to find available tools` 指的正是全局函数形态）。正确纪律：
   工具一律 `tools.<ns>.<name>(...)`；发现工具用全局 `search({ query })`；
   `Object.keys(tools)` 列出顶层命名空间。该纪律已固化为
   `CODEMODE_CALLING_PROTOCOL`（`src/agents/protocol.ts`），常驻

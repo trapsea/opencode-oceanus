@@ -35,9 +35,27 @@
 | `ctx.mcp.transform` + `ctx.mcp.reload`（`MCPDomain = Pick<McpApi, "list">` 形态） | CBM server 注册只调用 `transform`（`draft.get/set/remove`）与 `reload`，两者在 beta-18721→19271 类型面均未变化（18743/19242/19271 三版 `mcp.d.ts` 对比：18743→19242 变化不影响本用法，19242→19271 零差异） | `src/cbm/mcp.ts:150-252`；宿主 `@opencode/cli@19296` 实测：日志出现 `server=codebase-memory-mcp` 连接尝试即证明 transform 注册生效（连接失败为 CBM daemon 生命周期问题，与注册契约无关，2026-09-09） |
 | permission 对象形式（资源级规则）经 `toPermissions` 转换 | `prometheus` 主 agent 权限已收敛（2026-09-10）：`task`/`subagent` 整体 `deny`（不委派任何 subagent，全部研究自查）+ `skill: 'deny'`、`question: 'allow'`；对象形式仅剩 `shell` 模式表（继承只读表）。**注册层真实宿主已验证（beta-19296，2026-09-10，隔离 serve 实例 + 工作区 dist）**：prometheus 以 `mode: primary` 注册、temperature 0.3、system prompt 注入正确；宿主接受资源级规则并按"基线在前、插件规则在后"合并；宿主内置 build/plan 被移除。**运行时评估已实锤（2026-09-10 真实会话）**：宿主 task 工具以裸 agent 名评估权限——宿主 `tool/task.ts` `ctx.ask({ permission: 'task', patterns: [params.subagent_type] })`，`evaluate` 走 `Wildcard.match(裸名, rule.pattern)`，前缀式 resource（`task.explorer`）永不匹配、findLast 命中 `{'*': 'deny'}`，旧白名单 fail-closed 全拒（真实会话报「@explorer 不可用（白名单中的目标在权限层实际不存在）」属实）；处置：移除对象形式白名单，收敛为整体 deny + prompt 自查纪律。**仍待验证**：`question`（插件自定义工具）在受限 primary 会话的阻塞行为 | `src/config/constants.ts`（`PROMETHEUS_PERMISSION`）、`src/index.ts:23-48`（`toPermissions` 资源级转换）、`src/agents/prometheus.ts`；隔离实例 API 验证记录见本行（验证用临时 serve 已清理，未触碰用户全局配置与共享服务） |
 
+## 宿主 Windows shell 事实矩阵（2026-09-11 源码核实）
+
+以下事实来自宿主源码直接阅读（`packages/core/src/shell.ts`、`packages/opencode/src/tool/shell.ts`、`tool/shell/id.ts`、`tool/shell/prompt.ts`、`permission/arity.ts`、`permission/index.ts`、`packages/cli/src/services/daemon.ts`），是插件跨平台适配（Windows 兼容修复）的依据：
+
+| 事实 | 宿主行为 | 插件适配 |
+|---|---|---|
+| bash 工具权限键恒为 `'bash'` | `tool/shell/id.ts:16`：`ToolID = "bash"`（注释预告 2.0 才改名，现保持 bash 兼容存量权限） | 只读 shell 护栏挂 `bash` 主键 + `shell` 兼容双写（`src/config/constants.ts`）；此前仅挂 `shell` 键导致整表在所有平台未生效，2026-09-11 修复 |
+| Windows 实际 shell 选择 | `core/src/shell.ts:98-106,119`：默认按 `pwsh → powershell → Git Bash → COMSPEC(cmd)` 选择；可配置覆盖 | 提示词不再默认 Unix 语法；明确"实际 shell 以 bash 工具描述中的 OS/Shell 标注为准"（`constants.ts` 文件操作规则、`oceanus-plan` 计数验证） |
+| 工具描述按 shell 动态渲染 | `tool/shell/prompt.ts`：PowerShell/cmd 有专门 commandSection（含 PowerShell 5.1 无 `&&` 提示、cmd 用 `%VAR%`、here-string/临时文件提交 PR body）；`shell.txt:3` 注入 `OS/Shell/tmp` | 插件提示词与宿主描述冲突时以宿主为准；`git-commit` 指令改用 `-F` 临时文件规避 PowerShell/cmd 中文消息编码与引号问题 |
+| 权限 pattern 生成 | `tool/shell.ts:392-410`：tree-sitter 解析命令，`BashArity.prefix` 取前缀 token（cmdlet/cmd/未知名取首 token），管道两侧 command 节点分别生成 pattern（不含 `\|`） | deny 表用动词式规则即可覆盖管道右侧（`Out-File *` 拦 `\| Out-File`）；git/npm/bun 子命令跨 shell 同名继续生效 |
+| `Wildcard.match` 大小写语义 | `core/src/util/wildcard.ts:13`：win32 大小写不敏感（`si`），其余平台敏感（`s`） | PowerShell cmdlet 规则 PascalCase + 小写双写（覆盖非 win32 平台 pwsh 场景）；cmd 动词惯例小写单写 |
+| 宿主自维护跨 shell 写动词集 | `tool/shell.ts:29-64`：`FILES`（含 PowerShell cmdlet）+ `CMD_FILES`（cmd 内置）用于 external_directory 询问 | 插件 deny 表动词清单对齐该集合的写入子集（只读 cmdlet 不拦） |
+| 宿主 daemon 注册协议 | `packages/cli/src/services/daemon.ts:39-41`：`<state>/opencode/server.json`（`{id?,version?,url,pid}`，无 password）+ 同目录 `password` 文本文件 | `src/update/host-update.ts` 按 `server.json → service.json` 双候选探测，password 从 JSON 内联（旧）→ 独立文件（新）解析 |
+
+评估链完整语义（修复依据）：`toPermissions`（`src/index.ts`）生成 v2 `{action, resource, effect}` → 宿主映射为 v1 `{permission: action, pattern: resource, action: effect}` → `evaluate(permission='bash', pattern, ruleset)` 走 `Wildcard.match('bash', rule.permission) && Wildcard.match(pattern, rule.pattern)`、findLast 后声明优先（`permission/index.ts:28-38`）。语义级回归测试见 `src/config/shell-permission.test.ts`（复刻宿主 wildcard/evaluate 语义，宿主升级时需同步复刻函数）。
+
 ## 插件侧版本与运行时边界
 
 - setup 阶段不从 `ctx.session` 读取当前会话 ID：该对象是 `SessionDomain` API 域，不是会话实例。任务索引根使用插件实例目录；真实父会话 ID 只在工具/事件上下文中使用。参见 `src/index.ts:168-184` 与 `src/runtime/types.ts:166-175`。
+
+
 - `taskReuse` 的代码默认值为启用；可用配置显式关闭。不要沿用旧文档中“默认关闭”的表述：`src/config/utils.ts:243-247`、`src/config/schema.ts:188`。
 - `session.active`、`interrupt` 等真实 Host 能力在普通 `bun test` 中没有真实宿主；相关 smoke 会 skip 或使用 mock，不等价于真实 Host 通过。参见 `README.md:245`、`src/smoke/host-smoke.test.ts`。
 - 图片 `prompt` / `retry` hook 属于运行时能力：beta-18721+ 类型联合已正式覆盖 `prompt`/`retry`，注册仍保留运行时能力探测并 fail-open（类型声明不等于运行时保证）；`retry` 不可用不得影响 `prompt`。参见 `src/hooks/index.ts:253-293` 与 `src/hooks/image-*.ts`。

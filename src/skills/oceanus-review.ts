@@ -110,7 +110,7 @@ Review 的正式审查由 Oracle 只读执行，不修改代码、不运行 task
 | criterion | evidence（命令/输出或当前 diff 状态） | status | gap / next action |
 |---|---|---|---|
 \`\`\`
-逐条覆盖 requirements acceptance criteria、edge_coverage（每个 specified/backstop 边界有证据，dismissed/deferred 有理由）、Plan 每个 Task acceptance criteria、可观察行为（truths 逐条核验：每个可观察行为有当前证据）、禁止行为（prohibitions 逐条核验：没有违规证据）、锁定决策（D-ID 覆盖核验：每个锁定决策有证据证明其完整交付，排除项未混入）、代码格式审查、以及测试、构建、real-surface 证据；每条 evidence 至少记录 command、exit_code、executed_at、state_head、diff_scope、covers 和 freshness；缺口必须具体指出缺哪个准则和证据，并回退 Execute，不得只写 \`review failed\`。
+逐条覆盖 \`requirements acceptance criteria\`、\`edge_coverage\`（每个 \`specified/backstop\` 边界有证据，\`dismissed/deferred\` 有理由）、Plan 每个 Task \`acceptance criteria\`、可观察行为（\`truths\` 逐条核验：每个可观察行为有当前证据）、禁止行为（\`prohibitions\` 逐条核验：没有违规证据）、锁定决策（\`D-ID\` 覆盖核验：每个锁定决策有证据证明其完整交付，排除项未混入）、代码格式审查、以及测试、构建、\`real-surface\` 证据；每条 \`evidence\` 至少记录 \`command\`、\`exit_code\`、\`executed_at\`、\`state_head\`、\`diff_scope\`、\`covers\` 和 \`freshness\`；缺口必须具体指出缺哪个准则和证据，并回退 Execute，不得只写 \`review failed\`。
 ## 完成审计（覆盖矩阵）
 
 在接受任何任务或场景确实完成之前，执行完成审计：将每项成功标准作为一行，将收集到的证据作为这些行的覆盖情况。完成度审计可用 oracle completion-audit 场景（条件触发）执行独立门禁判定；本矩阵由 Review 主流程先行构建与核查。

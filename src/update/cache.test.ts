@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync, readFil
 import { gzipSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { installStaged, resolveOpenCodeInstallContext, STALE_LOCK_MIN_AGE_MS } from './cache';
+import { installStaged, resolveOpenCodeInstallContext, resolvePackageManagerBin, STALE_LOCK_MIN_AGE_MS } from './cache';
 function tarFile(name:string, body:string, typeflag:string = '0') { const h=Buffer.alloc(512); h.write(name); h.write(`0000644\0`,100); h.write('0000000\0',108); h.write('0000000\0',116); h.write(body.length.toString(8).padStart(11,'0')+'\0',124); h[156]=typeflag.charCodeAt(0); const b=Buffer.from(body); return Buffer.concat([h,b,Buffer.alloc((512-b.length%512)%512)]); }
 describe('update cache',()=>{ test('陈旧锁阈值固定',()=>expect(STALE_LOCK_MIN_AGE_MS).toBe(60_000)); test('下载 tarball，绝不执行 bun pack',async()=>{const root=mkdtempSync(join(tmpdir(),'au3-')); const calls:string[][]=[]; const result=await installStaged({cacheRoot:root,version:'1.0.0',packageSpec:'ignored',sourceDir:'ignored',download:async()=>new Response(gzipSync(Buffer.concat([tarFile('package/package.json',JSON.stringify({name:'opencode-oceanus',version:'1.0.0',main:'index.js'})),tarFile('package/index.js','ok'),Buffer.alloc(1024)])),{status:200}),run:async(_c,args)=>{calls.push(args); return {status:0};}}); expect(result).toBe(join(root,'live')); expect(calls.map(x=>x[0])).toEqual(['install']);}); });
 
@@ -51,6 +51,40 @@ describe('OpenCode sandbox 布局', () => {
       expect(attempts[1]!.args).toContain('--ignore-scripts')
       expect(seenEnvs.every(e => e.HTTP_PROXY === 'http://127.0.0.1:7890' && typeof e.PATH === 'string')).toBe(true)
     } finally { if (prevProxy === undefined) delete process.env.HTTP_PROXY; else process.env.HTTP_PROXY = prevProxy }
+  })
+
+  test('win32：npm 解析为 npm.cmd（cmd shim 无法被无 shell 的 spawn 直接执行），Windows 环境变量透传', async () => {
+    // resolvePackageManagerBin 直接断言（非 win32 保持原名）
+    expect(resolvePackageManagerBin('npm', 'win32')).toBe('npm.cmd')
+    expect(resolvePackageManagerBin('npm', 'linux')).toBe('npm')
+    expect(resolvePackageManagerBin('bun', 'win32')).toBe('bun')
+
+    const root = mkdtempSync(join(tmpdir(),'pmwin-'))
+    const attempts: Array<{cmd:string}> = []
+    const seenEnvs: Record<string,string>[] = []
+    const prev = { USERPROFILE: process.env.USERPROFILE, TEMP: process.env.TEMP } as const
+    process.env.USERPROFILE = 'C:\\Users\\tester'
+    process.env.TEMP = 'C:\\Users\\tester\\AppData\\Local\\Temp'
+    try {
+      const live = await installStaged({
+        cacheRoot: root, version:'1.1.0', packageSpec:'ignored', sourceDir:'ignored',
+        platform: 'win32',
+        download: async () => new Response(tarball(),{status:200}),
+        run: async (cmd,_args,opts) => {
+          attempts.push({cmd})
+          seenEnvs.push(opts.env)
+          if (cmd === 'bun') throw new Error('Failed to spawn: bun')
+          return {status:0}
+        },
+      })
+      expect(live).toBe(join(root,'live'))
+      // bun 保持原名；npm 在 win32 上映射为 npm.cmd
+      expect(attempts.map(a=>a.cmd)).toEqual(['bun','npm.cmd'])
+      expect(seenEnvs.every(e => e.USERPROFILE === 'C:\\Users\\tester' && e.TEMP.startsWith('C:\\Users'))).toBe(true)
+    } finally {
+      if (prev.USERPROFILE === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = prev.USERPROFILE
+      if (prev.TEMP === undefined) delete process.env.TEMP; else process.env.TEMP = prev.TEMP
+    }
   })
 
   test('全部包管理器失败时抛出含候选链的 install 错误', async () => {

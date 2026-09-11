@@ -63,7 +63,7 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
     expect(reviewContent).toContain('完整输出与退出码');
     expect(reviewContent).toContain('无可用 formatter');
     expect(reviewContent).toContain('作为 **BLOCKER** 列入回退清单');
-    expect(reviewContent).toContain('代码格式审查、以及测试、构建、real-surface 证据');
+    expect(reviewContent).toContain('代码格式审查、以及测试、构建、`real-surface` 证据');
   });
 
   test('Review 持对抗性立场：假设未达成、go-soft 清单与发现分级', () => {
@@ -74,7 +74,7 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
     expect(reviewContent).toContain('**WARNING**');
     expect(reviewContent).toContain('**INFO**');
     expect(reviewContent).toMatch(/UNCERTAIN[\s\S]{0,60}请求用户决策/);
-    expect(reviewContent).toContain('锁定决策（D-ID 覆盖核验');
+    expect(reviewContent).toContain('锁定决策（`D-ID` 覆盖核验');
   });
 
   test('决策 ID 追溯链：discuss 三分类登记，plan 任务标注与四源审计', () => {
@@ -119,7 +119,7 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
     expect(content).toContain('Preconditions（可选');
     expect(content).toContain('可观察行为（truths）');
     expect(content).toContain('调研深度分级');
-    expect(reviewContent).toContain('可观察行为（truths 逐条核验');
+    expect(reviewContent).toContain('可观察行为（`truths` 逐条核验');
   });
 
   test('轻量适配：spot-check 兜底、检查点与 ledger 摘要', () => {
@@ -143,6 +143,15 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
 
   test('Trivial 轻量路径支持显式质量升级', () => {
     expect(intakeContent).toContain('升级单项质量保障');
+  });
+
+  test('Intake 含技术环境调研步骤与 tech_context 报告字段', () => {
+    expect(intakeContent).toContain('技术环境调研');
+    expect(intakeContent).toContain('tech_context');
+    expect(intakeContent).toContain('README.md');
+    expect(intakeContent).toContain('pom.xml');
+    expect(intakeContent).toContain('build.gradle');
+    expect(intakeContent).toContain('open_questions，不伪造');
   });
 
   test('执行配置批问归属 Intake，discuss 只消费配置并执行方案批准', () => {

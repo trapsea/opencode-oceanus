@@ -15,6 +15,8 @@ export interface InstallOptions {
   installRoot?: string;
   /** 安装依赖使用的包管理器候选，按序回退（spawn 失败或非零退出尝试下一个）。默认 bun → npm。 */
   packageManagers?: string[];
+  /** 平台注入（默认 process.platform）：win32 时 npm 解析为 npm.cmd。 */
+  platform?: NodeJS.Platform;
   /** tarball 下载源；默认跟随 registry 候选链首个（NPM_CONFIG_REGISTRY 优先，否则 npmjs）。 */
   registry?: string;
 }
@@ -65,6 +67,15 @@ export function resolveOpenCodeInstallContext(modulePath?: string): OpenCodeInst
   return null
 }
 
+/**
+ * 解析包管理器在当前平台的可执行名：win32 上 npm 是 `npm.cmd`（cmd shim，
+ * 无 shell 的 spawn 无法直接执行 .cmd——Windows 下 spawn npm 会 ENOENT，
+ * 参考 openclaw#3685 等社区实证）；bun 是真 exe 不需映射。
+ */
+export function resolvePackageManagerBin(pm: string, platform: NodeJS.Platform = process.platform): string {
+  return pm === 'npm' && platform === 'win32' ? 'npm.cmd' : pm
+}
+
 export async function installStaged(o:InstallOptions){
   const owner=acquire(o.cacheRoot,o);
   const useRoot=o.installRoot;
@@ -95,10 +106,17 @@ export async function installStaged(o:InstallOptions){
     }
     rmSync(partial,{force:true});
     /** 传给依赖安装的最小环境：PATH/HOME/TMPDIR 之外透传代理与 registry 配置，
- * 修复剥离 env 导致代理/镜像环境下 bun install 必然失败的问题。 */
+ * 修复剥离 env 导致代理/镜像环境下 bun install 必然失败的问题；
+ * Windows 另需 USERPROFILE/TEMP 等变量（HOME/TMPDIR 通常不存在，
+ * cmd shim 与 npm 依赖它们定位用户目录和临时目录）。 */
 function installEnv(): Record<string,string> {
   const env: Record<string,string> = { PATH:process.env.PATH??'', HOME:process.env.HOME??'', TMPDIR:process.env.TMPDIR??'' }
-  for (const key of ['HTTP_PROXY','HTTPS_PROXY','NO_PROXY','http_proxy','https_proxy','no_proxy','ALL_PROXY','all_proxy','NPM_CONFIG_REGISTRY','npm_config_registry']) {
+  const passthrough = [
+    'HTTP_PROXY','HTTPS_PROXY','NO_PROXY','http_proxy','https_proxy','no_proxy','ALL_PROXY','all_proxy','NPM_CONFIG_REGISTRY','npm_config_registry',
+    // Windows 必需（非 win32 上通常不存在，值缺失自动跳过；win32 上 env 访问大小写不敏感）
+    'USERPROFILE','TEMP','TMP','LOCALAPPDATA','APPDATA','SYSTEMROOT','COMSPEC','PATHEXT','PROGRAMFILES','PROGRAMFILES(X86)','PROGRAMDATA',
+  ]
+  for (const key of passthrough) {
     const value = process.env[key]; if (value !== undefined) env[key] = value
   }
   return env
@@ -106,13 +124,15 @@ function installEnv(): Record<string,string> {
 /** 依赖安装：按候选包管理器顺序执行，spawn 失败或非零退出回退下一个；全部失败才抛错。 */
 async function runPackageManager(o:InstallOptions, cwd:string, env:Record<string,string>): Promise<void> {
   const managers = o.packageManagers ?? ['bun','npm']
+  const platform = o.platform ?? process.platform
   const failures: string[] = []
   for (const pm of managers) {
+    const bin = resolvePackageManagerBin(pm, platform)
     const args = pm === 'npm' ? ['install','--ignore-scripts','--no-audit','--no-fund'] : ['install','--ignore-scripts']
     try {
       const result = o.run
-        ? await o.run(pm, args, { cwd, env })
-        : await (async()=>{ const p=Bun.spawn([pm,...args],{cwd,env}); return {status:await p.exited}; })()
+        ? await o.run(bin, args, { cwd, env })
+        : await (async()=>{ const p=Bun.spawn([bin,...args],{cwd,env}); return {status:await p.exited}; })()
       if (result.status === 0) return
       failures.push(`${pm} exit ${result.status}`)
     } catch (error) { failures.push(`${pm} ${error instanceof Error ? error.message : String(error)}`) }

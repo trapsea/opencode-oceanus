@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { compareVersions } from './checker';
 
 /**
@@ -16,7 +16,7 @@ import { compareVersions } from './checker';
  *   开放 ctx.plugin.update 做探测式兼容（开放后自动优先走原生通道）。
  */
 
-/** 宿主后台服务注册信息（~/.local/state/opencode/service.json），只读发现，不修改。 */
+/** 宿主后台服务注册信息，只读发现，不修改。 */
 export interface HostServiceInfo { url: string; password?: string }
 
 export interface HostUpdateDeps {
@@ -27,22 +27,51 @@ export interface HostUpdateDeps {
   pollMs?: number;
 }
 
-export function serviceRegistryPath(env: NodeJS.ProcessEnv = process.env): string {
+/**
+ * 宿主后台服务注册文件候选（按优先级）。
+ *
+ * 当前宿主 daemon 写 `<state>/opencode/server.json`（注册体 { id?, version?,
+ * url, pid }，**不含 password**），密码存于同目录独立 `password` 文本文件
+ * （宿主 packages/cli/src/services/daemon.ts:40-41）。早期版本（beta-18866
+ * 实测时代）为 `service.json` 且 password 内联在 JSON 中，保留兼容探测。
+ */
+export function serviceRegistryPaths(env: NodeJS.ProcessEnv = process.env): string[] {
   const xdgState = env.XDG_STATE_HOME || join(homedir(), '.local', 'state');
-  return join(xdgState, 'opencode', 'service.json');
+  const dir = join(xdgState, 'opencode');
+  return [join(dir, 'server.json'), join(dir, 'service.json')];
 }
 
-/** 发现宿主后台服务（url + password）。读不到或结构非法返回 null，绝不抛错。 */
+/** 首选注册文件路径（{@link serviceRegistryPaths} 的第一项，向后兼容导出）。 */
+export function serviceRegistryPath(env: NodeJS.ProcessEnv = process.env): string {
+  return serviceRegistryPaths(env)[0]!;
+}
+
+/**
+ * 发现宿主后台服务（url + password）。读不到或结构非法返回 null，绝不抛错。
+ * password 解析顺序：JSON 内联字段（旧协议）→ 同目录 `password` 文件（当前协议）。
+ */
 export function discoverServiceAuth(
   env: NodeJS.ProcessEnv = process.env,
   read: (path: string) => string = (p) => readFileSync(p, 'utf8'),
 ): HostServiceInfo | null {
-  try {
-    const raw = JSON.parse(read(serviceRegistryPath(env)));
-    if (typeof raw?.url !== 'string' || raw.url.length === 0) return null;
+  for (const registryPath of serviceRegistryPaths(env)) {
+    let raw: { url?: unknown; password?: unknown };
+    try {
+      raw = JSON.parse(read(registryPath)) as { url?: unknown; password?: unknown };
+    } catch { continue }
+    if (typeof raw?.url !== 'string' || raw.url.length === 0) continue;
     if (raw.password !== undefined && typeof raw.password !== 'string') return null;
-    return { url: raw.url, password: raw.password };
-  } catch { return null }
+    let password: string | undefined = raw.password;
+    if (password === undefined) {
+      // 当前宿主协议：密码为注册文件同目录的独立 password 文本文件。
+      try {
+        const fromFile = read(join(dirname(registryPath), 'password')).trim();
+        if (fromFile.length > 0) password = fromFile;
+      } catch { /* 无密码文件 → 无认证头，保持 undefined */ }
+    }
+    return { url: raw.url, password };
+  }
+  return null;
 }
 
 /** ctx.plugin 是否直接暴露原生 update（未来宿主开放即自动启用）。 */

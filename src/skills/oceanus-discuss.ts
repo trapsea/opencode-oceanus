@@ -69,7 +69,7 @@ humanReview: required
 ### 2.5 结构化假设与边界探针
 
 1. **证据分工**：Explorer 只提取代码事实、调用关系和复用模式；主 Agent 负责用户意图、范围判断和最终整合，不把代码事实委派给用户猜测。
-2. **假设批量纠偏**：先展示 assumptions[] 表格（A-ID、statement、evidence、confidence、consequence_if_wrong、resolution、status），只让用户选择需要纠正的项，再逐项确认；有充分证据的 Confident 项不得重复追问。
+2. **假设批量纠偏**：先展示 \`assumptions[]\` 表格（\`A-ID\`、\`statement\`、\`evidence\`、\`confidence\`、\`consequence_if_wrong\`、\`resolution\`、\`status\`），只让用户选择需要纠正的项，再逐项确认；有充分证据的 \`Confident\` 项不得重复追问。
 3. **边界探针**：对每条需求先检查空值、边界值、重复、顺序、错误输入、规模、并发/时序，再补充领域特定边界。每个适用边界必须得到 specified、backstop、dismissed 或 deferred 之一；dismissed/deferred 必须填写非空理由，不能静默丢弃。
 4. **风险门禁**：高风险未解决边界阻塞；Standard 可带显式 assumption 进入 Plan，但必须转成任务验证项；Trivial 只能明确 dismiss 后继续。
 
