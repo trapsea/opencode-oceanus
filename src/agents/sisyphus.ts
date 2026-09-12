@@ -13,7 +13,6 @@ export function createSisyphusAgent(
   customPrompt?: string,
   customAppendPrompt?: string,
   disabledAgents?: Set<string>,
-  excludeDescriptions?: string[],
   waitForUserEnabled = true,
 ): AgentDefinition {
   const compactSections = buildCompactPromptSections(disabledAgents, waitForUserEnabled, 'sisyphus');

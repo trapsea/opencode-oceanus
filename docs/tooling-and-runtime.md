@@ -1,15 +1,15 @@
 # 新增工具与运行时保护
 
 本文记录 Oceanus 插件 P1-P14 已实现的原生 v2 工具（Tools）与运行时保护 Hook，
-以及对应的配置方式。实现细节与决策背景见
-`.oceanus/spec/tooling-and-runtime-guards.md`。
+以及对应的配置方式。
 
 ## 总体说明
 
 六阶段工作流（Intake → discuss → Plan → Execute → Review → Finish）由 Agent/Skill 的
 prompt 契约驱动：Agent 负责编排与委派，Skill 规定阶段边界；工具和 Hook 只提供运行时
 能力，不是阶段 supervisor。执行配置（SDD/TDD/Review 循环执行）由
-Intake 前置的执行配置批问确认——一次 question 批量问三项，**三项默认推荐全部关闭**
+Intake 前置的执行配置批问确认——一次 question 批量问三至四项（前端 UI/交互实现任务
+追加第四项 browser_verify），**全部默认推荐关闭**
 （选项说明中可提示何种规模值得开启）；仅实现类任务批问，调研/查询/方案设计等非实现
 类任务跳过批问并按默认关闭记录（\`not_asked: non-implementation\`），漏答回落默认关闭
 并记录、不补问；方案方向由方案总批准单问覆盖。Oracle 仅在复杂架构或高风险业务场景按需咨询，
@@ -84,13 +84,15 @@ Review schema 记录 success criteria、证据、发现、验证结果和结论�
 
 ## 内置 Hook
 
-固定执行顺序：无 `coordinator` 的 `mock` 注册为 3 个 `before`、5 个 `after`；生产接线另含
+固定执行顺序（与 `src/hooks/index.ts` 实际注册序列一致；secret-read-guard /
+planning-write-guard / direct-mcp-write-guard / cbm-index-repeat-guard 随配置注册，
 `image_materializer` / `image_error_hint` 是 session hook，只有真实 Host 暴露相应 API
-时才注册，不计入上述 execute Hook 数量。
+时才注册，不计入 execute Hook 顺序）：
 
 ```text
-before: apply-patch → loop-guard.before → task-registry-observer.before → cbm-guidance.before
-after:  json-error-recovery → tool-output-truncator → tool-loop-guard → task-registry-observer.after → cbm-guidance.after
+before: apply-patch → loop-guard.before → secret-read-guard → planning-write-guard
+        → direct-mcp-write-guard → cbm-index-repeat-guard → cbm-guidance.before
+after:  json-error-recovery → tool-output-truncator → tool-loop-guard → cbm-guidance.after
 ```
 
 | Hook | 作用 | fail-open / fail-closed 边界 |
@@ -99,6 +101,9 @@ after:  json-error-recovery → tool-output-truncator → tool-loop-guard → ta
 | `json_error_recovery` | 修正工具返回的错误 JSON，避免错误被当作结果吞掉 | after Hook 默认 **fail-open** |
 | `tool_output_truncator` | 截断超长工具输出，避免破坏上下文；保留错误、状态、diff 与 hash mismatch 等控制信息 | **fail-open** |
 | `tool_loop_guard` | 检测重复工具调用：达到 `warnAt` 提示、`blockAt` 熔断；不阻止合法 task polling | **fail-open** |
+| `secret_read_guard` | 阻断 `.env` / `.secrets` 等敏感文件内容进入对话 | 命中即**阻断**（fail-closed on match） |
+| `planning_write_guard` | 阻断对 `.oceanus` 产出文档的灾难性缩减覆盖 | 命中即**阻断** |
+| direct MCP 写入保护 / `cbm_index_repeat_guard` | 拒绝写入型 codebase-memory-mcp 工具；索引冷却窗内拒绝重复触发索引 | **fail-closed** |
 | `cbm_guidance` | 在工具执行前后提供 CBM 使用建议与状态提示 | **fail-open**：CBM 不可用时标记不确定性并继续 |
 
 > after Hook 默认 fail-open：保护逻辑失败不阻断已完成的宿主工具结果。
@@ -167,15 +172,14 @@ bun add -D @ast-grep/cli   # 或 cargo install ast-grep、brew install ast-grep
 或设置 `AST_GREP_BIN=/path/to/ast-grep` 指向已有二进制。
 
 环境中没有真正可用的 ast-grep 时，工具返回诊断信息；测试
-（`src/smoke/host-smoke.test.ts`、`src/smoke/ast-grep-probe.ts`）会**明确 skip 真实
+（`src/smoke/` 下集成用例与 `src/smoke/ast-grep-probe.ts`）会**明确 skip 真实
 CLI 集成并输出诊断**，不把环境缺失误报为产品失败。
 
 ## 测试与验证
 
 - 单元测试覆盖工具参数、CLI 解析、CBM 与各 Hook。
-- `src/tooling-integration.test.ts` / `src/smoke/host-smoke.test.ts` 在 bun test 下用 mock ctx
-  验证注册契约（Oceanus 工具 + CBM 工具、`before` + `after` Hook 的数量与顺序）；生产 `coordinator` 接线还会
-  注册子代理桥接，实际为 4 个 `before` + 6 个 `after`。
+- `src/tools/registration.test.ts` / `src/smoke/setup-resilience.test.ts` 在 bun test 下用 mock ctx
+  验证注册契约（Oceanus 工具 + CBM 工具的注册与容错、setup 阶段失败降级）。
 - 真实 ast-grep CLI 集成测试仅在探针确认可用时运行（`describe.skipIf`）。
 - 真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内
   执行插件时验证；当前 smoke 主要是 mock ctx 注册契约，真实 Host/CLI 成功**未宣称、未默认验证**。

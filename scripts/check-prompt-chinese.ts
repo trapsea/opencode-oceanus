@@ -11,7 +11,7 @@ const TARGET_FILES = [
   'src/agents/oceanus.ts', 'src/agents/sisyphus.ts', 'src/agents/explorer.ts',
   'src/agents/librarian.ts', 'src/agents/oracle.ts', 'src/agents/designer.ts',
   'src/agents/fixer.ts', 'src/agents/observer.ts', 'src/agents/prometheus.ts',
-  'src/agents/orchestrator-context.ts', 'src/agents/protocol.ts',
+  'src/agents/protocol.ts',
   'src/review/scenes.ts', 'src/review/protocol.ts',
   'src/agents/index.ts', 'src/skills/clipboard-image-observer.ts', 'src/skills/opencode-oceanus.ts',
   'src/skills/oceanus-intake.ts', 'src/skills/oceanus-discuss.ts', 'src/skills/oceanus-plan.ts',

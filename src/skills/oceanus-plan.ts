@@ -73,7 +73,8 @@ description: 第 3 阶段 — 计划：读取已批准 spec，映射文件结构
 ## 可观察行为（truths）
 
 <目标反推：目标达成为真时，哪些行为可观察、哪些文件必须存在、哪些连接必须接通。
-每条一行、可被 review 独立核验；这是 Completion Audit 的逐条锚点，不是泛泛的验收重述。>
+每条一行、可被 review 独立核验；这是 Completion Audit 的逐条锚点，不是泛泛的验收重述。
+browser_verify 开启的前端任务：交互/渲染类 truths 应写成 agent-browser 可取证形式（如 get styles 断言值、find role … click 后的 snapshot 状态），命令映射见 browser-verify skill。>
 ~~~
 
 ## 任务结构（固定模板）
@@ -104,7 +105,7 @@ description: 第 3 阶段 — 计划：读取已批准 spec，映射文件结构
   Run: 同上
   Expected: PASS
 - [ ] **步骤 5：运行表面验证（如适用）**
-  <命令与预期输出>
+  <命令与预期输出；browser_verify 开启的前端任务：dev server 后台启动 → agent-browser wait --url → screenshot/交互断言，附 Expected>
 
 **步骤**（TDD 关闭时）：
 - [ ] **步骤 1：编写 characterization 基线测试固定现有行为**
@@ -112,10 +113,11 @@ description: 第 3 阶段 — 计划：读取已批准 spec，映射文件结构
 - [ ] **步骤 3：实现变更**（真实代码块）
 - [ ] **步骤 4：运行测试确认通过**
 - [ ] **步骤 5：运行表面验证（如适用）**
+  <同上；browser_verify 开启的前端任务用 agent-browser 命令作为渲染表面验证>
 
 Task ID / Dependencies / Preconditions（可选：执行前必须为真的外部事实——环境已配好、前置产物存在、环境变量就绪；不满足即停止上报而非自行猜测）
 Decisions: <覆盖的锁定决策 D-ID 列表；无则写 none；实现 one-way 决策的任务前置用户确认检查点>
-Validation: <command>；Expected: <预期输出>
+Validation: <command>；Expected: <预期输出>（browser_verify 开启的前端任务可含 agent-browser 断言命令，如 get styles 数值对比、find role … click 后的状态断言）
 验收标准 / 风险与回滚 / status / owner / wave / updated / 预估 diff 行数
 ~~~
 

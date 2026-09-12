@@ -11,7 +11,6 @@ import {
   DIRECT_MCP_DEPTH_POLICY,
   DIRECT_MCP_SERVER,
   CBM_EVIDENCE_NOTE,
-  CBM_LIFECYCLE,
   CBM_QUERY_EXAMPLES,
   CBM_TOOLS,
   cbmSection,
@@ -106,46 +105,6 @@ describe('共享示例与公共边界句', () => {
   });
 });
 
-describe('CBM_LIFECYCLE 三阶段主线', () => {
-  const lifecycle = typeof CBM_LIFECYCLE === 'string' ? CBM_LIFECYCLE : CBM_LIFECYCLE.full;
-
-  test('阶段条目齐全（intake/discuss/plan/execute/review/finish）', () => {
-    for (const phase of ['intake', 'discuss', 'plan', 'execute', 'review', 'finish']) {
-      expect(lifecycle).toMatch(new RegExp(`- ${phase}:`));
-    }
-  });
-
-  test('阶段一：intake 负责首次初始化且 fail-open', () => {
-    expect(lifecycle).toMatch(/- intake:[\s\S]{0,160}cbm_index/);
-    expect(lifecycle).toMatch(/首次初始化|仅尝试一次/);
-    expect(lifecycle).toMatch(/fail-open/i);
-  });
-
-  test('阶段二：Plan 自查 impact_estimate，Oracle advisory 可选', () => {
-    expect(lifecycle).toMatch(/plan[\s\S]{0,400}impact_estimate/);
-    expect(lifecycle).toContain('codebase-memory-mcp 优先规则');
-    expect(lifecycle).toMatch(/advisory/);
-    expect(lifecycle).toMatch(/plan status|plan 状态/);
-    expect(lifecycle).toMatch(/不重建索引|只.*查询|仅.*查询/);
-    expect(lifecycle).toMatch(/不确定性/);
-  });
-
-  test('阶段三：review 按需刷新并复查影响面（刷新 → 排查 → 对比 → 降级证据）', () => {
-    expect(lifecycle).toMatch(/- review:[\s\S]{0,400}cbm_index/);
-    expect(lifecycle).toMatch(/再次排查|重新排查/);
-    expect(lifecycle).toContain('codebase-memory-mcp 优先规则');
-    expect(lifecycle).toMatch(/对比/);
-    expect(lifecycle).toMatch(/预估/);
-    expect(lifecycle).toMatch(/降级/);
-  });
-
-  test('收尾：finish 不调用 CBM；skill 不得覆盖边界', () => {
-    expect(lifecycle).toMatch(/- finish:[\s\S]{0,80}不调用 CBM/);
-    expect(lifecycle).toMatch(/不能覆盖/);
-    expectRegisteredToolsOnly(lifecycle);
-  });
-});
-
 describe('cbmSection 角色段落', () => {
   const ROLES: CbmRole[] = ['explorer', 'oracle', 'fixer', 'librarian'];
 
@@ -207,10 +166,4 @@ describe('cbmSection 角色段落', () => {
     expect(cbmSection('metis' as never)).toBeUndefined();
   });
 
-  test('registry 生命周期与 oracle gate 场景对职责文案保持一致', () => {
-    expect(CBM_LIFECYCLE.full).toContain('impact_estimate');
-    expect(CBM_LIFECYCLE.full).toMatch(/不要求.*全量|不执行.*全量/);
-    expect(CBM_LIFECYCLE.full).toMatch(/advisory|建议性/i);
-    expect(CBM_LIFECYCLE.full).toMatch(/fail-open/i);
-  });
 });

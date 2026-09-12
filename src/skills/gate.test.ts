@@ -3,6 +3,7 @@ import { OCEANUS_DISCUSS_SKILL } from './oceanus-discuss';
 import { OCEANUS_INTAKE_SKILL } from './oceanus-intake';
 import { OCEANUS_PLAN_SKILL } from './oceanus-plan';
 import { OCEANUS_DEBUGGING_SKILL } from './oceanus-debugging';
+import { BROWSER_VERIFY_SKILL } from './browser-verify';
 import { OCEANUS_EXECUTE_SKILL } from './oceanus-execute';
 import { OCEANUS_REVIEW_SKILL } from './oceanus-review';
 import { OCEANUS_FINISH_SKILL } from './oceanus-finish';
@@ -155,12 +156,17 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
   });
 
   test('执行配置批问归属 Intake，discuss 只消费配置并执行方案批准', () => {
-    expect(intakeContent).toContain('执行配置批问（一问三项');
+    expect(intakeContent).toContain('执行配置批问（一问三至四项');
     expect(intakeContent).toContain('execution_config');
     expect(intakeContent).not.toContain('Oracle 审查');
     expect(intakeContent).toContain('SDD');
     expect(intakeContent).toContain('TDD');
     expect(intakeContent).toContain('Review 循环执行');
+    // browser_verify 第四项：仅前端任务（frontend_scope ≠ none）条件批问。
+    expect(intakeContent).toContain('browser_verify');
+    expect(intakeContent).toContain('frontend_scope');
+    expect(intakeContent).toContain('not_asked: non-frontend');
+    expect(intakeContent).toContain('not_available: disabled-by-config');
     expect(discussContent).toContain('主流程必须有 `intake_report`');
     expect(discussContent).toContain('方案总批准');
     expect(discussContent).not.toContain('执行配置批问');
@@ -255,5 +261,37 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
     expect(reviewContent).toContain('edge_coverage');
     expect(reviewContent).toContain('prohibitions');
     expect(reviewContent).toContain('不重新发明验收口径');
+  });
+});
+
+describe('browser-verify 安全与门控契约', () => {
+  const browserVerifyContent = BROWSER_VERIFY_SKILL.content;
+
+  test('门控边界：off/not_asked/不可用时不触发且行为与现状一致', () => {
+    expect(browserVerifyContent).toContain('browser_verify');
+    expect(browserVerifyContent).toContain('不触发');
+    expect(browserVerifyContent).toContain('完全一致');
+    expect(browserVerifyContent).toContain('严禁 `browser_verify`=off、not_asked 或能力不可用时执行');
+    expect(browserVerifyContent).toContain('frontend_scope=none');
+  });
+
+  test('防静默安装：探测优先 + 用户确认门', () => {
+    expect(browserVerifyContent).toContain('**不得静默安装**');
+    expect(browserVerifyContent).toContain('严禁未经用户确认静默安装');
+    expect(browserVerifyContent).toContain('command -v agent-browser');
+    expect(browserVerifyContent).toContain('npm ls -g agent-browser');
+  });
+
+  test('fail-open 降级与循环预算口径', () => {
+    expect(browserVerifyContent).toContain('fail-open');
+    expect(browserVerifyContent).toContain('browser_verify: degraded');
+    expect(browserVerifyContent).toContain('≤3 轮');
+    expect(browserVerifyContent).toContain('不阻塞任务、不伪称已做浏览器验证');
+  });
+
+  test('上下文隔离与证据落盘约定', () => {
+    expect(browserVerifyContent).toContain('.oceanus/media/browser/');
+    expect(browserVerifyContent).toContain('严禁把截图或 base64 读入主上下文');
+    expect(browserVerifyContent).toContain('@observer');
   });
 });

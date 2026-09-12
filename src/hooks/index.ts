@@ -2,11 +2,12 @@
  * Oceanus 新增 Hook 的 v2 注册（tooling-9-v2-wiring）。
  *
  * 通过 `ctx.tool.hook("execute.before")` / `ctx.tool.hook("execute.after")` 注册，
- * 固定执行顺序：
- *   before: apply-patch → (loop-guard.before) → task-registry-observer.before
- *           → cbm-guidance.before
+ * 固定执行顺序（与 registerOceanusHooks 实际注册序列一致）：
+ *   before: apply-patch → (loop-guard.before) → secret-read-guard → planning-write-guard
+ *           → direct-mcp-write-guard → cbm-index-repeat-guard → cbm-guidance.before
  *   after:  json-error-recovery → tool-output-truncator → tool-loop-guard
- *           → task-registry-observer.after → cbm-guidance.after
+ *           → cbm-guidance.after
+ * （image-materializer / image-error-hint 为 session hook，独立注册。）
  *
  * 每个 Hook 独立容错：
  * - 注册阶段各自 try/catch，一个 Hook 注册失败不阻止其它 Hook。
@@ -188,7 +189,6 @@ export async function registerOceanusHooks(
     }
   }
 
-  // 2) tool-output-truncator
   // 2) tool-output-truncator
   if (isHookEnabled(config, 'tool_output_truncator')) {
     try {

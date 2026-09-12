@@ -29,7 +29,7 @@ ${cbmSection('explorer')}
 <results>
 <findings>
 - src/agents/oceanus.ts - Agent 常驻调度协议与委派边界
-- src/config/constants.ts:171 - WRITER_TOOL_PERMISSION 定义写权限结构（未确认：是否覆盖全部写入场景）
+- src/config/constants.ts:255 - WRITER_TOOL_PERMISSION 定义写权限结构（未确认：是否覆盖全部写入场景）
 </findings>
 </results>
 

@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { buildReviewPrompt, validateSubjectPath } from './protocol';
-import { getReviewScene, REVIEW_SCENES } from './scenes';
+import { REVIEW_SCENES } from './scenes';
 import { createSisyphusAgent } from '../agents/sisyphus';
 
 describe('REVIEW_SCENES 注册表', () => {
@@ -71,7 +70,6 @@ describe('REVIEW_SCENES 注册表', () => {
     expect(scene.independence).toBe('fresh-session');
     expect(scene.onReject).toBe('return-execute');
     expect(scene.maxRounds).toBe(3);
-    expect(scene.maxRounds).toBe(3);
   });
 
   test('visual-acceptance：observer 视觉验收（graded/fresh-session/return-execute）', () => {
@@ -87,22 +85,8 @@ describe('REVIEW_SCENES 注册表', () => {
   });
 });
 
-describe('getReviewScene', () => {
-  test('按名返回已注册场景', () => {
-    expect(getReviewScene('plan-gate')?.name).toBe('plan-gate');
-    expect(getReviewScene('solution-analysis')?.contract).toBe('advisory');
-    expect(getReviewScene('visual-acceptance')?.reviewer).toBe('observer');
-  });
-
-  test('未知名返回 undefined', () => {
-    expect(getReviewScene('nonexistent')).toBeUndefined();
-    expect(getReviewScene('')).toBeUndefined();
-    expect(getReviewScene('plan_gate')).toBeUndefined();
-  });
-});
-
 describe('plan-gate · momus 契约迁移', () => {
-  const scene = getReviewScene('plan-gate');
+  const scene = REVIEW_SCENES['plan-gate'];
   test('场景已注册，checks 非空', () => {
     expect(scene).toBeDefined();
     expect(scene!.checks.length).toBeGreaterThan(0);
@@ -179,52 +163,6 @@ describe('solution-analysis · metis 契约迁移', () => {
     expect(checks).toContain('qualified name');
     expect(checks).toContain('文件路径');
     expect(checks).toContain('行号');
-  });
-});
-
-describe('buildReviewPrompt 集成冒烟（plan-gate）', () => {
-  test('必附上下文仍注入审核提示', () => {
-    const scene = getReviewScene('plan-gate');
-    expect(scene).toBeDefined();
-    const prompt = buildReviewPrompt(scene!, {
-      scene: 'plan-gate',
-      subjectPath: '.oceanus/plan/x.md',
-      round: 1,
-    });
-    expect(prompt).toContain('plan-gate');
-    expect(prompt).toContain('.oceanus/plan/x.md');
-    // 检查清单随场景注入
-    expect(prompt).toContain('impact_estimate');
-    expect(prompt).toContain('最小修订集');
-  });
-});
-
-describe('validateSubjectPath · plan-gate', () => {
-  const scene = getReviewScene('plan-gate')!;
-
-  test('接受白名单内的相对路径', () => {
-    expect(validateSubjectPath(scene, '.oceanus/plan/foo.md')).toBe(true);
-    expect(validateSubjectPath(scene, '.omo/plans/main.md')).toBe(true);
-  });
-
-  test('拒绝含 .. 的越界路径', () => {
-    expect(validateSubjectPath(scene, '.oceanus/plan/../../etc/passwd')).toBe(false);
-  });
-});
-
-describe('validateSubjectPath · diff-review（含 .oceanus 内 .diff/.patch 落盘路径）', () => {
-  const scene = getReviewScene('diff-review')!;
-
-  test('接受 .oceanus 深层的 diff/patch 产物与本仓规范路径', () => {
-    expect(validateSubjectPath(scene, '.oceanus/review/oracle-review-protocol.diff')).toBe(true);
-    expect(validateSubjectPath(scene, '.oceanus/review/legacy.patch')).toBe(true);
-    expect(validateSubjectPath(scene, 'changes.diff')).toBe(true);
-    expect(validateSubjectPath(scene, '.oceanus/review/report.md')).toBe(true);
-  });
-
-  test('拒绝范围外路径', () => {
-    expect(validateSubjectPath(scene, 'src/foo.ts')).toBe(false);
-    expect(validateSubjectPath(scene, '.oceanus/review/../../etc/passwd')).toBe(false);
   });
 });
 

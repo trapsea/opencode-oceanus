@@ -23,22 +23,21 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 | `prometheus` | 方案研究与规划（先研究后规划，产物回复内交付、不落盘，全部自查、不委派 subagent） | primary |
 | `explorer` | 快速代码库检索 | subagent |
 | `librarian` | 外部文档 / 库研究 | subagent |
-| `oracle` | 按需分析顾问（复杂架构或高风险业务 advisory） | subagent |
+| `oracle` | 正式 Review 审查者（graded：PASS/WARN/FAIL）＋架构/调试顾问（consult）与方案分析（analysis） | subagent |
 | `designer` | 视觉设计迭代（样式 / 布局 / 动效开发与润色） | subagent |
 | `fixer` | 逃生舱执行（大批量并行机械实现，需满足逃生舱三条件） | subagent |
 | `observer` | 视觉 / 多媒体分析（**默认启用**，需要视觉模型） | subagent |
 
 `explorer`、`librarian`、`oracle` **只读**，不写任何文件、不委派、不执行 task（调研结果在回复中以七字段结构返回，不落盘）；`observer` 默认启用（需要视觉模型；无视觉模型时可经 `disabled_agents` 显式禁用）。`prometheus` 是受限主 agent：用户直接切换开启研究/规划会话，产出喂给执行的研究结论与可执行方案；不进入 preset 模型分层（跟随会话模型，可用 `agents.prometheus.model` 单独指定）。
 
-### 复杂任务按需咨询：Oracle advisory
+### Oracle：正式 Review 审查与按需顾问
 
-对复杂任务（需求模糊、风险高、多文件、方案未定型），`sisyphus` / `oceanus` 工作流遵循以下协议：
+Oracle 承担两类职责（均为 prompt/skill 层约定）：
 
-1. Sisyphus 直接完成 Intake、澄清目标与验收，并在 Intake 配置 SDD/TDD/Review 循环执行选项。
-2. 仅在复杂架构或高风险业务仍有关键未知时按需委派 `@oracle`，针对已落盘的 spec/plan 提供 advisory；简单任务不调用并记录理由。
-3. 该 advisory 不构成执行门禁，最终决策由 Sisyphus / orchestrator 负责。
+1. **正式 Review 审查（graded）**：Execute 完成后，Sisyphus 必须以完整 Oracle Brief 将正式审查委派 `@oracle`，并按双信号路由审查强度（docs-only diff → `diff-review` 轻量；trivial → `review` scoped 维度映射；standard/architecture → `review` 9 维全量）。Oracle 只读输出 PASS/WARN/FAIL；BLOCKER 按「Review 循环执行」配置回退 Execute 修复；Sisyphus 负责证据核验与阶段推进。
+2. **按需顾问（consult/analysis，advisory）**：复杂架构或高风险业务场景中，针对已落盘 spec/plan 提供咨询；该 advisory 不构成执行门禁，最终决策由 Sisyphus / orchestrator 负责。
 
-> **重要**：这是 prompt/skill 层约定，**不是**插件注册的自动运行时 supervisor；插件不会在运行时自动拦截执行路径。Oracle 输出仅为 advisory。
+> **重要**：这是 prompt/skill 层约定，**不是**插件注册的自动运行时 supervisor；插件不会在运行时自动拦截执行路径。Oracle 的正式审查 verdict 同样由 Sisyphus 核验后消费。
 
 ### 默认只读权限
 
@@ -171,11 +170,13 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 | Agent 常驻调度协议 | agent 路由、OpenCode v2 `subagent` child session、委派边界与并行规则，内置于 Oceanus/Sisyphus system prompt |
 | `oceanus-debugging` | 根因调查、单一假设验证和三轮失败升级 |
 | `clipboard-image-observer` | 图片/PDF 路径处理、L1-L5 分级与 observer 视觉验收流程 |
-| `oceanus-discuss` | 读取 Intake 已确认的执行配置、研究优先澄清需求、按复杂度分层呈现方案（Trivial 单方案精简 / Standard 推荐+备选 / Architecture 2-3 方案全维度）、再以方案总批准单问完成方向批准；SDD 开启时保存设计 spec 到 `.oceanus/spec/` |
+| `browser-verify` | 浏览器验证协议（agent-browser）：渲染截图、视觉 diff、token 核对与交互断言，含能力探测、安装引导、dev server 生命周期与 fail-open 降级；仅 browser_verify 执行配置开启的前端任务生效 |
+| `oceanus-discuss` | 读取 Intake 已确认的执行配置、研究优先澄清需求、提出 2-3 个真实可行候选方案（Trivial 也至少列出被考虑但不推荐的替代方案）、再以方案总批准单问完成方向批准；SDD 开启时保存设计 spec 到 `.oceanus/spec/` |
 | `oceanus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、依据 spec 自查影响面，并消费 Intake 的 SDD/TDD/Review 循环执行决策（不重复提问） |
-| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、代码项目技术环境调研（优先说明文档，按需读构建配置确定框架/运行时/验证命令）、任务分类、SDD/TDD/Review 循环执行三项执行配置批问与先于代码调研的 CBM 首次初始化（预判触发 + 分类修正） |
+| `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、代码项目技术环境调研（优先说明文档，按需读构建配置确定框架/运行时/验证命令）、任务分类、SDD/TDD/Review 循环执行三项加前端任务第四项 browser_verify 的执行配置批问（含 frontend_scope 前端范围判定）与先于代码调研的 CBM 首次初始化（预判触发 + 分类修正） |
 | `oceanus-execute` | 按计划实现；默认主 agent 执行，只有三条件同时满足时才并行 fixer，并同步 todo 状态 |
-| `oceanus-review` | Execute 后的最终 diff、影响面和证据化评审；按需转交 @oracle，验证发现后才接受 |
+| `oceanus-review` | Execute 后的正式分级审查：Sisyphus 收集证据并运行基础验证，以完整 Oracle Brief 委派 @oracle（docs-only 轻量 / trivial 维度映射 / 其余全量），核验结论并处置 BLOCKER |
+| `oceanus-finish` | 只读收口：按 Review（accepted）/ Completion Matrix（green）/ ledger（complete）/ evidence（fresh）四条同时满足判定交付；不测试、不构建、不调用 CBM、不委派、不修改文件 |
 
 `sisyphus` agent 会按阶段自动加载对应 skill。
 
@@ -193,14 +194,14 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 | **discuss** | Sisyphus 消费 Intake 已确认的执行配置，负责研究、澄清与方案决策；复杂架构或高风险业务取舍可按需委派 `@oracle`（analysis）提供 advisory；澄清完成后以方案总批准单问完成方向批准 | `.oceanus/spec/` |
 | **Plan** | Sisyphus 负责拆分任务、依据 spec 自查依赖/范围/验证并维护进度台账；复杂架构或高风险业务可按需咨询 Oracle advisory | `.oceanus/plan/` + 批准记录 |
 | **Execute** | 主 agent 按计划顺序直接执行（读代码/编辑/测试），上下文缺口委派 `@explorer` 补侦察；批量机械任务满足逃生舱三条件（文件集完全不相交 + 机械同构 + 任务数 ≥3）时并行 `@fixer`；视觉迭代任务 `@designer`；需求变化回 discuss，结构变化回 Plan | 代码变更 + 更新后的计划 |
-| **Review** | Execute 后主 agent 复查最终 diff、影响面和 Completion Audit；CBM 可刷新最终索引但 fail-open；高风险变更按需触发 Oracle advisory | 审查结论 |
+| **Review** | Sisyphus 收集证据、运行基础验证并将正式审查委派 `@oracle`（双信号分级路由）；CBM 可按最终 diff 刷新索引但 fail-open | 审查报告 |
 | **Finish** | Sisyphus 只读 Review 报告并收口，不测试、不构建、不调用 CBM、不委派、不修改文件 | 交付总结 |
 
 要点：该工作流是 **prompt / skill 层面的约束**，由 `sisyphus` 的提示词与 `sisyphus-*` skill 约定强制执行，**不是**运行时自动 supervisor——插件不会在运行时自动拦截或强制各阶段。禁用相关 Agent 时不得伪造阶段性结果，应如实说明能力缺失。
 
 ## 新增工具与运行时保护
 
-插件通过 `ctx.tool.transform` / `ctx.tool.hook` 注册一组原生 v2 工具与运行时保护 Hook，**默认全部启用**，可分别用 `disabled_tools`、`disabled_hooks` 或单项 `enabled: false` 关闭。具体设计见 `.oceanus/spec/tooling-and-runtime-guards.md`。
+插件通过 `ctx.tool.transform` / `ctx.tool.hook` 注册一组原生 v2 工具与运行时保护 Hook，**默认全部启用**，可分别用 `disabled_tools`、`disabled_hooks` 或单项 `enabled: false` 关闭。具体设计见 [`docs/tooling-and-runtime.md`](docs/tooling-and-runtime.md)。
 
 ### 内置工具
 
@@ -208,32 +209,24 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 |------|------|------|
 | `ast_grep_search` | 按 AST 语法模式搜索 | 只读；支持 `$VAR` / `$$$` 元变量、语言、路径、glob、上下文；受匹配数与输出字节上限、超时保护 |
 | `ast_grep_replace` | 按 AST 语法模式替换 | **默认 dry-run**（只预览不改写）；显式 `dryRun: false` 才真正写入；只改写工作区内的文件 |
-
-
-默认**关闭**（避免无限保留子会话与副作用重跑风险），通过配置开启：
-
-```jsonc
-{
-  "taskReuse": {
-    "enabled": true,
-    "ttlMs": 7200000,
-    "maxRetained": 16
-  }
-}
-```
-
-
-> **验证边界**：是否接受对已完成 subagent 子会话再次 `prompt` 并保留上下文，取决于 opencode v2 运行时的实际能力（官方文档未明确承诺）。插件对此 fail-open（`ok:false → uncertain`），不把"请求被接受"当成"续用成功"。建议在真实 opencode v2 host 上做一次 smoke 确认后再广泛依赖该能力。
+| `clipboard_image` | 读取剪贴板图片并保存为文件 | 优先 PNG，返回绝对路径；用于把用户粘贴/截图的图片交给 @observer 做视觉分析 |
+| `oceanus_config_generate` | 把内置厂商 blueprint 生成（或覆盖）为用户级 preset | `/oceanus-config` 对话流程的确定性写入端 |
 
 ### 内置 Hook
 
-Hook 通过 `execute.before` / `execute.after` 注册，每个 Hook 独立容错，单个失败不阻断插件启动。固定执行顺序：`before: apply-patch → tool-loop-guard.before → task-registry-observer.before`；`after: json-error-recovery → tool-output-truncator → tool-loop-guard → task-registry-observer.after`。
+Hook 通过 `execute.before` / `execute.after` 注册，每个 Hook 独立容错，单个失败不阻断插件启动。固定执行顺序：`before: apply-patch → tool-loop-guard → secret-read-guard → planning-write-guard → direct-mcp-write-guard → cbm-index-repeat-guard → cbm-guidance`；`after: json-error-recovery → tool-output-truncator → tool-loop-guard → cbm-guidance`（`image_materializer` / `image_error_hint` 为 session hook，独立注册）。
 
 | Hook | 位置 | 作用 | 失败边界 |
 |------|------|------|----------|
 | `apply_patch` | `before` | 校验并保守规范化 `apply_patch` 输入（解析 Codex 风格 patch、路径边界、无损重写） | 工作区外路径、只读输入 **`fail-open`**（交由宿主处理）；输入/校验/内部异常 **`fail-closed`**（抛错阻断执行） |
 | `json_error_recovery` | after | 修正工具返回的错误 JSON 参数，避免错误被当作结果吞掉 | **fail-open**：恢复失败不阻断已完成结果 |
 | `tool_output_truncator` | after | 截断超长工具输出，避免破坏上下文 | **fail-open**，保留错误、状态、diff 与 hash mismatch 等控制信息 |
+| `tool_loop_guard` | before+after | 检测会话内重复工具调用，达到 `warnAt` 提示、`blockAt` 熔断 | **fail-open** |
+| `secret_read_guard` | before | 阻断 `.env` / `.secrets` 等敏感文件内容进入对话 | 命中即**阻断**（fail-closed on match） |
+| `planning_write_guard` | before | 阻断对 `.oceanus` 产出文档的灾难性缩减覆盖 | 命中即**阻断** |
+| direct MCP 写入保护 / `cbm-index-repeat-guard` | before | 拒绝写入型 codebase-memory-mcp 工具；索引冷却窗内拒绝重复触发 | **fail-closed** |
+| `cbm_guidance` | before+after | 结构化查询前的索引健康提示与重复 grep/read 的 CBM 建议提示 | **fail-open**：CBM 不可用时标记不确定性并继续 |
+| `image_materializer` / `image_error_hint` | session prompt/retry | 粘贴图片物化到 `.oceanus/media/` 并追加路径提示；图片错误注入引导 | **fail-open**，两 hook 相互独立 |
 
 ### AST CLI 安装与诊断
 
@@ -253,7 +246,7 @@ $env:AST_GREP_BIN = "C:\path\to\ast-grep.exe"  # PowerShell
 set AST_GREP_BIN=C:\path\to\ast-grep.exe       # cmd.exe
 ```
 
-环境中没有真正可用的 ast-grep 时，工具会返回诊断信息；测试（`src/smoke/host-smoke.test.ts`）也会**明确 skip 真实 CLI 集成并输出诊断**，而不是把环境缺失误报为产品失败。真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内执行插件时验证；当前 beta 插件类型未暴露 `session.active` 时，运行时会探测并诚实降级，当前 bun test 环境无真实 host 时相关 smoke 会 skip，仅用 mock ctx 验证注册契约，不声称真实 host 已通过。
+环境中没有真正可用的 ast-grep 时，工具会返回诊断信息；测试（`src/smoke/` 下的集成用例与 `src/smoke/ast-grep-probe.ts`）也会**明确 skip 真实 CLI 集成并输出诊断**，而不是把环境缺失误报为产品失败。真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内执行插件时验证；当前 beta 插件类型未暴露 `session.active` 时，运行时会探测并诚实降级，当前 bun test 环境无真实 host 时相关 smoke 会 skip，仅用 mock ctx 验证注册契约，不声称真实 host 已通过。
 
 
 ## 配置
@@ -264,6 +257,10 @@ set AST_GREP_BIN=C:\path\to\ast-grep.exe       # cmd.exe
 [`docs/codebase-memory-mcp.md`](docs/codebase-memory-mcp.md)。默认启用 CLI/MCP 与查询前自动索引，Web UI 则按需启动（默认不自动启动）。
 
 CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` → 平台默认；插件 `setup` 后固定本次实例的缓存根快照。该目录是二进制安装缓存，不是 daemon 的索引/数据目录。安装会校验 `current.json`、版本与平台、二进制文件及 `--version`；已有使用不同 cache root 的 daemon 不会被自动接管，需先关闭旧会话并按目标缓存根重启。
+
+### agent-browser 浏览器验证（browser_verify）
+
+前端渲染验证能力：经 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) CLI 对前端 UI 还原与交互实现做渲染截图、视觉 diff、token 核对与交互断言。能力级配置 `agentBrowser`（`enabled` 默认 `true`、`autoInstall` 默认 `false`、`version`/`binaryPath`）；任务级由 Intake 执行配置批问第四项 `browser_verify` 决定——仅前端 UI/交互实现任务（`frontend_scope ≠ none`）出现，默认推荐关闭，关闭时流程与无此能力完全一致。运行协议见 `browser-verify` skill。安装、配置字段、降级口径与 `src/browser/` 模块说明详见 [`docs/agent-browser.md`](docs/agent-browser.md)。
 
 每个 agent 的模型等可通过独立 jsonc 配置文件定制：
 
@@ -308,7 +305,6 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
     "tool_output_truncator": { "enabled": true, "maxOutputBytes": 200000 },
     "tool_loop_guard": { "enabled": true, "warnAt": 3, "blockAt": 5 },
   },
-  "taskReuse": { "enabled": true }
 }
 ```
 
@@ -322,10 +318,9 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 - `disabled_agents`：禁用的 agent 名称；默认 `[]`（全部 agent 启用；`oceanus` 受保护，不可禁用）。
 - `disabled_tools`：禁用的工具名称数组，对工具拥有最终禁用权。
 - `disabled_hooks`：禁用的 Hook 名称数组，对 Hook 拥有最终禁用权。
-- `tools`：按工具名深合并的结构化配置（见下方「新增工具与运行时保护」）。
-- `hooks`：按 Hook 名深合并的结构化配置（见下方「新增工具与运行时保护」）。
+- `tools`：按工具名深合并的结构化配置（见上方「新增工具与运行时保护」）。
+- `hooks`：按 Hook 名深合并的结构化配置（见上方「新增工具与运行时保护」）。
 - 文件编辑使用宿主原生 `edit` / `write` / `apply_patch`（原生 diff 渲染与模型通用心智）。详见 `docs/tooling-and-runtime.md`。
-- `taskReuse`：subagent 会话复用配置，见「subagent 会话复用」小节。字段：`enabled`（默认 `true`，显式 `false` 可关闭）、`ttlMs`（默认 2h）、`maxRetained`（默认 16）。
 
 `presets.<name>.<agent>` 或 `agents.<agent>` 支持的完整字段：
 
@@ -403,9 +398,9 @@ bun run typecheck # 类型检查
 │   ├── config/         # jsonc 配置加载与 schema（paths / loader / schema / utils / constants）
 │   ├── agents/         # 各 agent 定义（oceanus / sisyphus + 6 个子 agent）
 │   ├── tools/          # 新增工具（ast-grep / clipboard-image / cbm）
-│   ├── hooks/          # 运行时保护 Hook（apply-patch / json-error-recovery / tool-output-truncator / tool-loop-guard / task-registry-observer）
-│   ├── runtime/        # task registry、workspace 解析等运行时支撑
-│   ├── smoke/          # ast-grep CLI 探测与 v2 host smoke
+│   ├── hooks/          # 运行时保护 Hook（apply-patch / json-error-recovery / tool-output-truncator / tool-loop-guard / secret-read-guard / planning-write-guard / cbm-guidance / image 处理）
+│   ├── runtime/        # 宿主桥接、setup 阶段编排、workspace 解析与会话能力契约
+│   ├── smoke/          # ast-grep CLI 探测与 setup/CBM 接线 smoke
 │   └── skills/         # sisyphus 六个阶段与支持型 skill（插件注入，安装无需拷贝）
 └── dist/               # 构建产物
 ```

@@ -218,8 +218,3 @@ export const REVIEW_SCENES: Readonly<Record<string, ReviewScene>> = Object.freez
   'completion-audit': completionAuditScene,
   'visual-acceptance': visualAcceptanceScene,
 });
-
-/** 按名取场景；未注册返回 undefined（调用方不得猜测默认场景）。 */
-export function getReviewScene(name: string): ReviewScene | undefined {
-  return REVIEW_SCENES[name];
-}

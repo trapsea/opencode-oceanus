@@ -4,8 +4,8 @@
  * 收敛散落在各 agent prompt / skill / 测试中的 CBM 规则文本：
  * - `CBM_TOOLS`：注册工具名的唯一硬编码处（tools/cbm/builders.ts 与契约测试共用）；
  * - `CBM_QUERY_EXAMPLES`：共享查询示例族（OrderHandler）；
- * - `CBM_LIFECYCLE`：CBM 主线（intake 首次初始化 → plan 自查 impact_estimate → review
- *   实际 diff 影响面复查），完整文本只注入 sisyphus 主 agent 一处；
+ * - `CBM_LIFECYCLE`：CBM 主线摘要句（brief），注入 oceanus/sisyphus 主 agent；
+ *   各阶段细节由阶段 skill 自持（与 cbm-usage.test「主 prompt 只保留摘要」契约一致）；
  * - `cbmSection(role)`：explorer/oracle/fixer/librarian 的角色 CBM
  *   段落（差异化语义保留，工具名/示例/公共句从本模块拼装）。
  *
@@ -95,25 +95,14 @@ export const CBM_LOOKUP_ORDER_NOTE =
   '通道错误清单与参数契约以 codebase-memory-mcp 优先规则为准。';
 
 /**
- * 六阶段 CBM 主线（完整文本）。
- * 只注入 sisyphus 主 agent 一处；oceanus 等其他 prompt 仅拼装片段
- * （`CBM_BOUNDARY_NOTE` / `CBM_QUERY_EXAMPLES`），防止双重注入。
+ * CBM 主线摘要（brief）。
+ * 注入 oceanus/sisyphus 主 agent；各阶段细节由阶段 skill 自持，
+ * 防止与阶段 skill 双重注入。
  */
 export const CBM_LIFECYCLE = {
   /** 一句话摘要（供简要引用场景）。 */
   brief:
     'Intake 首次初始化与 Review 刷新只用 cbm_index（唯一索引入口：目录名项目、各至多一次；重复触发被运行时拦截，状态查询用 cbm_status）→ codebase-memory-mcp（direct MCP）优先查询 → cbm_* wrapper 兜底 → Plan/Review 记录 impact_estimate 与降级证据。',
-  /** 完整主线（`## CBM 阶段边界` 段正文）。 */
-  full: [
-      '- intake: Sisyphus 直接完成边界收集；代码/混合任务仅尝试一次首次 cbm_index（唯一索引入口；勿用 direct index_repository 建索引），失败/超时/starting 必须故障开放并记录。',
-       '- discuss: 复用 Intake 报告与已建索引；按 codebase-memory-mcp 优先规则做必要的架构/符号定位，不重复初始化 CBM，不因普通文本探索触发全量索引。',
-      '- plan: 复用 Intake 报告与已建索引；按 codebase-memory-mcp 优先规则定位符号/调用链，不重复初始化 CBM。',
-       '- plan 影响面预估自查: 计划阶段校验 Plan 的 impact_estimate 是否覆盖计划声明的修改文件/公共符号及已知受影响调用方/契约；必要时按 codebase-memory-mcp 优先规则抽查关键点，不要求全量 trace。记录缺口供 Review 对比并写入 plan status；Oracle 仅按需提供 advisory 建议，不授予权限、不输出放行 verdict；只做查询、不重建索引；CBM 不可用时 fail-open，标注不确定性，不虚构影响面；简单任务跳过校验需记录理由。',
-       '- execute: 高风险公共符号修改前按 codebase-memory-mcp 优先规则做 trace/impact；Cypher 保持 cbm_query。普通机械修改不强制查询。',
-       '- review: 影响面复查——按最终 diff 需要时用 cbm_index 刷新索引（唯一索引入口），再按 codebase-memory-mcp 优先规则对实际 diff 再次排查影响面，并与 Plan 自查的预估对比；CBM 不可用时记录 cbm: stale、降级工具、覆盖范围和残余风险。',
-     '- finish: 不调用 CBM，只读 Review 报告汇总。',
-    '- 阶段 skill 只能补充工作流步骤，不能覆盖上述 CBM 调度边界或把 CBM 强制用于不适合的文本/AST 任务。',
-  ].join('\n'),
 } as const;
 
 /** 角色 CBM 段落支持的角色集合。 */
@@ -171,7 +160,7 @@ ${CBM_QUERY_EXAMPLES}`;
 
 const PROMETHEUS_SECTION = `**代码库知识图谱优先级（研究编排视角）**：
 1. 自查顺序：\`codebase-memory-mcp\` 直接工具（会话工具目录按名称调用：\`search_graph\`、\`trace_path\`、\`get_code_snippet\`、\`detect_changes\`；先 \`list_projects\` + \`index_status\` 确认当前 workspace 唯一健康 project）；通道不可用时回退 \`cbm_search_graph\`、\`cbm_trace\`、\`cbm_code\`；再回退 \`grep/glob/read\`。
-2. 结构化大范围侦察委派给 \`@explorer\`，外部资料委派给 \`@librarian\`；委派 prompt 中附上你已确认的 CBM 项目状态，避免子 agent 重复探测。
+2. 结构化大范围侦察由你本人分批并行完成（同一轮发起多个只读检索）；不委派任何 subagent——外部资料用 websearch/webfetch 自查，本地实现映射按上方检索顺序执行。
 3. 研究场景只使用查询型工具；禁止调用 \`cbm_index\`（权限已拒绝），索引初始化与刷新由主编排工作流负责。
 
 ${DIRECT_MCP_POLICY}

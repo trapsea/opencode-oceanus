@@ -1,6 +1,6 @@
 import type { AgentOverrideConfig } from '../config/schema';
 import { CBM_LIFECYCLE, DIRECT_MCP_POLICY } from '../cbm/registry';
-import { CODEMODE_CALLING_PROTOCOL, SISYPHUS_WORKFLOW_PROTOCOL } from './protocol';
+import { CODEMODE_CALLING_PROTOCOL, SISYPHUS_WORKFLOW_PROTOCOL, THREE_ROUND_TEMPLATE } from './protocol';
 
 export type PermissionConfig = NonNullable<AgentOverrideConfig['permission']>;
 
@@ -218,6 +218,7 @@ export function buildCompactPromptSections(
     agents: `${disabled}
 ${DISPATCH_PROTOCOL}
 ${CODEMODE_CALLING_PROTOCOL}
+${THREE_ROUND_TEMPLATE}
 遇到 bug、测试失败或异常行为时加载 oceanus-debugging Skill，先完成根因调查再修复。`,
     workflow: variant === 'sisyphus'
       ? `${SISYPHUS_WORKFLOW_PROTOCOL}\n\nCBM 生命周期摘要：${CBM_LIFECYCLE.brief}\n\n${DIRECT_MCP_POLICY}`
@@ -226,10 +227,7 @@ ${CODEMODE_CALLING_PROTOCOL}
   };
 }
 
-/**
- * excludeDescriptions 参数仅为调用方兼容保留；Agent 调度协议不依赖外部 Skill。
- */
-export function buildOceanusPrompt(disabledAgents?: Set<string>, _excludeDescriptions?: string[], waitForUserEnabled = true, variant: PromptVariant = 'oceanus'): string {
+export function buildOceanusPrompt(disabledAgents?: Set<string>, waitForUserEnabled = true, variant: PromptVariant = 'oceanus'): string {
   return renderPrompt(buildCompactPromptSections(disabledAgents, waitForUserEnabled, variant));
 }
 /**
@@ -240,12 +238,10 @@ export function createOceanusAgent(
   customPrompt?: string,
   customAppendPrompt?: string,
   disabledAgents?: Set<string>,
-  excludeDescriptions?: string[],
   waitForUserEnabled = true,
 ): AgentDefinition {
   const basePrompt = buildOceanusPrompt(
     disabledAgents,
-    excludeDescriptions,
     waitForUserEnabled,
   );
   const system = resolvePrompt(

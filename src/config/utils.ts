@@ -1,5 +1,6 @@
 import { DEFAULT_DISABLED_AGENTS, PROTECTED_AGENTS } from './constants';
 import type {
+  AgentBrowserConfig,
   AgentOverrideConfig,
   AutoUpdateConfig,
   CodebaseMemoryConfig,
@@ -29,6 +30,43 @@ export function getAutoUpdateConfig(
 ): AutoUpdateResolvedConfig {
   const raw: AutoUpdateConfig | undefined = config?.autoUpdate;
   return { ...DEFAULT_AUTO_UPDATE_CONFIG, ...raw };
+}
+
+export interface AgentBrowserResolvedConfig {
+  /** 能力总开关，默认 true（能力可用；per-task 是否启用仍由批问第四项决定）。 */
+  enabled: boolean;
+  /** 探测缺失时自动安装，默认 false（npm 安装 + Chrome 下载需显式授权）。 */
+  autoInstall: boolean;
+  version?: string;
+  binaryPath?: string;
+}
+
+/**
+ * agent-browser 默认配置：能力开、自动安装关。
+ * 截图落盘目录由 browser-verify skill 文案固定为 `.oceanus/media/browser/<task-id>/`
+ * （对齐 image-materializer 的 `.oceanus/media/` 约定），不作为可配置项暴露。
+ */
+const DEFAULT_AGENT_BROWSER_CONFIG: AgentBrowserResolvedConfig = {
+  enabled: true,
+  autoInstall: false,
+};
+
+/** 获取 agent-browser 配置（缺省字段回落默认值）。 */
+export function getAgentBrowserConfig(
+  config?: PluginConfig,
+): AgentBrowserResolvedConfig {
+  const raw: AgentBrowserConfig | undefined = config?.agentBrowser;
+  return { ...DEFAULT_AGENT_BROWSER_CONFIG, ...raw };
+}
+
+/** agent-browser 能力是否启用（关闭则批问不出现第四项、setup 不探测）。 */
+export function isAgentBrowserEnabled(config?: PluginConfig): boolean {
+  return getAgentBrowserConfig(config).enabled;
+}
+
+/** agent-browser 探测缺失时是否自动安装（显式 opt-in）。 */
+export function isAgentBrowserAutoInstallEnabled(config?: PluginConfig): boolean {
+  return getAgentBrowserConfig(config).autoInstall;
 }
 
 /** 获取某个 agent 的配置覆盖 */

@@ -40,7 +40,7 @@ Sisyphus 主 Agent 持有计划、实现、ledger 与验收上下文；默认自
 2. **主 agent 直接实现** — 按 plan 任务顺序逐个由主 agent 自己实现：读代码、编辑、运行测试、修复。动手前检查上下文缺口：缺口 → 委派 @explorer 补侦察（调研简报：附检索范围与返回格式），拿到浓缩事实再动手，禁止自己全量扫库重建认知。只读调研（@explorer/@librarian/@oracle 场景/@observer）相互独立时可在同一轮并行派发，不占用写入面、不参与文件所有权计算。遇到故障时先完成 oceanus-debugging 的四阶段，不得先写猜测式补丁。
 3. **高风险与大输入处理** — 高风险公共符号、接口或配置契约修改前 → ${CBM_LOOKUP_ORDER_NOTE}：先用 search_graph 定位 exact symbol，再做 trace_path 调用链/影响面追踪（depth 按 depth 场景规则），或委派 @oracle(consult) 咨询影响面与方案。Cypher 保持 \`cbm_query\`。网页/外部文档 → @librarian，图像/PDF → @observer，预期超过 ~2000 行的命令输出 → shell 管道截断或委派 @explorer。**Code Mode 调用纪律**：${CODEMODE_CALLING_PROTOCOL}
 4. **任务开工前更新（SDD 模式）** — SDD 开启时，任务开工前把该任务 ledger 行从 \`pending\` 更新为 \`in_progress\`（含执行者与时间戳），ledger 由主 agent 串行写入。SDD 关闭时用 \`todowrite\` 同步 todo 即可，不写文件。绝不要因为更新 progress-ledger 而中断或推迟当前任务。
-5. **每个任务完成即验证并更新** — 任一任务完成后，立即运行或核验其声明的验证（typecheck/test/适用时真实表面验证），然后记录 \`completed\`/\`failed\`/\`blocked\`（SDD 模式写入 ledger 行，含证据、时间戳、备注；非 SDD 更新 todo）。同时记录该任务**实际实现代码 diff 行数**（git diff --stat 或等价方式，测试代码不计入），与 plan 预估行数一并写入备注，供 review 对比。
+5. **每个任务完成即验证并更新** — 任一任务完成后，立即运行或核验其声明的验证（typecheck/test/适用时真实表面验证；browser_verify 开启的前端任务，真实表面验证含 agent-browser 渲染截图/交互断言，见「浏览器验证」节），然后记录 \`completed\`/\`failed\`/\`blocked\`（SDD 模式写入 ledger 行，含证据、时间戳、备注；非 SDD 更新 todo）。同时记录该任务**实际实现代码 diff 行数**（git diff --stat 或等价方式，测试代码不计入），与 plan 预估行数一并写入备注，供 review 对比。
 6. **执行委派逃生舱（唯一并行执行例外）** — 仅当「文件集完全不相交 + 改动机械同构 + 任务数 ≥3」三条件同时满足时，才把该批量任务拆给多个 @fixer 并行：在同一轮发起多个独立的 \`subagent({ agent, description, prompt, background: true })\` 调用（每个任务的 description 中都要有 lane marker），依赖任务等待其终态结果，返回后由主 agent 核验其声明的验证再记终态。三条件任一不满足时不得拆分，一律主 agent 自己实现。
 7. **同步 todo 列表** — 保持内存中的 todo 与 ledger（SDD 模式）一致：将 plan 任务登记为 \`pending\`，任务开工时将当前任务标记为 \`in_progress\`，仅在获得终态结果和验证证据后将其标记为 \`completed\`/\`failed\`/\`blocked\`。
 
@@ -54,7 +54,16 @@ Sisyphus 主 Agent 持有计划、实现、ledger 与验收上下文；默认自
  - 如果项目没有 formatter、formatter 不可用或执行失败，不得假称已完成格式化：记录具体命令、错误和残余风险，并至少执行可用的静态检查或人工结构检查。
  - 完成任务前必须把格式化/格式检查结果作为验证证据；格式化失败导致代码难以审查时，应将任务标记为未完成并返回修复，而不是直接进入 Review。
 
- ## TDD 与测试纪律
+ ## 浏览器验证（browser_verify，前端任务门控）
+
+仅当 Intake 执行配置 \`browser_verify=on\` 且任务属 \`frontend_scope\`（ui-pixel / ui-standard / interaction）时适用；off、not_asked 或能力不可用时本节全部跳过，执行行为与无本节完全一致。命令映射、能力探测、安装引导与降级口径见 browser-verify skill。
+
+- **designer 视觉短反馈**：designer（lane:fe-ui）每完成一个视觉任务，立即按 browser-verify skill 启动/复用 dev server 并取得渲染截图，交 observer（复用会话）快速核对；token 级核对（\`get styles\`/\`get box\` 数值 JSON）由主 agent 直接消费，无需 observer。发现偏差当轮修正，不等 Review——这是 browser_verify 对 UI 还原效率的主要杠杆。
+- **real-surface 取证**：涉渲染表面的任务完成时，浏览器验证产物（渲染截图、get styles/get box 数值、交互断言输出、console/errors 摘要）作为该任务 real-surface 证据，按 evidence tier 记录命令、退出码与 git state 绑定；浏览器验证是 real-surface 的补充，不替代单元测试/typecheck。
+- **修复循环预算**：视觉修正 ≤3 轮（对齐 clipboard-image-observer 的 L5 闭环）；第 3 轮仍 FAIL 按既有 3 轮中断上报模板处理，不无限重试。
+- **fail-open**：agent-browser 不可用、命令失败或 dev server 起不来时，降级为人工截图/手工 QA 口径，记录 \`browser_verify: degraded (<原因>)\`；不阻塞任务、不伪称已做浏览器验证。
+
+## TDD 与测试纪律
 
 ### TDD 开启
 

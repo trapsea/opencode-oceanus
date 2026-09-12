@@ -4,8 +4,10 @@ import { Plugin } from '@opencode-ai/plugin';
 import { getAgentDefinitions } from './agents';
 import type { AgentOverrideConfig, PluginConfig } from './config/schema';
 import { loadPluginConfig } from './config/loader';
+import { getAgentBrowserConfig } from './config/utils';
 import { getUserPresetConfigPath, readUserConfig, switchPresetOnDisk, type Preset } from './config/presets';
 import { OCEANUS_SKILLS } from './skills';
+import { detectAgentBrowser, installAgentBrowser } from './browser';
 import { createCommands } from './commands';
 import { registerCbmMcp } from './cbm/mcp';
 import { registerOceanusTools } from './tools';
@@ -55,7 +57,6 @@ interface AgentRefreshState {
 }
 
 /**
- * 应用 agent 定义到宿主（transform + reload）。
  * 应用 agent 定义到宿主（transform + reload）。插件 setup 执行一次；
  * /preset 切换时通过 rebuildAgents 再次调用以立即生效（当前会话模型切换
  * + registry 重建，后续 subagent 立即使用新模型）。
@@ -441,6 +442,43 @@ export async function runSetup(
     },
 
     {
+      name: 'browser',
+      run: () => {
+        // agent-browser 能力探测与可选自动安装（browser-verify 能力层）。
+        // fail-open：只记日志，任何失败不阻塞 setup；运行时 agent 按
+        // browser-verify skill 文案自行探测，不依赖本阶段结果。
+        // autoInstall=true（默认 false）视为用户显式授权，安装 detached 执行
+        //（npm 安装 + Chrome for Testing 下载耗时，不阻塞启动）。
+        const agentBrowser = getAgentBrowserConfig(config);
+        if (!agentBrowser.enabled) return;
+        void (async () => {
+          try {
+            let detected = await detectAgentBrowser({
+              configuredBinaryPath: agentBrowser.binaryPath,
+            });
+            if (!detected.available && agentBrowser.autoInstall) {
+              const installed = await installAgentBrowser({
+                version: agentBrowser.version,
+                withDeps: process.platform === 'linux',
+                runDoctor: true,
+                // config agentBrowser.autoInstall=true 即显式授权（默认 false，
+                // 缺省时本分支不可达，不会出现静默安装）。
+                confirm: () => true,
+              });
+              // 日志使用安装后的探测结果（available 应为 true），避免误导。
+              detected = installed.detect;
+            }
+            log('[oceanus] agent-browser 探测', { ...detected });
+          } catch (error) {
+            log('[oceanus] agent-browser 探测/安装失败（fail-open）', {
+              error: messageOf(error),
+            });
+          }
+        })();
+      },
+    },
+
+    {
       name: 'auto-update',
       run: () => {
         if (!(ctx as unknown as { event?: unknown }).event) return;
@@ -638,11 +676,11 @@ export async function runSetup(
  * - oceanus（主 agent，颜色 #0FFFFF）
    * - sisyphus（主 agent，六阶段工作流）
  * - explorer / librarian / oracle / designer / fixer / observer（子 agent，observer 需要视觉模型；
- *   oracle 为统一分析顾问，三场景 consult/analysis/gate 见 src/review/scenes.ts）
+ *   oracle 为正式 Review 审查者并承担 consult/analysis 顾问，场景注册表见 src/review/scenes.ts）
  *
  * 同时通过 ctx.skill.transform 注入 sisyphus 工作流的六个阶段 Skill
  * （oceanus-intake / oceanus-discuss / oceanus-plan / oceanus-execute /
- * oceanus-review），
+ * oceanus-review / oceanus-finish）及支持型 Skill，
  * 安装插件即可使用，无需拷贝任何 skill 文件。
  *
  * 每个 agent 的模型可通过配置文件独立指定

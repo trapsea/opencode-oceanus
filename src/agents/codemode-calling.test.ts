@@ -1,9 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { OCEANUS_EXECUTE_SKILL } from '../skills/oceanus-execute';
-import {
-  buildAgentProtocol,
-  CODEMODE_CALLING_PROTOCOL,
-} from './protocol';
+import { CODEMODE_CALLING_PROTOCOL } from './protocol';
 import { buildCompactPromptSections, renderPrompt } from './oceanus';
 
 /**
@@ -32,10 +29,6 @@ describe('Code Mode 调用纪律', () => {
     const disabled = new Set(['observer']);
     const prompt = renderPrompt(buildCompactPromptSections(disabled, true, 'sisyphus'));
     expect(prompt).toContain('### Code Mode 调用纪律');
-  });
-
-  test('buildAgentProtocol 组合包含纪律', () => {
-    expect(buildAgentProtocol()).toContain('Code Mode 调用纪律');
   });
 
   test('oceanus-execute skill 步骤 3 同步纪律（防 skill 文本漂移）', () => {

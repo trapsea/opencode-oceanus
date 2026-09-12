@@ -53,11 +53,9 @@
 
 ## 插件侧版本与运行时边界
 
-- setup 阶段不从 `ctx.session` 读取当前会话 ID：该对象是 `SessionDomain` API 域，不是会话实例。任务索引根使用插件实例目录；真实父会话 ID 只在工具/事件上下文中使用。参见 `src/index.ts:168-184` 与 `src/runtime/types.ts:166-175`。
-
-
-- `taskReuse` 的代码默认值为启用；可用配置显式关闭。不要沿用旧文档中“默认关闭”的表述：`src/config/utils.ts:243-247`、`src/config/schema.ts:188`。
-- `session.active`、`interrupt` 等真实 Host 能力在普通 `bun test` 中没有真实宿主；相关 smoke 会 skip 或使用 mock，不等价于真实 Host 通过。参见 `README.md:245`、`src/smoke/host-smoke.test.ts`。
+- setup 阶段不从 `ctx.session` 读取当前会话 ID：该对象是 `SessionDomain` API 域，不是会话实例；真实父会话 ID 只在工具/事件上下文中使用。参见 `src/runtime/types.ts`。
+- `session.wait({ sessionID })`（后台调研同步门禁依赖）：`SessionLike.wait?` 类型契约见 `src/runtime/types.ts`，出处为官方 v2 插件文档 `SessionContext.wait(input)`（等待会话空闲/结束）；prompt 层已带宿主不可用时的 fail-open 兜底（discuss/plan skill 阶段入口）。真实宿主端到端未实证，升级宿主时需复测。
+- `session.active`、`interrupt` 等真实 Host 能力在普通 `bun test` 中没有真实宿主；相关 smoke 会 skip 或使用 mock，不等价于真实 Host 通过。参见 `README.md` 与 `src/smoke/` 下测试。
 - 图片 `prompt` / `retry` hook 属于运行时能力：beta-18721+ 类型联合已正式覆盖 `prompt`/`retry`，注册仍保留运行时能力探测并 fail-open（类型声明不等于运行时保证）；`retry` 不可用不得影响 `prompt`。参见 `src/hooks/index.ts:253-293` 与 `src/hooks/image-*.ts`。
 - CBM 二进制版本与 npm 插件版本解耦；当前默认 CBM 版本为 `0.10.8`，下载必须经过内置 manifest 的 SHA-256 校验。参见 [`codebase-memory-mcp.md`](codebase-memory-mcp.md)。
 - AST 工具依赖真实 ast-grep CLI；OpenCode Host 不会替插件安装该 CLI。参见 [`tooling-and-runtime.md`](tooling-and-runtime.md)。

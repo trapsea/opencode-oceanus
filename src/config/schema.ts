@@ -165,6 +165,25 @@ export const CodebaseMemoryConfigSchema = z
   })
   .strict();
 
+/**
+ * agent-browser 前端渲染验证的能力级配置。
+ * 仅包含开关、版本/路径与目录控制；缺省字段使用默认值（见 utils.ts）。
+ * 与 codebaseMemory 不同：agent-browser 走官方 npm 分发且自带 doctor 自检，
+ * 不需要插件内置平台 manifest 校验层。`.strict()` 拒绝未知字段。
+ */
+export const AgentBrowserConfigSchema = z
+  .object({
+    /** 能力总开关（默认 true）；关闭后批问不出现第四项、setup 不探测。 */
+    enabled: z.boolean().optional(),
+    /** 探测缺失时自动安装（默认 false——npm 安装 + Chrome for Testing 下载需显式授权）。 */
+    autoInstall: z.boolean().optional(),
+    /** npm 安装时锁定的版本（缺省装 latest）。 */
+    version: z.string().min(1).optional(),
+    /** 用户自带二进制的绝对路径（优先于 PATH 探测结果之后、npm global 之前）。 */
+    binaryPath: z.string().min(1).optional(),
+  })
+  .strict();
+
 /** 自动更新配置；未知字段（包括 allowMajor）会被拒绝。 */
 export const AutoUpdateConfigSchema = z
   .object({
@@ -194,6 +213,7 @@ export const PluginConfigSchema = z
     tools: ToolsConfigSchema.optional(),
     hooks: HooksConfigSchema.optional(),
     codebaseMemory: CodebaseMemoryConfigSchema.optional(),
+    agentBrowser: AgentBrowserConfigSchema.optional(),
     autoUpdate: AutoUpdateConfigSchema.optional(),
     /**
      * orchestrator 主模型视觉能力声明：
@@ -213,6 +233,7 @@ export type HooksConfig = z.infer<typeof HooksConfigSchema>;
 export type CodebaseMemoryConfig = z.infer<
   typeof CodebaseMemoryConfigSchema
 >;
+export type AgentBrowserConfig = z.infer<typeof AgentBrowserConfigSchema>;
 export type AutoUpdateConfig = z.infer<typeof AutoUpdateConfigSchema>;
 export type CodebaseMemoryUiConfig = z.infer<
   typeof CodebaseMemoryUiConfigSchema

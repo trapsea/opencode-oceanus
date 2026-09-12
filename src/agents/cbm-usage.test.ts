@@ -128,11 +128,11 @@ describe('CBM-GATE-01 静态提示词契约', () => {
     expect(createPrometheusAgent().system).toContain(cbmSection('prometheus'));
   });
 
-  test('完整 CBM 生命周期下沉到 Skill，主 prompt 只保留摘要', () => {
-    expect(buildOceanusPrompt()).not.toContain(CBM_LIFECYCLE.full);
+  test('主 prompt 只保留 CBM 摘要（阶段细节由阶段 skill 自持）', () => {
+    expect(buildOceanusPrompt()).toContain(CBM_LIFECYCLE.brief);
     const sys = createSisyphusAgent().system!;
-    expect(sys).not.toContain(CBM_LIFECYCLE.full);
-    expect(sys).toContain('CBM 生命周期');
+    expect(sys).toContain('CBM 生命周期摘要');
+    expect(sys).toContain(CBM_LIFECYCLE.brief);
   });
 
   test('agent 路由描述常驻于 Oceanus/Sisyphus prompt，不依赖调度 Skill', () => {
