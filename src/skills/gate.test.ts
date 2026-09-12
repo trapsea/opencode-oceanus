@@ -3,7 +3,7 @@ import { OCEANUS_DISCUSS_SKILL } from './oceanus-discuss';
 import { OCEANUS_INTAKE_SKILL } from './oceanus-intake';
 import { OCEANUS_PLAN_SKILL } from './oceanus-plan';
 import { OCEANUS_DEBUGGING_SKILL } from './oceanus-debugging';
-import { BROWSER_VERIFY_SKILL } from './browser-verify';
+import { AGENT_BROWSER_SKILL } from './agent-browser';
 import { OCEANUS_EXECUTE_SKILL } from './oceanus-execute';
 import { OCEANUS_REVIEW_SKILL } from './oceanus-review';
 import { OCEANUS_FINISH_SKILL } from './oceanus-finish';
@@ -264,15 +264,23 @@ describe('Plan impact_estimate 与 advisory 契约', () => {
   });
 });
 
-describe('browser-verify 安全与门控契约', () => {
-  const browserVerifyContent = BROWSER_VERIFY_SKILL.content;
+describe('agent-browser 安全与门控契约', () => {
+  const browserVerifyContent = AGENT_BROWSER_SKILL.content;
 
   test('门控边界：off/not_asked/不可用时不触发且行为与现状一致', () => {
     expect(browserVerifyContent).toContain('browser_verify');
     expect(browserVerifyContent).toContain('不触发');
     expect(browserVerifyContent).toContain('完全一致');
-    expect(browserVerifyContent).toContain('严禁 `browser_verify`=off、not_asked 或能力不可用时执行');
+    expect(browserVerifyContent).toContain('严禁在 `browser_verify`=off、not_asked 或能力不可用时执行');
     expect(browserVerifyContent).toContain('frontend_scope=none');
+  });
+
+  test('模式一（通用操作）无门控且与验证语义隔离', () => {
+    expect(browserVerifyContent).toContain('通用浏览器操作');
+    expect(browserVerifyContent).toContain('无需任何执行配置');
+    expect(browserVerifyContent).toContain('实验性操作不构成验收证据');
+    expect(browserVerifyContent).toContain('模式一（通用操作）不受此门控影响');
+    expect(browserVerifyContent).toContain('只读 agent（explorer/librarian/oracle）只运行无落盘命令');
   });
 
   test('防静默安装：探测优先 + 用户确认门', () => {

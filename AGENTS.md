@@ -13,13 +13,13 @@ OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode
 | `src/index.ts` | CLI 插件入口、`Plugin.define`、setup 阶段及 agent/skill/command/tool/hook 接线 |
 | `src/tui.tsx` | TUI sidebar 插件入口与会话/模型展示 |
 | `src/agents/` | 9 个 agent 定义、工厂与编排协议 |
-| `src/skills/` | 10 个内置 skill：`opencode-oceanus`、6 个 Sisyphus 阶段、`oceanus-debugging`、视觉分析（`clipboard-image-observer`）与浏览器验证（`browser-verify`） |
+| `src/skills/` | 10 个内置 skill：`opencode-oceanus`、6 个 Sisyphus 阶段、`oceanus-debugging`、视觉分析（`clipboard-image-observer`）与浏览器操作/验证（`agent-browser`） |
 | `src/tools/` | 4 个核心工具（`ast_grep_search` / `ast_grep_replace` / `clipboard_image` / `oceanus_config_generate`）；`src/tools/cbm/` 另有 7 个受配置门控的 CBM 工具 |
 | `src/hooks/` | 工具输入输出、循环、敏感读取与规划文档保护、CBM 引导与索引防重、图片处理保护 |
 | `src/config/` | Zod schema、配置加载、preset、默认值、路径与工具选择矩阵单一来源（`tool-matrix.ts`） |
 | `src/runtime/` | 宿主桥接、setup 阶段编排（runOptionalStages）、workspace 解析与会话能力契约 |
 | `src/cbm/` | CBM 下载、校验、进程、索引、MCP、CLI 与 wiring |
-| `src/browser/` | agent-browser 浏览器验证能力层：三级探测、确认门安装与 setup 接线（协议在 `browser-verify` skill） |
+| `src/browser/` | agent-browser 浏览器能力层：三级探测、确认门安装与 setup 接线（协议在 `agent-browser` skill） |
 | `src/update/` | npm 版本检查、OpenCode 安装上下文、staging 与原子更新 |
 | `src/commands/` | `/preset` 等插件命令 |
 | `scripts/` | 构建产物和 skill 一致性验证 |
@@ -33,7 +33,7 @@ OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode
 - 写入/设计 subagent：`designer`、`fixer`。
 - `observer` 默认启用，需要视觉模型，可经 `disabled_agents` 显式禁用；只读 subagent（`explorer` / `librarian` / `oracle` / `observer`）不写任何文件、不委派、不执行 task；调研结果在回复中以七字段结构返回并在会话内复用，不落盘。
 - `prometheus` 是首个带显式受限权限的主 agent：写路径与 `skill` 全部 deny（产物纯回复交付、不落盘），`question` allow；不委派任何 subagent（`task`/`subagent` 沿用只读表整体 deny，全部研究自查——宿主 task 工具按裸 agent 名评估权限，前缀式资源级白名单 `task.explorer` 已实测永不匹配并移除，见 `docs/opencode-v2-compatibility.md`）；不进 vendor preset 模型分层（跟随会话模型，可用 `agents.prometheus.model` 单独指定）；用户显式 `agents.prometheus.permission` 会整体替换默认权限表（非合并）。
-- 复杂任务遵循 `intake → discuss → plan → execute → review → finish`；执行配置由 Intake 前置的执行配置批问确认——一次 question 批量问三项（SDD/TDD/Review 循环执行），前端 UI/交互实现任务（`frontend_scope ≠ none`）同一批问追加第四项 browser_verify（agent-browser 浏览器渲染验证，协议见 `browser-verify` skill 与 `docs/agent-browser.md`），**四项默认推荐全部关闭**；仅实现类任务批问，调研/查询/方案设计等非实现类任务跳过批问并按默认关闭记录（not_asked: non-implementation）；漏答回落默认关闭并记录、不补问，Trivial 实现任务亦完整批问。Oracle 在 Review 阶段执行正式只读审查（graded：PASS/WARN/FAIL，BLOCKER 触发 Execute 回退）；consult/analysis 仅为按需 advisory，不构成门禁。Review 发现 BLOCKER 后按「Review 循环执行」开关分流：开启时自动修复并重新 Review（复审闭环最多 3 轮，通过才进入 Finish）；关闭（默认）时一次性修复全部 BLOCKER 并取得当前状态验证证据后直接进入 Finish，不重新 Review；UNCERTAIN 在任何模式下都阻塞并请求用户决策。
+- 复杂任务遵循 `intake → discuss → plan → execute → review → finish`；执行配置由 Intake 前置的执行配置批问确认——一次 question 批量问三项（SDD/TDD/Review 循环执行），前端 UI/交互实现任务（`frontend_scope ≠ none`）同一批问追加第四项 browser_verify（agent-browser 浏览器渲染验证，协议见 `agent-browser` skill 与 `docs/agent-browser.md`），**四项默认推荐全部关闭**；仅实现类任务批问，调研/查询/方案设计等非实现类任务跳过批问并按默认关闭记录（not_asked: non-implementation）；漏答回落默认关闭并记录、不补问，Trivial 实现任务亦完整批问。Oracle 在 Review 阶段执行正式只读审查（graded：PASS/WARN/FAIL，BLOCKER 触发 Execute 回退）；consult/analysis 仅为按需 advisory，不构成门禁。Review 发现 BLOCKER 后按「Review 循环执行」开关分流：开启时自动修复并重新 Review（复审闭环最多 3 轮，通过才进入 Finish）；关闭（默认）时一次性修复全部 BLOCKER 并取得当前状态验证证据后直接进入 Finish，不重新 Review；UNCERTAIN 在任何模式下都阻塞并请求用户决策。
 
 ## 修改与协作边界
 

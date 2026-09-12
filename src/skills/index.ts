@@ -6,7 +6,7 @@ import { OCEANUS_REVIEW_SKILL } from './oceanus-review';
 import { OCEANUS_FINISH_SKILL } from './oceanus-finish';
 import { OPENCODE_OCEANUS_SKILL } from './opencode-oceanus';
 import { CLIPBOARD_IMAGE_OBSERVER_SKILL } from './clipboard-image-observer';
-import { BROWSER_VERIFY_SKILL } from './browser-verify';
+import { AGENT_BROWSER_SKILL } from './agent-browser';
 import { OCEANUS_DEBUGGING_SKILL } from './oceanus-debugging';
 
 export type { SkillDefinition } from './types';
@@ -25,5 +25,5 @@ export const OCEANUS_SKILLS = [
   OCEANUS_REVIEW_SKILL,
   OCEANUS_FINISH_SKILL,
   CLIPBOARD_IMAGE_OBSERVER_SKILL,
-  BROWSER_VERIFY_SKILL,
+  AGENT_BROWSER_SKILL,
 ];

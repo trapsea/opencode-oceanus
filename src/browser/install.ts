@@ -2,7 +2,7 @@ import { crossSpawn, type SpawnFn } from '../cbm/process';
 import { detectAgentBrowser, type AgentBrowserDetectResult } from './detect';
 
 /**
- * agent-browser 安装（browser-verify 能力层）。
+ * agent-browser 安装（agent-browser skill 能力层）。
  *
  * 确认门 fail-closed：没有 confirm 回调或 confirm 返回 false 一律拒绝安装
  * （Chrome for Testing 体积大、Linux 还需系统依赖，必须显式授权；

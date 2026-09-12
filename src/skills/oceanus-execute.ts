@@ -56,9 +56,9 @@ Sisyphus 主 Agent 持有计划、实现、ledger 与验收上下文；默认自
 
  ## 浏览器验证（browser_verify，前端任务门控）
 
-仅当 Intake 执行配置 \`browser_verify=on\` 且任务属 \`frontend_scope\`（ui-pixel / ui-standard / interaction）时适用；off、not_asked 或能力不可用时本节全部跳过，执行行为与无本节完全一致。命令映射、能力探测、安装引导与降级口径见 browser-verify skill。
+仅当 Intake 执行配置 \`browser_verify=on\` 且任务属 \`frontend_scope\`（ui-pixel / ui-standard / interaction）时适用；off、not_asked 或能力不可用时本节全部跳过，执行行为与无本节完全一致。命令映射、能力探测、安装引导与降级口径见 agent-browser skill。
 
-- **designer 视觉短反馈**：designer（lane:fe-ui）每完成一个视觉任务，立即按 browser-verify skill 启动/复用 dev server 并取得渲染截图，交 observer（复用会话）快速核对；token 级核对（\`get styles\`/\`get box\` 数值 JSON）由主 agent 直接消费，无需 observer。发现偏差当轮修正，不等 Review——这是 browser_verify 对 UI 还原效率的主要杠杆。
+- **designer 视觉短反馈**：designer（lane:fe-ui）每完成一个视觉任务，立即按 agent-browser skill 启动/复用 dev server 并取得渲染截图，交 observer（复用会话）快速核对；token 级核对（\`get styles\`/\`get box\` 数值 JSON）由主 agent 直接消费，无需 observer。发现偏差当轮修正，不等 Review——这是 browser_verify 对 UI 还原效率的主要杠杆。
 - **real-surface 取证**：涉渲染表面的任务完成时，浏览器验证产物（渲染截图、get styles/get box 数值、交互断言输出、console/errors 摘要）作为该任务 real-surface 证据，按 evidence tier 记录命令、退出码与 git state 绑定；浏览器验证是 real-surface 的补充，不替代单元测试/typecheck。
 - **修复循环预算**：视觉修正 ≤3 轮（对齐 clipboard-image-observer 的 L5 闭环）；第 3 轮仍 FAIL 按既有 3 轮中断上报模板处理，不无限重试。
 - **fail-open**：agent-browser 不可用、命令失败或 dev server 起不来时，降级为人工截图/手工 QA 口径，记录 \`browser_verify: degraded (<原因>)\`；不阻塞任务、不伪称已做浏览器验证。

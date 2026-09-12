@@ -444,9 +444,9 @@ export async function runSetup(
     {
       name: 'browser',
       run: () => {
-        // agent-browser 能力探测与可选自动安装（browser-verify 能力层）。
+        // agent-browser 能力探测与可选自动安装（agent-browser skill 能力层）。
         // fail-open：只记日志，任何失败不阻塞 setup；运行时 agent 按
-        // browser-verify skill 文案自行探测，不依赖本阶段结果。
+        // agent-browser skill 文案自行探测，不依赖本阶段结果。
         // autoInstall=true（默认 false）视为用户显式授权，安装 detached 执行
         //（npm 安装 + Chrome for Testing 下载耗时，不阻塞启动）。
         const agentBrowser = getAgentBrowserConfig(config);

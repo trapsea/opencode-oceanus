@@ -170,7 +170,7 @@ agent 未配置专用模型时显示“跟随会话”；如果模型包含 vari
 | Agent 常驻调度协议 | agent 路由、OpenCode v2 `subagent` child session、委派边界与并行规则，内置于 Oceanus/Sisyphus system prompt |
 | `oceanus-debugging` | 根因调查、单一假设验证和三轮失败升级 |
 | `clipboard-image-observer` | 图片/PDF 路径处理、L1-L5 分级与 observer 视觉验收流程 |
-| `browser-verify` | 浏览器验证协议（agent-browser）：渲染截图、视觉 diff、token 核对与交互断言，含能力探测、安装引导、dev server 生命周期与 fail-open 降级；仅 browser_verify 执行配置开启的前端任务生效 |
+| `agent-browser` | agent-browser 浏览器能力统一协议（双模式）：**通用浏览器操作**——导航等待/快照/交互/诊断/取证，任何 agent 按需使用，无需执行配置；**浏览器验证**——渲染截图、视觉 diff、token 核对与交互断言，仅 browser_verify 执行配置开启的前端任务生效。含能力探测、安装引导、会话生命周期与 fail-open 降级 |
 | `oceanus-discuss` | 读取 Intake 已确认的执行配置、研究优先澄清需求、提出 2-3 个真实可行候选方案（Trivial 也至少列出被考虑但不推荐的替代方案）、再以方案总批准单问完成方向批准；SDD 开启时保存设计 spec 到 `.oceanus/spec/` |
 | `oceanus-plan` | 映射文件、按规模适配任务、保存实现计划到 `.oceanus/plan/`、依据 spec 自查影响面，并消费 Intake 的 SDD/TDD/Review 循环执行决策（不重复提问） |
 | `oceanus-intake` | 由 Sisyphus 直接完成背景、最小需求 intake、代码项目技术环境调研（优先说明文档，按需读构建配置确定框架/运行时/验证命令）、任务分类、SDD/TDD/Review 循环执行三项加前端任务第四项 browser_verify 的执行配置批问（含 frontend_scope 前端范围判定）与先于代码调研的 CBM 首次初始化（预判触发 + 分类修正） |
@@ -260,7 +260,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 
 ### agent-browser 浏览器验证（browser_verify）
 
-前端渲染验证能力：经 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) CLI 对前端 UI 还原与交互实现做渲染截图、视觉 diff、token 核对与交互断言。能力级配置 `agentBrowser`（`enabled` 默认 `true`、`autoInstall` 默认 `false`、`version`/`binaryPath`）；任务级由 Intake 执行配置批问第四项 `browser_verify` 决定——仅前端 UI/交互实现任务（`frontend_scope ≠ none`）出现，默认推荐关闭，关闭时流程与无此能力完全一致。运行协议见 `browser-verify` skill。安装、配置字段、降级口径与 `src/browser/` 模块说明详见 [`docs/agent-browser.md`](docs/agent-browser.md)。
+前端渲染验证与通用浏览器操作能力：经 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser) CLI 提供**双模式**协议——通用浏览器操作（导航/快照/交互/诊断/实验，任何 agent 按需使用、无需执行配置）与浏览器验证（渲染截图、视觉 diff、token 核对与交互断言）。能力级配置 `agentBrowser`（`enabled` 默认 `true`、`autoInstall` 默认 `false`、`version`/`binaryPath`）；验证模式由 Intake 执行配置批问第四项 `browser_verify` 决定——仅前端 UI/交互实现任务（`frontend_scope ≠ none`）出现，默认推荐关闭，关闭时验证语义与无此能力完全一致（通用操作不受影响）。运行协议见 `agent-browser` skill。安装、配置字段、降级口径与 `src/browser/` 模块说明详见 [`docs/agent-browser.md`](docs/agent-browser.md)。
 
 每个 agent 的模型等可通过独立 jsonc 配置文件定制：
 

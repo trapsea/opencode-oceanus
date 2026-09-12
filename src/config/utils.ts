@@ -43,7 +43,7 @@ export interface AgentBrowserResolvedConfig {
 
 /**
  * agent-browser 默认配置：能力开、自动安装关。
- * 截图落盘目录由 browser-verify skill 文案固定为 `.oceanus/media/browser/<task-id>/`
+ * 截图落盘目录由 agent-browser skill 文案固定为 `.oceanus/media/browser/<task-id>/`
  * （对齐 image-materializer 的 `.oceanus/media/` 约定），不作为可配置项暴露。
  */
 const DEFAULT_AGENT_BROWSER_CONFIG: AgentBrowserResolvedConfig = {

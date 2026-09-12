@@ -1,6 +1,6 @@
 # agent-browser 浏览器验证（browser_verify）
 
-[opencode-oceanus](../README.md) 的前端渲染验证能力：把 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser)（Rust CLI + Chrome for Testing）接入 Sisyphus 工作流，为前端 UI 还原与交互实现提供**渲染截图、视觉 diff、设计 token 精确核对与交互断言**的自动化取证，补上「实现后取得渲染截图」这一环节，让 clipboard-image-observer 的 L5 视觉验收闭环可以无人值守运转。
+[opencode-oceanus](../README.md) 的浏览器能力接入：把 [vercel-labs/agent-browser](https://github.com/vercel-labs/agent-browser)（Rust CLI + Chrome for Testing）整合为**双模式统一协议**——**通用浏览器操作**（任何 agent 在调试复现、动态内容检查、交互实验等非验收场景按需使用，无需执行配置）与**浏览器验证**（Sisyphus 工作流实现类前端任务的渲染截图、视觉 diff、设计 token 精确核对与交互断言自动化取证，补上「实现后取得渲染截图」这一环节，让 clipboard-image-observer 的 L5 视觉验收闭环可以无人值守运转）。
 
 ## 设计定位：三层架构
 
@@ -8,12 +8,12 @@
 |---|---|---|
 | 能力层 | 插件配置 `agentBrowser.*` + `src/browser/` 模块 + setup `browser` 阶段 | 决定能力是否存在：探测（PATH → 配置 binaryPath → npm global）、可选自动安装、fail-open 日志 |
 | 任务层 | Intake 执行配置批问第四项 `browser_verify` | 决定**本任务**是否启用：仅前端 UI/交互实现任务（`frontend_scope ≠ none`）批问中出现，默认推荐关闭 |
-| 协议层 | `browser-verify` skill | 决定怎么用：场景→命令映射、dev server 生命周期、截图落盘、observer 协作、token 容差、循环预算与降级 |
+| 协议层 | `agent-browser` skill | 决定怎么用：**双模式**——通用浏览器操作（导航/快照/交互/诊断/实验，任何 agent 无门控按需）＋验证协议（browser_verify 门控：场景→命令映射、截图落盘、observer 协作、token 容差、循环预算与降级）；会话生命周期两模式共用 |
 
 三层关系：
 
-- 能力关（`agentBrowser.enabled=false`）→ 批问不出现第四项，记录 `not_available: disabled-by-config`。
-- 能力开 + 非前端任务 → 记录 `not_asked: non-frontend`，流程与现状完全一致。
+- 能力关（`agentBrowser.enabled=false`）→ 批问不出现第四项，记录 `not_available: disabled-by-config`（通用操作模式亦不可用——CLI 缺失时按 fail-open 改用替代手段）。
+- 能力开 + 非前端任务 → 记录 `not_asked: non-frontend`，验证语义与现状完全一致；**通用浏览器操作不受批问门控影响**，任何 agent 可按需使用。
 - 能力开 + 前端任务 → 正常批问；答「关」（默认）流程与现状完全一致；答「开」按下表注入。
 - 运行中 agent-browser 故障 → fail-open 降级为人工截图/手工 QA 口径，记录 `browser_verify: degraded (<原因>)`，不阻塞任务。
 
@@ -66,7 +66,7 @@ agent-browser doctor             # 自检
 }
 ```
 
-未知字段会被 `.strict()` schema 拒绝。默认值见 `src/config/utils.ts` 的 `DEFAULT_AGENT_BROWSER_CONFIG`。截图落盘目录由 browser-verify skill 固定为 `<workspace>/.oceanus/media/browser/<task-id>/`，不作为可配置项暴露。
+未知字段会被 `.strict()` schema 拒绝。默认值见 `src/config/utils.ts` 的 `DEFAULT_AGENT_BROWSER_CONFIG`。截图落盘目录由 agent-browser skill 固定为 `<workspace>/.oceanus/media/browser/<task-id>/`，不作为可配置项暴露。
 
 ## `src/browser/` 模块
 
@@ -82,7 +82,7 @@ agent-browser doctor             # 自检
 
 ## 已知边界
 
-- 渲染验证需要可达的目标 URL：dev server 生命周期由 browser-verify skill 约定（首个前端任务后台启动、`wait --url` 就绪探测、Finish 前统一关闭）。
+- 渲染验证需要可达的目标 URL：dev server 生命周期由 agent-browser skill 约定（首个前端任务后台启动、`wait --url` 就绪探测、Finish 前统一关闭）。
 - headless Linux/CI 环境依赖 `agent-browser install --with-deps` 的系统库安装成功率，失败按 fail-open 降级，不阻塞任务。
 - **启动开销**：能力默认 `enabled=true`，插件 setup 时后台探测（PATH 未命中时最多 3 个子进程，npm 命令冷启动可达数百毫秒）；detached 执行不阻塞启动，介意可用 `agentBrowser.enabled=false` 关闭能力层。
 - **Windows**：npm global 的 `.cmd` shim 在无 shell 的 spawn 下能否执行未经真机验证；失败仅表现为探测落空并 fail-open 降级（不崩溃）。Windows 用户建议配置 `agentBrowser.binaryPath` 指向实际可执行文件以确保探测命中。

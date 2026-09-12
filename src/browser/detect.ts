@@ -3,9 +3,9 @@ import { join } from 'node:path';
 import { crossSpawn, type SpawnFn } from '../cbm/process';
 
 /**
- * agent-browser 能力探测（browser-verify 能力层）。
+ * agent-browser 能力探测（agent-browser skill 能力层）。
  *
- * 三级探测顺序与 browser-verify skill 文案一致：PATH → 配置 binaryPath → npm global。
+ * 三级探测顺序与 agent-browser skill 文案一致：PATH → 配置 binaryPath → npm global。
  * 每级以 `--version` 实际执行验证可用性（文件存在 ≠ 可执行）；可选 `doctor --json`
  * 健康检查失败不推翻 available，仅标记 doctorOk=false（fail-open）。
  *

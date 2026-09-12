@@ -190,7 +190,7 @@ async function main() {
   for (const name of SKILL_NAMES) {
     if (categories.get(name) !== 'phase') failures.push(`[${name}] category 必须为 phase`);
   }
-  for (const name of ['oceanus-debugging', 'browser-verify']) {
+  for (const name of ['oceanus-debugging', 'agent-browser']) {
     if (categories.get(name) !== 'support') failures.push(`[${name}] category 必须为 support`);
   }
   const prompt = String(registeredAgents.get('sisyphus')?.system ?? '');
