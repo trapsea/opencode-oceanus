@@ -1,13 +1,13 @@
 # 注册类域：Agent / Skill / Command / Catalog
 
-> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743` + `@opencode-ai/schema@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零）
-> **beta-19242 变化**：全部 `*Draft` 接口重命名为 `*Editor`（AgentDraft→AgentEditor、SkillDraft→SkillEditor、CommandDraft→CommandEditor、CatalogDraft→CatalogEditor 等），方法签名不变；`SkillEditor` 新增 `get(id)`。详见 `versions/changelog.md`。
-> 证据源：tarball `promise/{agent,skill,command,catalog}.d.ts`、schema `{agent,skill,prompt-input,session-inbox}.d.ts`；官方文档 agents/skills/commands 页（v1/v2 混杂已甄别，标注处见下文）。
+> 版本基线：`@opencode/plugin@2.0.3`（GA；注册域与 beta-19271 逐字节一致，归一化 diff 证据见 `versions/changelog.md`）
+> **beta-19242 变化**：全部 `*Draft` 接口重命名为 `*Editor`（AgentDraft→AgentEditor、SkillDraft→SkillEditor、CommandDraft→CommandEditor、CatalogDraft→CatalogEditor 等），方法签名不变；`SkillEditor` 新增 `get(id)`。**2.0（beta-19507 起）无进一步变化**。
+> 证据源：tarball `promise/{agent,skill,command,catalog}.d.ts`、schema `{agent,skill,prompt-input,session-inbox}.d.ts`；官方 V2 文档 agents/skills/commands 页。
 
 ## 1. AgentDomain
 
 ```ts
-interface AgentDraft {
+interface AgentEditor {
   list(): readonly DeepMutable<Agent.Info>[]
   get(id: string): DeepMutable<Agent.Info> | undefined
   default(id: string | undefined): void        // 设置默认 agent
@@ -15,12 +15,12 @@ interface AgentDraft {
   remove(id: string): void
 }
 interface AgentDomain extends AgentApi {
-  readonly transform: Transform<AgentDraft>
+  readonly transform: Transform<AgentEditor>
   readonly reload: () => Promise<void>
 }
 ```
 
-注意：AgentDraft **没有 `add()`**——插件注册 agent 的方式是 `update(id, ...)` 一个尚不存在的 id 时创建（与 SkillDraft 的 `add` 不同）。宿主先加载配置文件/markdown agent，插件经 transform 补充或改写；改完调用 `reload()` 生效。
+注意：AgentEditor **没有 `add()`**——插件注册 agent 的方式是 `update(id, ...)` 一个尚不存在的 id 时创建（upsert 语义；官方 V2 文档同口径"插件不能新增 agent，只能修改/移除/设默认"，实测 upsert 注册有效，本仓库与 2.0.3 宿主均以此注册 9 agent）。宿主先加载配置文件/markdown agent，插件经 transform 补充或改写；改完调用 `reload()` 生效。
 
 ### Agent.Info（schema `agent.d.ts`）
 
@@ -51,14 +51,15 @@ interface Info {
 ## 2. SkillDomain
 
 ```ts
-interface SkillDraft {
+interface SkillEditor {
   list(): readonly DeepMutable<Skill.Info>[]
+  get(id: string): DeepMutable<Skill.Info> | undefined
   add(skill: Skill.Info): void
   update(id: string, update: (skill: DeepMutable<Skill.Info>) => void): void
   remove(id: string): void
 }
 interface SkillDomain extends SkillApi {
-  readonly transform: Transform<SkillDraft>
+  readonly transform: Transform<SkillEditor>
   readonly reload: () => Promise<void>
 }
 ```
@@ -95,9 +96,9 @@ interface CommandDefinition {
   readonly description?: string
   readonly execute: (input: CommandInvocation) => Promise<void>
 }
-interface CommandDraft { add(definition: CommandDefinition): void }
+interface CommandEditor { add(definition: CommandDefinition): void }
 interface CommandDomain extends Pick<CommandApi, "list"> {
-  readonly transform: Transform<CommandDraft>
+  readonly transform: Transform<CommandEditor>
   readonly reload: () => Promise<void>
 }
 ```
@@ -108,7 +109,7 @@ interface CommandDomain extends Pick<CommandApi, "list"> {
 ## 4. CatalogDomain
 
 ```ts
-interface CatalogDraft {
+interface CatalogEditor {
   readonly provider: {
     list(): readonly CatalogProviderRecord[]       // { provider, models: Map<modelID, Model.Info> }
     get(providerID: string): CatalogProviderRecord | undefined
@@ -126,7 +127,7 @@ interface CatalogDraft {
   }
 }
 interface CatalogDomain extends CatalogApi {
-  readonly transform: Transform<CatalogDraft>
+  readonly transform: Transform<CatalogEditor>
   readonly reload: () => Promise<void>
 }
 ```
@@ -135,9 +136,10 @@ interface CatalogDomain extends CatalogApi {
 
 ## 5. 版本兼容锚点
 
-| 事实 | 状态（18230 → 18721） |
+| 事实 | 状态 |
 |---|---|
-| AgentDraft / SkillDraft / CommandDraft / CatalogDraft | 无变化 |
+| AgentEditor / SkillEditor / CommandEditor / CatalogEditor | beta-19242 由 `*Draft` 更名（签名不变）；至 2.0.3 无进一步变化 |
+| AgentEditor 无 `add`，`update` 对不存在 id 为 upsert | beta 时代即如此；2.0.3 实测本仓库 9 agent 全量注册成功 |
 | Agent.Info（mode/steps/hidden/permissions） | 无变化 |
-| Skill.Info | 无变化（prompt 附件中的 skills 数组新增 optional `text` 字段，属消费侧） |
-| markdown agent/command 文件机制 | 官方文档口径，类型层无直接体现；宿主实测 command 目录含 init/review 内置命令 |
+| Skill.Info | 无变化（prompt 附件中的 skills 数组新增 optional `text` 字段，属消费侧）；官方 V2 口径 skill 含 `autoinvoke` |
+| markdown agent/command 文件机制 | 官方文档口径，类型层无直接体现；2.0.3 内置命令经 `opencode.command` builtin 插件组织 |

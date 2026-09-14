@@ -14,7 +14,7 @@
  *   暴露该绝对路径），它等价于"该会话所在项目目录的 canonical 根"，无需再经
  *   project API 解析。若未来宿主暴露 project.canonical，可在此替换解析来源。
  */
-import type { Tool } from '@opencode-ai/schema/tool';
+import type { Tool } from '@opencode/schema/tool';
 
 /** 会话信息的最小契约（对应 v2 `Session.Info` 的可用字段）。 */
 export interface SessionInfoLike {

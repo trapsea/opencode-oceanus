@@ -1,17 +1,20 @@
 # 插件生命周期与入口
 
-> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零）
-> 证据源：npm tarball 类型声明（`dist/promise/plugin.d.ts`、`dist/effect/plugin.d.ts`、`dist/tui/*.d.ts`、`dist/app.d.ts`、`dist/options.d.ts`）；schema `dist/plugin.d.ts`；宿主行为实测证据为 `opencode2 v0.0.0-beta-18721`；官方文档 opencode.ai/docs/plugins（v1/v2 混杂，已按类型定义甄别）。
+> 版本基线：`@opencode/plugin@2.0.3`（GA；`Plugin` 接口与 beta-19271 逐字节一致——归一化 diff 证据见 `versions/changelog.md` 2.0.3 条目）
+> 证据源：npm tarball 类型声明（`dist/promise/plugin.d.ts`、`dist/effect/plugin.d.ts`、`dist/tui/*.d.ts`、`dist/app.d.ts`、`dist/options.d.ts`）；schema `dist/plugin.d.ts`；宿主行为实测 `opencode2 v0.0.0-beta-18721` 与 `@opencode/cli@2.0.3`（2026-09-14 隔离 serve）；官方 V2 文档 opencode.ai/v2/docs/build/plugins。
+> **2.0 变化**：插件 API 面零变化（`Plugin.define`/入口/生命周期不变）；差异在包坐标（`@opencode-ai/plugin` → `@opencode/plugin`）与配置发现细节（见 §3.2）。
 
 ## 1. 三种插件入口
 
-`@opencode-ai/plugin` 包通过 package.json exports 暴露三个入口，对应三种插件形态：
+`@opencode/plugin` 包通过 package.json exports 暴露三个入口，对应三种插件形态：
 
 | 入口 | 形态 | define 签名 | 运行环境 |
 |---|---|---|---|
-| `@opencode-ai/plugin`（`.`） | Server 插件（promise 风格） | `define(plugin: Plugin): Plugin` | 后台 server 进程 |
-| `@opencode-ai/plugin/effect` | Server 插件（Effect 风格） | `define<R>(plugin: Plugin<R>): Plugin<R>` | 后台 server 进程 |
-| `@opencode-ai/plugin/tui` | TUI 插件（Solid/OpenTUI） | `define(plugin: Definition): Definition` | TUI 渲染进程 |
+| `@opencode/plugin`（`.`） | Server 插件（promise 风格） | `define(plugin: Plugin): Plugin` | 后台 server 进程 |
+| `@opencode/plugin/effect` | Server 插件（Effect 风格） | `define<R>(plugin: Plugin<R>): Plugin<R>` | 后台 server 进程 |
+| `@opencode/plugin/tui` | TUI 插件（Solid/OpenTUI） | `define(plugin: Definition): Definition` | TUI 渲染进程 |
+
+（beta 时代为 `@opencode-ai/plugin` 同构三入口；2.0 仅 scope 迁移。）
 
 ### 1.1 主入口（promise，最常用）
 
@@ -94,7 +97,7 @@ type Source =
   | { type: "sdk" }                            // SDK 注入
 ```
 
-### 3.2 配置声明（实测，宿主 beta-18721）
+### 3.2 配置声明（实测：宿主 beta-18721 与 2.0.3）
 
 宿主配置 `plugins` 字段声明插件列表。本地路径条目**必须指向含 index 入口文件的目录**（如构建产物的 `dist/` 目录，内含 `index.js`）：
 
@@ -104,7 +107,14 @@ type Source =
 
 插件加载失败（含上述跳过）时，该插件注册的全部 agent/skill/command/tool 均不出现。日志见 `~/.local/share/opencode/log/opencode.log`。
 
-> 甄别：官方文档 plugins 页描述的"全局 config → 项目 config → 全局 plugins 目录 → 项目 plugins 目录"加载顺序及 `project/directory/worktree/client/$` Context 形态为 v1/旧口径；v2 beta-18721 以本文类型定义与实测为准。
+**2.0.3 实测补充（2026-09-14）**：
+
+- 项目配置文件扩展名：项目目录下 `opencode.json`（无 c）**未被识别**（`/api/config` 文档清单不含、plugins 不加载）；改名为 `opencode.jsonc` 后全量生效。beta 时代实测记录未注明扩展名，无法断言此为 2.0 行为变化，但 **2.0.3 下项目配置应使用 `.jsonc`**。全局配置路径 `~/.config/opencode/opencode.jsonc`（home 推导，不受 `XDG_CONFIG_HOME` 重定向影响——隔离实测发现）。
+- `plugins` 条目官方 V2 文档口径：包名@版本、`{ package, options }` 对象、本地路径、`file://` URL 均可；`-` 前缀禁用、`*` 全选、`.*` ID 前缀匹配；多配置文件的插件数组合并（低→高优先级）而非覆盖。
+- CLI-only/TUI-only 插件经 **`cli.json`** 配置（官方 V2 文档口径；连接远程 server 时仍生效）。
+- 包插件管理：`opencode plugin add/list/check/update/remove`（add 安装并写入全局配置；支持 npm range、`github:`/`git+ssh`、`::path:` 子目录选择器；不支持 tarball/npm alias）。热重载 + `opencode service restart`。
+
+> 甄别：V1 文档（opencode.ai/docs）的"全局 config → 项目 config → 全局 plugins 目录 → 项目 plugins 目录"加载顺序及 `project/directory/worktree/client/$` Context 形态为 v1/旧口径；V2 文档独立于 `opencode.ai/v2/docs`，v2 以本文类型定义与实测为准。
 
 ### 3.3 宿主视角的插件状态（schema `Plugin.Info`）
 
@@ -125,9 +135,10 @@ interface Info {
 
 | 事实 | 证据 |
 |---|---|
-| `Plugin.define` 签名自 beta-18230 起稳定（除 `tui` 字段移除） | 两版 `.d.ts` diff |
+| `Plugin.define` 签名自 beta-18230 起稳定（除 `tui` 字段移除；beta-19242 删 `vcs` 字段后回归 `{ id, setup }`），至 2.0.3 不变 | 各版 `.d.ts` diff（含 19271→2.0.3 归一化 diff） |
 | `Cleanup` 可选；`setup` 可同步返回 | 类型签名 |
-| 宿主对 local 插件要求目录 + index 入口 | 宿主 beta-18721 实测（本仓库 `docs/opencode-v2-compatibility.md` 同口径） |
+| 宿主对 local 插件要求目录 + index 入口 | 宿主 beta-18721 与 2.0.3 实测（本仓库 `docs/opencode-v2-compatibility.md` 同口径） |
+| 双入口插件（server + `exports["./tui"]`）宿主均加载 | 2.0.3 实测：`Plugin.Info.features = { server: true, tui: true }` |
 | 同名插件加载去重规则（npm 包只加载一次等） | 官方文档 v1 口径，v2 未在类型层体现，版本归属不明——依赖时需宿主实测 |
 
 ## 5. 相关文档

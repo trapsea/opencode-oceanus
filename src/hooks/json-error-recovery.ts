@@ -11,9 +11,11 @@
  * 非字符串结果，以及可配置的启用开关。
  */
 
-/** 默认排除在 JSON 错误检查之外的工具（与 slim 保持一致，命中即跳过）。 */
+/** 默认排除在 JSON 错误检查之外的工具（与 slim 保持一致，命中即跳过）。
+ * bash/shell 双键：宿主工具名 beta 为 `bash`，OpenCode 2.0（beta-19507+）为 `shell`。 */
 export const JSON_ERROR_TOOL_EXCLUDE_LIST = [
   'bash',
+  'shell',
   'read',
   'glob',
   'webfetch',

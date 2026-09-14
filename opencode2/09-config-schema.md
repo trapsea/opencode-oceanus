@@ -1,7 +1,9 @@
-# 配置全景（opencode.json）
+# 配置全景（opencode.jsonc）
 
-> 版本基线：`@opencode-ai/schema@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零）
-> 证据源：tarball schema `dist/config.d.ts` 与 `dist/config/*.d.ts` 全量字段提取；官方 config 页（加载优先级/变量插值口径）。字段为 schema 声明级事实；标注"官方"处为文档口径。
+> 版本基线：`@opencode/schema@2.0.3`（GA）
+> 证据源：tarball schema `dist/config.d.ts` 与 `dist/config/*.d.ts` 全量字段提取（2.0.3）；官方 V2 config 页。字段为 schema 声明级事实；标注"官方"处为文档口径。
+> **2.0 实测注意**：项目目录配置文件应使用 `opencode.jsonc` 扩展名（2.0.3 实测 `opencode.json` 未被识别，见 `02-plugin-lifecycle.md` §3.2）。
+> **2.0 变化**：beta-19507：provider/model `websocket`；2.0.2：`Preferences`/`PreferencesPatch` + 新文件 `config/shell.d.ts`。
 
 ## 1. 顶层 Config 字段（schema `config.d.ts`）
 
@@ -11,7 +13,7 @@
 | `small_model`*（官方） | ModelRef | 轻量任务模型（官方 config 页口径，schema 顶层未见独立字段，经 model 族表达） |
 | `shell` | shell 配置 | 默认 shell |
 | `default_agent` | string | 默认 agent（如 build/plan） |
-| `autoupdate` | — | 自动更新（**beta-19242 变化**：已移除，改为 `update: "disable" \| "notify" \| "auto"`；另新增 `worktree: { directory }`；`config/command` 命令新增 `subagent?: boolean`；`config/provider`、`model`、`project` 新增 `canonical` 字段。**beta-19271 变化**：`config/provider` 与 `model` 条目新增 optional `compaction: { mode: "local" } \| { mode: "provider"; threshold?: number }`——声明上下文压缩走本地或 provider 侧，provider 模式可配阈值） |
+| `autoupdate` | — | 自动更新（**beta-19242 变化**：已移除，改为 `update: "disable" \| "notify" \| "auto"`；另新增 `worktree: { directory }`；`config/command` 命令新增 `subagent?: boolean`；`config/provider`、`model`、`project` 新增 `canonical` 字段。**beta-19271 变化**：`config/provider` 与 `model` 条目新增 optional `compaction: { mode: "local" } \| { mode: "provider"; threshold?: number }`。**2.0 变化（beta-19507）**：`config/provider`（条目与顶层）、`provider`、`model` 新增 optional `websocket: boolean`——会话 WebSocket 传输策略，缺省继承 provider 策略并默认禁用） |
 | `share` | — | 会话共享 |
 | `enterprise` | — | 企业配置 |
 | `username` | string | 用户名 |
@@ -92,10 +94,16 @@ type PluginEntry = string                  // npm 包名或本地目录路径
 - `watcher.ignore`：glob 忽略表。
 - `warming`：`prompt`/`interval`/`duration`（模型预热）。
 
+## 7a. Preferences 与 shell 选择（2.0.2 新增）
+
+- `config.d.ts` 新增 `Preferences`：`{ shell?: string; websearch?: false | ConfigWebSearch.Info }`；`PreferencesPatch` 同构但字段允许 `null`（清除语义）。
+- 新 schema 文件 `config/shell.d.ts`：`ConfigShell.Option = { path: string; name: string; acceptable: boolean }`——宿主 shell 候选项（与 Windows/跨平台 shell 探测链 pwsh→powershell→Git Bash→COMSPEC 配套；宿主侧选择逻辑见本仓库 `docs/opencode-v2-compatibility.md` Windows shell 事实矩阵）。
+
 ## 8. providers / model（`config/provider.d.ts`、`config/model.d.ts`）
 
 - provider 覆盖：`settings`/`headers`/`body`（请求覆盖）、`read`/`write`（能力位）、`tier`、`cost{input,output,cache}`、`context{input,output}`、`capabilities`、`variants`、`disabled`、npm registry 等。
 - `config/model.d.ts` 定义 ModelRef：`{ providerID, model, variant? }`。
+- 2.0（beta-19507）起 provider 条目/顶层与 model 条目新增 optional `websocket: boolean`（会话 WebSocket 策略）。
 
 ## 9. references（`config/reference.d.ts`）
 
@@ -116,6 +124,6 @@ type PluginEntry = string                  // npm 包名或本地目录路径
 - 变量插值：`{env:VAR}`、`{file:path}`。
 - 目录：项目 `.opencode/`、全局 `~/.config/opencode/`（Linux），子目录复数形式（`agents/`、`commands/`、`skills/`、`tools/`）；`OPENCODE_CONFIG_DIR` 可改全局目录。
 
-## 12. 版本兼容锚点（18230 → 18721）
+## 12. 版本兼容锚点（18230 → 2.0.3）
 
-config 家族 .d.ts 中 beta-18721 仅 `config/provider.d.ts` 有差异（provider 细节字段调整）；其余子结构无变化。
+config 家族 `.d.ts` 演进：beta-18721 仅 `config/provider.d.ts` 有差异；beta-19242 `autoupdate`→`update` 等（见 §1）；beta-19271 `compaction`；beta-19507 `websocket`；2.0.2 新增 `config/shell.d.ts` + `Preferences`；2.0.3 无 config 面变化（增量在 session-message/session-transfer 的 compaction `cost`/`tokens`）。

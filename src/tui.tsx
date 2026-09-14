@@ -1,6 +1,6 @@
-import { Plugin } from '@opencode-ai/plugin/tui';
-import type { SessionStatus as EventSessionStatus } from '@opencode-ai/client';
-import type { Context } from '@opencode-ai/plugin/tui/plugin';
+import { Plugin } from '@opencode/plugin/tui';
+import type { SessionStatus as EventSessionStatus } from '@opencode/client';
+import type { Context } from '@opencode/plugin/tui/plugin';
 import type { JSX } from '@opentui/solid';
 import { watch } from 'node:fs';
 import { basename, dirname } from 'node:path';

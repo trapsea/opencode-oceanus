@@ -30,7 +30,11 @@ export interface AutoUpdateContext {
 }
 export interface AutoUpdateEvent {
   type?: string
-  /** OpenCode v2 实际事件载荷位于 properties.info；data 保留兼容旧测试/适配器。 */
+  /**
+   * 事件载荷双形态：OpenCode 2.0（beta-19507 起）wire 为 `{id, created, type, location, data:{sessionID, parentID?}, durable}`
+   * （2.0.3 隔离 serve SSE 实测）；beta 宿主载荷位于 properties.info。消费按
+   * properties.info 优先、data 兜底的顺序兼容读取。
+   */
   properties?: { info?: { id?: string; sessionID?: string; parentID?: string } }
   data?: { sessionID?: string; parentID?: string }
 }

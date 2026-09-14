@@ -1,18 +1,19 @@
 # opencode-oceanus
 
-opencode-oceanus 是面向 OpenCode **v2 beta** 的 AI 编码编排插件。它将 Oceanus 编排器、Sisyphus 六阶段工作流和一组职责清晰的专家 agent 集成到 OpenCode 中，帮助开发者把复杂任务拆解为可研究、可计划、可执行、可审查的工程流程。
+opencode-oceanus 是面向 OpenCode **v2（2.0 正式版）** 的 AI 编码编排插件。它将 Oceanus 编排器、Sisyphus 六阶段工作流和一组职责清晰的专家 agent 集成到 OpenCode 中，帮助开发者把复杂任务拆解为可研究、可计划、可执行、可审查的工程流程。
 
 Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资料研究、方案分析，到视觉设计、批量机械修改和最终 Review 的协作分工，并配套 AST 工具、剪贴板图片处理、CBM 代码知识库、运行时保护 Hook、模型 preset 和 TUI sidebar。插件默认强调最小权限、只读调研与 fail-open 降级，让 AI 编码更适合真实项目协作。
 
 > **适合谁**：希望在 OpenCode 中获得结构化任务编排、专家分工和工程安全保护的个人开发者与团队。
 
-> **重要说明**：Sisyphus 六阶段流程和 Oracle 审查属于 prompt / skill 层约定，不是运行时自动 supervisor；实际能力仍取决于 OpenCode v2 beta 宿主及所配置的模型。
+> **重要说明**：Sisyphus 六阶段流程和 Oracle 审查属于 prompt / skill 层约定，不是运行时自动 supervisor；实际能力仍取决于 OpenCode v2 宿主及所配置的模型。
 
 ## 兼容性
 
-- 需要 **opencode v2（beta）**
-- 依赖 `@opencode-ai/plugin@beta`（当前锁定 `0.0.0-beta-18743`）
+- 需要 **OpenCode 2.0+**（`@opencode/cli` ≥ 2.0.3，安装：`npm install -g @opencode/cli`）
+- 依赖 `@opencode/plugin@2.0.3` + `@opencode/schema@2.0.3`（精确锁定；2.0 起包族已迁 `@opencode/*` 新 scope，旧 `@opencode-ai/*` 无 2.x 版本）
 - 入口为 v2 的 `Plugin.define({ id, setup })`，通过 `ctx.agent.transform` 注册 agent
+- beta-18743 API 面在 2.0.3 宿主实测零回归（注册链路 + MCP connected）；详见 [`docs/opencode-v2-compatibility.md`](docs/opencode-v2-compatibility.md)
 
 ## Agent 列表
 
@@ -69,9 +70,9 @@ bun run build
 
 `.opencode/plugins/`（v2 规范，复数）目录下的文件在启动时自动加载。
 
-### 方式 2：`plugins` 数组（opencode.json）
+### 方式 2：`plugins` 数组（opencode.jsonc）
 
-在 `opencode.json`（或 `~/.config/opencode/opencode.json`）的 `plugins` 数组加入：
+在 `opencode.jsonc`（或 `~/.config/opencode/opencode.jsonc`）的 `plugins` 数组加入：
 
 **本地路径引用构建产物：**
 
@@ -89,7 +90,7 @@ bun run build
 }
 ```
 
-> **注意**：OpenCode 宿主 `0.0.0-beta-18721` 起，`plugins` 数组中的本地路径必须是**目录**（目录内需有 `index.js` 入口文件），不再接受 `dist/index.js` 这类单文件路径——指向文件会被跳过并记录 WARN `configured plugin path must be a directory`，导致插件完全不加载。
+> **注意**：OpenCode 宿主的 `plugins` 数组中的本地路径必须是**目录**（目录内需有 `index.js` 入口文件），不接受 `dist/index.js` 这类单文件路径——指向文件会被整体跳过（beta-18721 与 **2.0.3 双版本实测**：单文件配置下 agents 列表为空）。项目配置文件在 2.0.3 实测需使用 `opencode.jsonc` 扩展名（`.json` 未被识别）。
 
 **发布到 npm 后使用包名：**
 
@@ -107,7 +108,7 @@ bun run build
 }
 ```
 
-> 本地文件 / 未发布 npm 时建议方式 1 或方式 2 的路径引用。构建产物已将 zod 内联，插件自包含，仅依赖运行时提供的 `@opencode-ai/plugin`。
+> 本地文件 / 未发布 npm 时建议方式 1 或方式 2 的路径引用。构建产物已将 zod 内联，插件自包含，仅依赖运行时提供的 `@opencode/plugin`。
 
 ### 自动升级
 
@@ -130,11 +131,9 @@ bun run build
 
 ### TUI sidebar 配置
 
-CLI 插件和 TUI 插件分别配置在不同文件中，但使用**同一个包名**。主入口
-`opencode-oceanus` 负责注册 agents、skills 和 commands；该包通过 `./tui` 导出 TUI 入口，
-OpenCode 会在 `tui.json` 中自动加载它。
+CLI 插件和 TUI 插件使用**同一个包名/目录**。主入口 `opencode-oceanus` 负责注册 agents、skills 和 commands；该包通过 `./tui` 导出 TUI 入口，宿主自动发现双入口（2.0.3 实测：`plugins` 指向 `dist` 目录时 `Plugin.Info.features = { server: true, tui: true }`）。
 
-在 `opencode.jsonc` 中配置 CLI 插件：
+在 `opencode.jsonc` 中配置插件即可同时加载两个入口：
 
 ```json
 {
@@ -142,18 +141,15 @@ OpenCode 会在 `tui.json` 中自动加载它。
 }
 ```
 
-在 `tui.json` 中配置 TUI 插件：
+本地开发同样只需指向 `dist` 目录（宿主在目录内解析 `index.js` 入口并自动发现 TUI 入口，不要指向单文件——单文件路径宿主会整体跳过）：
 
 ```json
 {
-  "plugin": ["opencode-oceanus"]
+  "plugins": ["/path/to/opencode-oceanus/dist"]
 }
 ```
 
-本地开发时，OpenCode 会把文件路径当作具体入口处理，不会解析 npm 的
-`exports["./tui"]`。因此应分别配置：`opencode.jsonc` 指向 `dist/index.js`，
-`cli.json` 指向 `dist/tui.js`。只有发布并安装为 npm 包后，两个配置才都可以使用
-同一个包名 `opencode-oceanus`。
+> CLI-only / TUI-only 插件的单独配置文件为 `cli.json`（官方 V2 文档口径，连接远程 server 时仍生效）；本插件为双入口形态，`plugins` 数组一项即可，无需单独配置。
 
 sidebar 显示 Oceanus 标题、当前会话 agent，以及已注册 Oceanus agents 的模型信息。
 agent 未配置专用模型时显示“跟随会话”；如果模型包含 variant，也会一并显示。
@@ -246,7 +242,7 @@ $env:AST_GREP_BIN = "C:\path\to\ast-grep.exe"  # PowerShell
 set AST_GREP_BIN=C:\path\to\ast-grep.exe       # cmd.exe
 ```
 
-环境中没有真正可用的 ast-grep 时，工具会返回诊断信息；测试（`src/smoke/` 下的集成用例与 `src/smoke/ast-grep-probe.ts`）也会**明确 skip 真实 CLI 集成并输出诊断**，而不是把环境缺失误报为产品失败。真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内执行插件时验证；当前 beta 插件类型未暴露 `session.active` 时，运行时会探测并诚实降级，当前 bun test 环境无真实 host 时相关 smoke 会 skip，仅用 mock ctx 验证注册契约，不声称真实 host 已通过。
+环境中没有真正可用的 ast-grep 时，工具会返回诊断信息；测试（`src/smoke/` 下的集成用例与 `src/smoke/ast-grep-probe.ts`）也会**明确 skip 真实 CLI 集成并输出诊断**，而不是把环境缺失误报为产品失败。真实 OpenCode v2 host 能力（`session.active` / `interrupt` 等）只在 opencode 会话内执行插件时验证；当前插件类型未暴露 `session.active`（2.0.3 亦未暴露），运行时会探测并诚实降级，当前 bun test 环境无真实 host 时相关 smoke 会 skip，仅用 mock ctx 验证注册契约，不声称真实 host 已通过。
 
 
 ## 配置

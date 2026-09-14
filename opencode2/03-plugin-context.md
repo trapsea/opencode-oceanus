@@ -1,7 +1,8 @@
 # Plugin Context 域速查
 
-> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零；promise 入口 `dist/promise/plugin.d.ts:26-49`）
-> 证据源：npm tarball 类型声明全量；`Registration` 原语见 `dist/promise/registration.d.ts`。
+> 版本基线：`@opencode/plugin@2.0.3`（GA；`Context` 域面与 beta-19271 逐字节一致，归一化 diff 证据见 `versions/changelog.md`——唯一例外为 `PermissionDomain` 新增 `rules`（beta-19507 落地））
+> 证据源：npm tarball 类型声明全量（2.0.3）；`Registration` 原语见 `dist/promise/registration.d.ts`。
+> 命名注意：beta-19242 起 `*Draft` 全部更名 `*Editor`（方法签名不变）；下表已用 Editor 命名。
 
 ## 1. Context 全貌
 
@@ -20,7 +21,7 @@ export interface Context {
   readonly mcp: MCPDomain
   readonly generate: GenerateApi                      // 直接生成能力
   readonly permission: PermissionDomain
-  readonly plugin: PluginApi                          // 插件自身信息 API
+  readonly plugin: Pick<PluginApi, "list">            // beta-19242 收窄
   readonly reference: ReferenceDomain
   readonly rpc: RpcDomain                             // beta-18721 新增
   readonly session: SessionDomain
@@ -30,6 +31,7 @@ export interface Context {
   readonly tool: ToolDomain
   readonly vcs: VcsDomain
   readonly websearch: WebSearchDomain
+  readonly worktree: WorktreeDomain                   // beta-19242 新增
 }
 ```
 
@@ -55,27 +57,28 @@ interface ModelHookOptions { providerID?: string }    // 限定单一 provider
 
 ## 3. 域速查表
 
-| 域 | 能力 | Draft / Hook | reload | 详见 |
+| 域 | 能力 | Editor / Hook | reload | 详见 |
 |---|---|---|---|---|
-| `agent` | 增删改 agent、设默认 | `AgentDraft`：`list/get/default(id)/update(id,fn)/remove(id)` | ✅ | 04 |
-| `skill` | 注册 skill | `SkillDraft`：`list/add(Skill.Info)/update(id,fn)/remove(id)` | ✅ | 04 |
-| `command` | 注册 slash 命令 | `CommandDraft`：`add({name, description?, execute})`；执行收 `CommandInvocation{sessionID, prompt: PromptInput.Prompt, delivery: SessionInbox.Delivery}` | ✅ | 04 |
-| `catalog` | provider/model 目录与默认模型 | `CatalogDraft.provider.{list/get/update/remove}`、`CatalogDraft.model.{get/update/remove/default.{get,set}}` | ✅ | 04 |
-| `tool` | 注册/改写工具 + 工具 hook | `ToolDraft`：`list/get/add/update(id,fn)/remove(id)`（beta-18721 补齐）；`hook("execute.before"/"execute.after")` | ✅（beta-18721 新增） | 05 |
-| `session` | 会话操作 + 会话 hook | `Pick<SessionApi, "create"/"get"/"switchAgent"/"switchModel"/"prompt"/"generate"/"command"/"synthetic"/"interrupt"/"rename"/"move"/"wait"/"context">` + `hook`：`prompt/context/model.request/http.request/http.response/retry` | — | 06 |
+| `agent` | 增删改 agent、设默认 | `AgentEditor`：`list/get/default(id)/update(id,fn)/remove(id)` | ✅ | 04 |
+| `skill` | 注册 skill | `SkillEditor`：`list/get/add(Skill.Info)/update(id,fn)/remove(id)` | ✅ | 04 |
+| `command` | 注册 slash 命令 | `CommandEditor`：`add({name, description?, execute})`；执行收 `CommandInvocation{sessionID, prompt: PromptInput.Prompt, delivery: SessionInbox.Delivery}`（官方 V2 文档：delivery 含 `"steer"|"queue"`） | ✅ | 04 |
+| `catalog` | provider/model 目录与默认模型 | `CatalogEditor.provider.{list/get/update/remove}`、`CatalogEditor.model.{get/update/remove/default.{get,set}}` | ✅ | 04 |
+| `tool` | 注册/改写工具 + 工具 hook | `ToolEditor`：`list/get/add/update(id,fn)/remove(id)` + `namespace(Tool.Namespace)`（beta-19242 新增）；`hook("execute.before"/"execute.after")` | ✅ | 05 |
+| `session` | 会话操作 + 会话 hook | `Pick<SessionApi, "create"/"get"/"switchAgent"/"switchModel"/"prompt"/"generate"/"command"/"synthetic"/"interrupt"/"rename"/"move"/"wait"/"context">` + `hook`：`prompt/context/compaction/generate/title/model.request/http.request/http.response/retry`（compaction/generate/title 为 beta-19507 落地） | — | 06 |
 | `event` | 全局事件订阅 | `Pick<EventApi, "subscribe">` | — | 06 |
 | `rpc` | 注册 RPC 端口（server↔TUI 通信） | `register(definition, handlers)` → `{dispose, events.emit}` | — | 06 |
 | `generate` | 直接调 LLM 生成 | `GenerateApi` | — | 06 |
-| `mcp` | 注入 MCP server 配置 | `MCPDraft`：`add(name,config)/update/remove`；`Pick<McpApi,"list">` | ✅ | 07 |
-| `permission` | 权限决策 hook | `hook("evaluate")`；`Pick<PermissionApi,"list"/"get"/"reply">` | — | 07 |
+| `mcp` | 注入 MCP server 配置 | `MCPEditor`：`list/get/set(name,config)/update/remove`；`Pick<McpApi,"list">` | ✅ | 07 |
+| `permission` | 权限决策 hook | `hook("evaluate")`；`Pick<PermissionApi,"list"/"get"/"reply"/"rules">`（`rules` 为 beta-19507 新增，读当前权限规则集） | — | 07 |
 | `storage` | 插件持久化 KV | `get/set/remove/scan`（JSON 值） | — | 07 |
-| `vcs` | git 集成 | `info/status/diff/branches/base?`（beta-18721 新增 base） | — | 07 |
+| `vcs` | git 集成 | `VcsEditor`：`info/status/diff/branches/base?` + `add(VcsDefinition)/default.{get,set}` | ✅ | 07 |
 | `shell` | shell 执行 hook | `hook("create.before")`：改写 command/cwd/timeout/shell/env | — | 07 |
-| `websearch` | 注册搜索 provider | `WebSearchDraft`：`add({id,name,execute})`、`default.{get,set}` | ✅ | 07 |
-| `reference` | 注册文件引用别名 | `ReferenceDraft`：`add(name, local/git source)/remove/list` | ✅ | 07 |
-| `integration` | 第三方集成（OAuth/key/env/command） | `IntegrationDraft` + `method.update(IntegrationMethodRegistration)`、`connection.{active,resolve}` | ✅ | 07 |
+| `websearch` | 注册搜索 provider | `WebSearchEditor`：`add({id,name,execute})`、`default.{get,set}`（`set(false)` 禁用） | ✅ | 07 |
+| `reference` | 注册文件引用别名 | `ReferenceEditor`：`add(name, local/git source)/remove/list` | ✅ | 07 |
+| `integration` | 第三方集成（OAuth/key/env/command） | `IntegrationEditor` + `method.update(IntegrationMethodRegistration)`、`connection.{active,resolve}` | ✅ | 07 |
 | `aisdk` | AI SDK 适配 hook | `ModelHooks<AISDKHooks>`：`sdk`（换 SDK 实例）、`language`（换 LanguageModelV3） | — | 07 |
-| `plugin` | 插件自身 | `PluginApi` | — | 02 |
+| `worktree` | 自定义 worktree 策略 | `WorktreeEditor.add(WorktreeDefinition)`（create/remove/list + AbortSignal）；后注册者成为默认 | — | 07 |
+| `plugin` | 插件自身 | `Pick<PluginApi, "list">`（beta-19242 收窄：不能经 ctx 安装/更新插件） | — | 02 |
 | `experimental` | 实验能力 | `terminal`：`OpenCodeClient["experimental"]["persistentPty"]` 的 `read` | — | 07 |
 
 ## 4. 域的四种形态
@@ -85,11 +88,14 @@ interface ModelHookOptions { providerID?: string }    // 限定单一 provider
 3. **直接 API 型**（session/generate/event/storage/rpc/plugin）：`Pick<...Api>` 子集直接调用。
 4. **混合型**（tool/mcp/catalog 等）同时具备 transform + hook/reload。
 
-## 5. 版本兼容锚点（beta-18230 → beta-18721）
+## 5. 版本兼容锚点（beta-18230 → 2.0.3）
 
 | 事实 | 状态 |
 |---|---|
 | `Context.location` | beta-18721 正式声明（18230 未声明，需探测） |
 | `Context.rpc` / `Context.experimental.terminal` | beta-18721 新增 |
+| `Context.worktree` | beta-19242 新增（worktree 策略注册从 vcs 域拆出） |
+| `Context.plugin` | beta-19242 收窄为 `Pick<PluginApi, "list">` |
+| `PermissionDomain.rules` | beta-19507（GA 线）新增 |
 | `ModelHooks` 第三参约束 | beta-18721 收紧：仅含 `model` 字段的 hook 接受 `ModelHookOptions` |
-| 其余域结构 | 两版一致（详见 changelog） |
+| 其余域结构 | beta-18721 → 2.0.3 逐字节一致（归一化 diff，见 changelog） |

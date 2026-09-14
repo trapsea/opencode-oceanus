@@ -43,10 +43,12 @@ export const LOOP_GUARD_WARN_AT = 3;
 export const LOOP_GUARD_BLOCK_AT = 5;
 
 /**
- * 完全豁免的整套工具：长时间 task 监督/轮询工具的相同重复调用是合法的。
+ * 完全豁免的整套工具：长时间 subagent 监督/轮询工具的相同重复调用是合法的。
+ * task/subagent 双键：宿主工具名 beta 为 `task`，OpenCode 2.0（beta-19507+）为 `subagent`。
  */
 export const LOOP_GUARD_EXEMPT: Record<string, true> = {
   task: true,
+  subagent: true,
   wait_for_background_tasks: true,
 };
 
@@ -63,11 +65,14 @@ export const LOOP_GUARD_BLOCK_TOOLS: Record<string, true> = {
 /**
  * 会写入文件系统的工具：成功完成后提取目标路径记入本 session 的
  * recentEdits，供编辑后重读豁免判定使用。
+ * apply_patch/patch 双键：宿主工具名 beta 为 `apply_patch`，OpenCode 2.0 builtin
+ * 为 `patch`（2.0.3 会话目录两者均未见直接暴露，双键保守覆盖）。
  */
 export const LOOP_GUARD_WRITE_TOOLS: Record<string, true> = {
   write: true,
   edit: true,
   apply_patch: true,
+  patch: true,
   ast_grep_replace: true,
 };
 

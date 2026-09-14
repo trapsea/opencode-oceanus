@@ -1,28 +1,30 @@
 # Tool 域与 Hook 体系
 
-> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743` + `@opencode-ai/schema@0.0.0-beta-18743`（与 beta-18721 的 dist 全量 diff 为零）
-> **beta-19242 变化**：`ToolDraft` 重命名为 `ToolEditor` 并新增 `namespace(namespace: Tool.Namespace)`（`Tool.Namespace = { name, description }`，可注册工具命名空间）；`codemode` 机制无变化（`Tool.Options.codemode` 联合结构与 18743 一致）。Session 模型 hook（`SessionModelRequest/HttpRequest/HttpResponse`）新增 `kind: "primary"|"compaction"|"title"|"generate"`，辅助请求（压缩/标题）也会命中统一 hook。详见 `versions/changelog.md`。
-> 证据源：tarball `promise/tool.d.ts`、schema `tool.d.ts`；宿主 beta-18721 registry 实测（codemode 行为，见本仓库 `docs/tooling-and-runtime.md` 同口径）。
+> 版本基线：`@opencode/plugin@2.0.3` + `@opencode/schema@2.0.3`（GA；Tool 域与 beta-19271 逐字节一致，归一化 diff 证据见 `versions/changelog.md`）
+> **beta-19242 变化**：`ToolDraft` 重命名为 `ToolEditor` 并新增 `namespace(namespace: Tool.Namespace)`（`Tool.Namespace = { name, description }`，可注册工具命名空间）；`codemode` 机制无变化（`Tool.Options.codemode` 联合结构与 18743 一致，至 2.0.3 仍未变）。Session 模型 hook（`SessionModelRequest/HttpRequest/HttpResponse`）新增 `kind: "primary"|"compaction"|"title"|"generate"`，辅助请求（压缩/标题）也会命中统一 hook。
+> **2.0 变化（beta-19507 落地）**：Session hooks 新增 `compaction`/`generate`/`title`；`SessionContext.generation`/`providerOptions` 合并为 `options`（详见 `06-session-and-events.md` 与 `versions/changelog.md`）。
+> 证据源：tarball `promise/tool.d.ts`、schema `tool.d.ts`；宿主 beta-18721 registry 实测 + 2.0.3 宿主实测（codemode 行为，见本仓库 `docs/tooling-and-runtime.md` 同口径；2.0.3 builtin `opencode.mcp.codemode.exclusion` 插件佐证 codemode 机制延续）。
 
 ## 1. ToolDomain
 
 ```ts
 interface ToolDomain {
-  readonly transform: Transform<ToolDraft>
+  readonly transform: Transform<ToolEditor>
   readonly reload: () => Promise<void>       // beta-18721 新增
   readonly hook: Hooks<ToolHooks>
 }
 ```
 
-### ToolDraft（beta-18721 完整形态）
+### ToolEditor（beta-18721 完整形态；beta-19242 由 ToolDraft 更名）
 
 ```ts
-interface ToolDraft {
+interface ToolEditor {
   list(): readonly (Info & { readonly id: string })[]
   get(id: string): (Info & { readonly id: string }) | undefined
   add(tool: Info<Input, Output>): void
   update(id: string, update: (tool: Types.Mutable<Info>) => void): void   // beta-18721 新增；id 不存在时忽略
   remove(id: string): void                                                // beta-18721 新增
+  namespace(namespace: Tool.Namespace): void                              // beta-19242 新增
 }
 ```
 
@@ -116,8 +118,11 @@ interface ToolHooks {
 | tool | `execute.before` | tool, input | 拦截/改写工具调用（守卫、注入、审计） |
 | tool | `execute.after` | result \| error | 截断输出、改写错误、记账 |
 | session | `prompt` | prompt, metadata | **beta-18721 正式**；提示词进入模型前拦截（附件物化等） |
-| session | `context` | tools, generation, providerOptions | 组装会话上下文（工具目录、生成参数覆盖） |
-| session | `model.request` | request | 每次模型请求前改写（支持 `ModelHookOptions.providerID` 限定） |
+| session | `context` | tools, options | 组装会话上下文（工具目录、生成参数/provider option 覆盖）；**2.0（beta-19507）起 `generation`/`providerOptions` 合并为 `options`** |
+| session | `compaction` | result? | **2.0 新增**：压缩请求拦截；设 `result: SessionCompactionResult` 可短路跳过模型请求 |
+| session | `generate` | （SessionContext 形态） | **2.0 新增**：agent-loop 生成请求拦截点 |
+| session | `title` | result? | **2.0 新增**：标题生成拦截；设 `result: string` 可短路 |
+| session | `model.request` | request | 每次模型请求前改写（支持 `ModelHookOptions.providerID` 限定；`kind` 判别辅助请求） |
 | session | `http.request` | request | 底层 HTTP 请求改写 |
 | session | `http.response` | response | 底层 HTTP 响应处理 |
 | session | `retry` | decision | **beta-18721 正式**；错误重试决策 `{retry:false}` \| `{retry:true, delay}` |
@@ -142,12 +147,14 @@ interface VcsDiscovery {
 
 beta-18721 起插件可通过 `Plugin.define({ vcs: {...} })` 声明自定义 VCS 后端（配合 `VcsDomain`，见 07）。
 
-## 7. 版本兼容锚点（18230 → 18721）
+## 7. 版本兼容锚点（18230 → 2.0.3）
 
 | 事实 | 状态 |
 |---|---|
-| `Tool.Options.codemode` 语义与联合结构 | 无变化（宿主行为两版一致） |
-| ToolDraft.list/get/update/remove | 18721 新增 |
+| `Tool.Options.codemode` 语义与联合结构 | 无变化（宿主行为 beta-18721/18230 实测一致；2.0.3 宿主 `opencode.mcp.codemode.exclusion` builtin 插件佐证机制延续） |
+| ToolEditor.list/get/update/remove | 18721 新增 |
+| ToolEditor.namespace | 19242 新增 |
 | ToolDomain.reload | 18721 新增 |
 | execute.before.inputSchema | 18721 移除 |
-| ToolHooks/ToolContext/Result 结构其余部分 | 无变化 |
+| ToolHooks/ToolContext/Result 结构其余部分 | 无变化（至 2.0.3） |
+| VcsDiscovery（Plugin.vcs） | beta-19242 随 `Plugin.vcs` 字段移除（本节 §6 为历史记录；VCS 后端注册改走 `ctx.vcs.transform`） |

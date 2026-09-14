@@ -7,9 +7,12 @@ import {
 /**
  * shell 权限护栏的语义级回归（Windows 兼容修复）。
  *
- * 背景：宿主 bash 工具的权限键恒为 'bash'（tool/shell/id.ts ToolID），
- * 命令 pattern 由 tree-sitter + BashArity 前缀生成，评估走
- * `Wildcard.match(pattern, rule.pattern)` 且 findLast 后声明优先。
+ * 背景：宿主 shell 工具的权限键——OpenCode 2.0（beta-19507+）为 'shell'，
+ * beta 宿主为 'bash'（插件双写覆盖两代宿主）。命令 pattern 由 tree-sitter +
+ * BashArity 前缀生成，评估走 `Wildcard.match(pattern, rule.pattern)` 且
+ * findLast 后声明优先。2.0.3 宿主源码（@opencode/core）核实：evaluate 语义
+ * `rulesets.flat().findLast(match(action) && match(resource)) ?? {effect:'ask'}`
+ * 与 wildcard match（win32 大小写不敏感）同 beta 一致，复刻仍准确。
  * 本文件复刻宿主 wildcard.ts 与 evaluate 语义做表驱动断言：
  * - 复刻函数与宿主实现存在漂移风险，宿主升级时需同步（见注释引用）；
  * - pattern 样本按宿主 BashArity 语义构造：cmdlet/cmd/未知名取首 token，
@@ -50,9 +53,9 @@ describe('READONLY_SHELL_PERMISSION 结构契约', () => {
     }
   });
 
-  test('默认权限表挂 bash 主键（宿主 ToolID）并保留 shell 兼容双写', () => {
-    expect(READONLY_DEFAULT_PERMISSION.bash).toBe(READONLY_SHELL_PERMISSION);
+  test('默认权限表挂 shell 主键（OpenCode 2.0 action 名）并保留 bash 兼容双写', () => {
     expect(READONLY_DEFAULT_PERMISSION.shell).toBe(READONLY_SHELL_PERMISSION);
+    expect(READONLY_DEFAULT_PERMISSION.bash).toBe(READONLY_SHELL_PERMISSION);
   });
 });
 

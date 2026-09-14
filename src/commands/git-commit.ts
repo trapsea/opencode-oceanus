@@ -78,7 +78,7 @@ export function buildGitCommitInstruction(argument: string): string {
     '',
     '## 安全约束',
     '- 仅在用户通过 question 明确选择提交后才执行 git add / git commit；绝不执行 git push',
-    '- commit message 用中文——经 `-m` 内联传递在 Windows PowerShell/cmd 下有引号与编码（GBK/UTF-8）风险：统一用 write 工具把消息写入 bash 工具描述中标注的 tmp 目录下的临时文件，再 `git commit -F <该文件>`，提交后删除临时文件',
+    '- commit message 用中文——经 `-m` 内联传递在 Windows PowerShell/cmd 下有引号与编码（GBK/UTF-8）风险：统一用 write 工具把消息写入 shell 工具描述中标注的 tmp 目录下的临时文件，再 `git commit -F <该文件>`，提交后删除临时文件',
     '- 不将不相关的变更合并到同一次提交',
     '- 现有 staged 内容不得被静默重组或覆盖；发现与建议无关的暂存内容时先报告',
     '- 检测到调试代码（console.log、System.out.println 等）时先提醒清理',

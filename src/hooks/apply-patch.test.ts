@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import {
-  APPLY_PATCH_TOOL,
+  APPLY_PATCH_TOOLS,
   ApplyPatchError,
   assertAllTargetsInsideWorkspace,
   createApplyPatchHook,
@@ -16,6 +16,9 @@ import {
   type ApplyPatchHookOptions,
   type ApplyPatchHookStatus,
 } from './apply-patch';
+
+/** beta 宿主工具名（双名键控的另一键为 OpenCode 2.0 的 `patch`，见 APPLY_PATCH_TOOLS）。 */
+const APPLY_PATCH_TOOL = 'apply_patch' as const;
 
 /**
  * 参考 oh-my-opencode-slim 的 apply-patch 算法思想，但适配 v2：
@@ -269,7 +272,7 @@ describe('writePatchInput', () => {
 });
 
 describe('createApplyPatchHook（v2 execute.before）', () => {
-  test('非 apply_patch 工具直接跳过，不改写、不抛、不发状态', async () => {
+  test('非补丁工具直接跳过，不改写、不抛、不发状态', async () => {
     const root = await temporaryRoot();
     const spy = makeStatusSpy();
     const hook = createApplyPatchHook({ root, onStatus: spy.fn });
@@ -279,6 +282,23 @@ describe('createApplyPatchHook（v2 execute.before）', () => {
 
     expect(spy.events).toHaveLength(0);
     expect(event.input).toMatchObject({ patchText: canonicalPatch() });
+  });
+
+  test('工具名双键：OpenCode 2.0 名 patch 与 beta 名 apply_patch 均被处理', async () => {
+    expect([...APPLY_PATCH_TOOLS]).toEqual(expect.arrayContaining(['apply_patch', 'patch']));
+    const root = await temporaryRoot();
+    const spy = makeStatusSpy();
+    const hook = createApplyPatchHook({ root, onStatus: spy.fn });
+    // 工作区外补丁：匹配键会走校验链并发 failopen 状态（证明 hook 生效），不匹配键零状态。
+    const patch = canonicalPatch().replace('src/a.ts', '../outside.ts');
+    for (const tool of APPLY_PATCH_TOOLS) {
+      spy.events.length = 0;
+      await hook({ tool, input: { patchText: patch } });
+      expect(spy.events[0]?.status).toBe('failopen');
+    }
+    spy.events.length = 0;
+    await hook({ tool: 'edit', input: { patchText: patch } });
+    expect(spy.events).toHaveLength(0);
   });
 
   test('工作区外路径 → fail-open（不抛、不改写）', async () => {

@@ -1,12 +1,13 @@
 # 基础设施域：MCP / Permission / Storage / VCS / Shell / WebSearch / Reference / Integration / AISDK / Experimental
 
-> 版本基线：`@opencode-ai/plugin@0.0.0-beta-18743` + schema beta-18743（与 beta-18721 的 dist 全量 diff 为零）
+> 版本基线：`@opencode/plugin@2.0.3` + schema 2.0.3（GA；与 beta-19271 逐字节一致——唯一例外 `PermissionDomain` 新增 `rules`，beta-19507 落地，见 `versions/changelog.md`）
 > 证据源：tarball `promise/{mcp,permission,storage,vcs,shell,websearch,reference,integration,aisdk}.d.ts`、根级 `storage.d.ts`、`vcs.d.ts`；schema `{mcp,permission,vcs,websearch,persistent-pty}.d.ts`。
+> **beta-19242 变化**：`*Draft` 更名 `*Editor`（方法签名不变）；`Plugin.vcs` 字段移除，VCS 注册统一收口 `ctx.vcs.transform`；worktree 管理拆分到 `ctx.worktree`。
 
 ## 1. MCPDomain
 
 ```ts
-interface MCPDraft {
+interface MCPEditor {
   list(): readonly [string, DeepMutable<Mcp.ServerConfig>][]
   get(name: string): DeepMutable<Mcp.ServerConfig> | undefined
   set(name: string, config: Mcp.ServerConfig): void
@@ -14,7 +15,7 @@ interface MCPDraft {
   remove(name: string): void
 }
 interface MCPDomain extends Pick<McpApi, "list"> {
-  readonly transform: Transform<MCPDraft>
+  readonly transform: Transform<MCPEditor>
   readonly reload: () => Promise<void>
 }
 ```
@@ -47,12 +48,13 @@ interface PermissionEvaluation {
   effect: Permission.Effect          // 可变："allow" | "deny" | "ask"
   message?: string                   // 可变
 }
-interface PermissionDomain = Pick<PermissionApi, "list" | "get" | "reply"> & {
+interface PermissionDomain = Pick<PermissionApi, "list" | "get" | "reply" | "rules"> & {
   readonly hook: Hooks<{ evaluate: PermissionEvaluation }>
 }
 ```
 
 - `hook("evaluate")` 在权限判定时触发，改写 `effect` 即可覆盖判定结果。
+- **2.0 变化（beta-19507）**：Pick 集合新增 `"rules"`——插件可读取当前权限规则集（与会话级 `session.permissions` 配套，见 `06-session-and-events.md` §4）。
 - 配置层权限面（官方 permissions 页）：action 键含 read/edit/glob/grep/bash/task/skill/webfetch/websearch/external_directory/lsp/question/doom_loop；细粒度对象语法（如 `bash: {"git *": "allow", "rm *": "deny"}`）；`--auto` 自动批准非 deny。
 - `reply` 用于程序化回应挂起的权限请求（配合 `/api/permission/request` 路由）。
 
@@ -75,10 +77,10 @@ JSON 值 KV，`scan` 前缀分页遍历。存储位置与插件实例绑定（�
 
 ```ts
 interface VcsDomain extends VcsApi {
-  readonly transform: Transform<VcsDraft>
+  readonly transform: Transform<VcsEditor>
   readonly reload: () => Promise<void>
 }
-interface VcsDraft {
+interface VcsEditor {
   add(definition: VcsDefinition): void
   readonly default: { get(): string | undefined; set(selection: string): void }
 }
@@ -95,8 +97,8 @@ interface VcsScope { directory; worktree; canonical; store? }
 interface VcsDiffInput extends VcsScope { mode: Vcs.Mode; base?: string; context: number; maxOutputBytes: number }
 ```
 
-- 插件可注册完整自定义 VCS 后端（配合 `Plugin.vcs: VcsDiscovery = { id?, markers }` 声明目录标记命中）。
-  - **beta-19242 变化**：`Plugin.vcs` 字段已移除（根级 `vcs.d.ts`/`VcsDiscovery` 删除）；`VcsDraft` 更名 `VcsEditor` 并新增 `default.get()/set()` 显式默认后端选择；worktree 管理拆分到新 `ctx.worktree: WorktreeDomain`（`WorktreeEditor.add(WorktreeDefinition)`，create/remove/list + AbortSignal；schema `worktree.d.ts` 的 `strategy`/`directory` 变 optional，`ListInput` 改为 `ListEntry { directory, type: "root"|"worktree" }`）。
+- 插件可注册完整自定义 VCS 后端（经 `ctx.vcs.transform`；`Plugin.vcs: VcsDiscovery` 声明通道已于 beta-19242 移除）。
+  - **beta-19242 变化**：根级 `vcs.d.ts`/`VcsDiscovery` 删除；`VcsDraft` 更名 `VcsEditor` 并新增 `default.get()/set()` 显式默认后端选择；worktree 管理拆分到新 `ctx.worktree: WorktreeDomain`（`WorktreeEditor.add(WorktreeDefinition)`，create/remove/list + AbortSignal；schema `worktree.d.ts` 的 `strategy`/`directory` 变 optional，`ListInput` 改为 `ListEntry { directory, type: "root"|"worktree" }`）。
 - `diff` 的 `base?` 与 `base()` 方法为 beta-18721 新增（基准 ref 查询/对比）。
 - HTTP 路由：`/api/vcs`、`/api/vcs/{base,branches,diff,status}`（实测存在）。
 
@@ -115,12 +117,12 @@ interface ShellCreateBefore {
 }
 ```
 
-宿主执行 shell（bash 工具等）前触发；可改写命令、目录、超时与环境。
+宿主执行 shell（shell 工具；beta 宿主名 bash）前触发；可改写命令、目录、超时与环境。
 
 ## 6. WebSearchDomain
 
 ```ts
-interface WebSearchDraft {
+interface WebSearchEditor {
   add(definition: WebSearchDefinition): void
   readonly default: { get(): string | false | undefined; set(selection: string | false): void }
 }
@@ -130,17 +132,17 @@ interface WebSearchDefinition {
   execute(input: WebSearch.ProviderInput, { signal }): Promise<readonly WebSearch.Result[]>
 }
 interface WebSearchDomain extends WebSearchApi {
-  readonly transform: Transform<WebSearchDraft>
+  readonly transform: Transform<WebSearchEditor>
   readonly reload: () => Promise<void>
 }
 ```
 
-注册自定义搜索 provider；`default.set(id | false)` 设默认或禁用搜索。HTTP 路由：`/api/websearch`、`/api/websearch/provider`。
+注册自定义搜索 provider；`default.set(id | false)` 设默认或禁用搜索。HTTP 路由：`/api/websearch`、`/api/websearch/provider`。2.0 宿主内置 provider 见 `10-builtin-inventory.md`（exa/firecrawl/parallel/tavily/tinyfish 等 `opencode.websearch.*` builtin 插件；TinyFish 为 2.0.2 新增）。
 
 ## 7. ReferenceDomain
 
 ```ts
-interface ReferenceDraft {
+interface ReferenceEditor {
   add(name: string, source: ReferenceLocalSource | ReferenceGitSource): void
   remove(name: string): void
   list(): readonly (readonly [string, Source])[]
@@ -153,7 +155,7 @@ interface ReferenceDraft {
 
 ```ts
 interface IntegrationDomain extends Omit<IntegrationApi, "wellknown"> {
-  readonly transform: Transform<IntegrationDraft>
+  readonly transform: Transform<IntegrationEditor>
   readonly reload: () => Promise<void>
   readonly connection: {
     readonly active: (integrationID: string) => Promise<ConnectionInfo | undefined>
@@ -162,7 +164,7 @@ interface IntegrationDomain extends Omit<IntegrationApi, "wellknown"> {
 }
 ```
 
-`IntegrationDraft`：integration 增删改 + `method.update(IntegrationMethodRegistration)` 注册认证方法，四种：
+`IntegrationEditor`：integration 增删改 + `method.update(IntegrationMethodRegistration)` 注册认证方法，四种：
 
 | 方法 | 字段 |
 |---|---|
@@ -193,11 +195,13 @@ readonly experimental: {
 
 持久 PTY 读取（beta-18721 新增）。PersistentPty schema 字段含 command/args/cwd/env/cols/data/cursor/checkpoint/exitCode/attachmentID 等。相关路由：`/api/experimental/persistent-pty/*`、`/api/experimental/integration/wellknown`、`/api/experimental/migration/v1`、`/api/experimental/session/:id/*`（实测存在）。
 
-## 11. 版本兼容锚点（18230 → 18721）
+## 11. 版本兼容锚点（18230 → 2.0.3）
 
 | 事实 | 状态 |
 |---|---|
-| MCPDomain 方法面 | 收窄：`Omit<McpApi,"resource">` → `Pick<McpApi,"list">` |
-| Mcp.ServerConfig.codemode | 两版均存在（optional boolean） |
-| VcsDiffInput.base / VcsDefinition.base / VcsDraft | 18721 新增（VcsDraft 此前不存在 transform 面） |
-| 其余域 | 无变化 |
+| MCPDomain 方法面 | 18721 收窄：`Omit<McpApi,"resource">` → `Pick<McpApi,"list">`；至 2.0.3 不变（2.0.3 实测 `ctx.mcp.transform/reload` 注册 CBM server → connected） |
+| Mcp.ServerConfig.codemode | 两版均存在（optional boolean）；2.0.3 builtin `opencode.mcp.codemode.exclusion` 插件佐证机制延续 |
+| PermissionDomain | beta-19507 新增 `rules` 读取；`evaluate` hook 结构不变 |
+| VcsDiffInput.base / VcsDefinition.base | 18721 新增；VcsEditor.default beta-19242 新增 |
+| WorktreeDomain | beta-19242 新增（从 vcs 拆出） |
+| 其余域 | 无变化（归一化 diff，见 changelog） |

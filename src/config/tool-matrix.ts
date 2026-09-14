@@ -23,7 +23,7 @@ export const TOOL_SOURCE_NOTE =
 
 /** shell 跨平台注意句（原 constants.ts 两份近似重复句的唯一来源，供差异句拼装）。 */
 export const SHELL_OS_NOTE =
-  '注意：bash 工具的实际 shell 以其工具描述中的 OS/Shell 标注为准' +
+  '注意：shell 工具的实际 shell 以其工具描述中的 OS/Shell 标注为准' +
   '（Windows 上通常是 PowerShell 或 cmd.exe，并非 bash）——命令动词、引号与连接符必须跟随该 shell' +
   '（Windows PowerShell 5.1 不支持 `&&`，用 `cmd1; if ($?) { cmd2 }`），' +
   '不要默认 Unix 语法（grep/sed/cat 在 PowerShell/cmd 下通常不存在）。';

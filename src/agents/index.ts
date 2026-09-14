@@ -1,4 +1,4 @@
-import { Model } from '@opencode-ai/plugin';
+import { Model } from '@opencode/plugin';
 import {
   READONLY_AGENTS,
   READONLY_DEFAULT_PERMISSION,

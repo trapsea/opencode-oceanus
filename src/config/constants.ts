@@ -60,7 +60,7 @@ export const WRITABLE_FILE_OPERATIONS_RULES = `**文件操作规则**：
  - 符号与调用链检索按下方工具选择矩阵走 CBM 通道；文件定位与读取使用专用文件工具——用 glob/grep/ast_grep_search 进行发现，用 read 读取文件内容，用 edit/write/apply_patch 进行有针对性的源代码修改。
 ${TOOL_SELECTION_MATRIX}
 - 新增或修改文件必须遵循目标项目现有的格式与语言规范，适用于代码、文档及其他文件类型；不得为了节省行数而压缩内容。
-- 使用 bash 工具执行自动化操作：git、包管理器、测试、构建、脚本、诊断及 shell 原生文件系统操作。${SHELL_OS_NOTE}
+- 使用 shell 工具执行自动化操作：git、包管理器、测试、构建、脚本、诊断及 shell 原生文件系统操作。${SHELL_OS_NOTE}
 - 批量或机械文件变更在比逐项编辑更清晰或安全时可以使用 Shell（例如截断生成日志、移除构建产物、批量重命名/移动），尤其是用户明确要求该 Shell 操作时。
 - 进行破坏性或大范围 Shell 操作前，核实目标集合并引用路径；可行时优先先做 dry-run/列举。
 ${NO_SHELL_READ_NOTE}`;
@@ -71,7 +71,7 @@ export const READONLY_FILE_OPERATIONS_RULES = `**文件操作规则**：
  - 只读：检查并报告；不要修改文件。
  - 符号与调用链检索按下方工具选择矩阵走 CBM 通道；文件定位与读取使用专用文件工具——用 glob/grep/ast_grep_search 进行发现，用 read 读取文件内容。
 ${TOOL_SELECTION_MATRIX}
-- 当 bash 工具最清晰时，允许用它执行不修改文件的诊断和 shell 原生检查，但不得用于修改文件。${SHELL_OS_NOTE}
+- 当 shell 工具最清晰时，允许用它执行不修改文件的诊断和 shell 原生检查，但不得用于修改文件。${SHELL_OS_NOTE}
 ${NO_SHELL_READ_NOTE}`;
 
 /**
@@ -197,12 +197,14 @@ export const READONLY_AGENTS: ReadonlySet<string> = new Set([
  * 只读 agent 的默认 permission：
  * - allow：read/glob/grep/list/lsp/codesearch/webfetch/websearch/ast_grep_search
  *   以及查询型 codebase-memory 工具
- * - bash：宿主 shell 工具的权限键**恒为 'bash'**（宿主 tool/shell/id.ts `ToolID`，
- *   与实际运行 bash/PowerShell/cmd 无关）；默认允许非修改命令，并按
- *   READONLY_SHELL_PERMISSION 拒绝常见写入模式。'shell' 键为兼容双写
- *   （防宿主按 id.ts 注释预告在 2.0 改名），两条键生成等价规则、互不冲突。
+ * - shell：宿主 shell 工具的权限键。**OpenCode 2.0（beta-19507 起）权限 action 已从
+ *   'bash' 改名 'shell'**（工具名同名；宿主 v1 配置迁移层 normalizeAction：
+ *   bash→shell、task→subagent、write/patch→edit）。2.0 宿主下 'shell' 键生效；
+ *   'bash' 键为 beta 宿主（≤19296）兼容双写，两条键生成等价规则、互不冲突。
  * - deny：subagent/edit/write/apply_patch/ast_grep_replace/todowrite/clipboard_image
- *   （写入、委派动作与系统剪贴板读取）
+ *   （写入、委派动作与系统剪贴板读取）。2.0 宿主下 subagent 工具权限键为
+ *   'subagent'（'task' 为 beta 兼容双写）；edit+write+patch 工具统一 action 'edit'
+ *   （'write'/'apply_patch'/'todowrite' 为 beta 兼容键，2.0 下由 'edit' 覆盖）。
  * 显式 agents.<name>.permission 始终覆盖此默认值。
  */
 export const READONLY_DEFAULT_PERMISSION: NonNullable<
@@ -224,11 +226,12 @@ export const READONLY_DEFAULT_PERMISSION: NonNullable<
   cbm_code: 'allow',
   cbm_query: 'allow',
   cbm_detect_changes: 'allow',
-  bash: READONLY_SHELL_PERMISSION,
-  // 兼容双写：宿主当前权限键为 'bash'；'shell' 为未来改名预留，二者同规则。
   shell: READONLY_SHELL_PERMISSION,
-  task: 'deny',
+  // 兼容双写：OpenCode 2.0（beta-19507+）权限键为 'shell'；'bash' 为 beta 宿主兼容保留，二者同规则。
+  bash: READONLY_SHELL_PERMISSION,
   subagent: 'deny',
+  // 兼容双写：2.0 宿主 subagent 工具权限键为 'subagent'；'task' 为 beta 宿主兼容保留。
+  task: 'deny',
   edit: 'deny',
   write: 'deny',
   apply_patch: 'deny',

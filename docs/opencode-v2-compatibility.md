@@ -1,22 +1,24 @@
-# OpenCode v2 beta 兼容性记录
+# OpenCode v2 兼容性记录
 
 ## 适用范围
 
-本文记录 `opencode-oceanus` 当前依赖和实际代码针对的 OpenCode v2 beta API。它不是对所有 OpenCode v2 beta 版本的兼容承诺，也不从 `beta-18743` 推断宿主应用版本号。
+本文记录 `opencode-oceanus` 当前依赖和实际代码针对的 OpenCode v2 API。OpenCode 2 已发布正式版（`@opencode/*@2.0.x`）；本文同时记录 beta 锁定现状与 2.0 正式版实测结论。它不是对所有 OpenCode v2 版本的兼容承诺，也不从 build 号推断宿主应用版本号。
 
 ## 当前版本基线
 
 | 项目 | 当前值 | 证据 |
 |---|---|---|
-| 插件包 | `opencode-oceanus@0.52.1` | `package.json:2-4` |
-| OpenCode 插件 API | `@opencode-ai/plugin@0.0.0-beta-18743`，精确锁定 | `package.json:43-45`、`bun.lock` |
-| OpenCode schema | `@opencode-ai/schema@0.0.0-beta-18743`，精确锁定 | `package.json:44-45`、`bun.lock` |
-| 实测宿主 | `@opencode/cli@0.0.0-beta-19296`（CLI 宿主已迁新包名；`@opencode-ai/plugin` 无 19296 版本，npm E404） | 2026-09-09 宿主服务日志：插件加载、agents/skills/tools 注册、`ctx.mcp.transform` 注册 CBM server 均正常；npm beta tag `@opencode-ai/{plugin,schema}@0.0.0-beta-19271` 与 19242 差异全部为 optional 新增（详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md)），锁定 18743 无回归 |
-| 可选 peer | `@opentui/solid >=0.5.8`、`solid-js >=1.9.0`、`zod ^4.0.0`；前两者 optional | `package.json:47-59` |
+| 插件包 | `opencode-oceanus@1.0.0` | `package.json:2-4` |
+| OpenCode 插件 API | `@opencode/plugin@2.0.3`，精确锁定（2026-09-14 从 `@opencode-ai/plugin@0.0.0-beta-18743` 全量迁移） | `package.json:43-45`、`bun.lock` |
+| OpenCode schema | `@opencode/schema@2.0.3`，精确锁定 | `package.json:44-45`、`bun.lock` |
+| 正式版包族 | **GA 已迁新 scope**：`@opencode/{cli,plugin,schema,core,client,sdk,ai,protocol,server,theme,util}` latest 均 `2.0.3`（2026-09-12 发布；v2.0.x 无官方 release notes）。旧 `@opencode-ai/*` 为 v1 线并行维护（latest 1.18.30，未 deprecated，beta 停在 19271，无 2.x）。CLI bin 双名 `opencode`（主）+ `opencode2`（别名）；GitHub 迁至 `anomalyco/opencode`；V2 文档站 `opencode.ai/v2/docs` | npm registry dist-tags/tarball（2026-09-14 核实），详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) 2.0.3 条目 |
+| 实测宿主 | `@opencode/cli@2.0.3`（2026-09-14 隔离 serve + 临时 XDG + 指向本仓库 dist）：插件 active（`features: {server, tui}`）、14 agents/12 skills 全量注册、`ctx.mcp.transform/reload` 注册 CBM server → **connected**、prometheus primary + temperature 0.3 注入正确。**beta-18743 API 面在 2.0.3 宿主上零回归**。项目配置文件实测 `opencode.jsonc` 生效、`opencode.json`（无 c）未被识别；全局配置路径 `~/.config/opencode/opencode.jsonc`（home 推导，不受 `XDG_CONFIG_HOME` 重定向） | 2026-09-14 实测记录（`opencode api get /api/{plugin,agent,skill,mcp,config}`）；此前 beta-19296 实测（2026-09-09）同口径 |
+| 2.0 类型面差异（对本插件） | 主体差异落在 beta-19271→beta-19507（beta 线末段）：session hooks 新增 `compaction`/`generate`/`title`、`SessionContext.{generation,providerOptions}` 合并为 `options`【breaking 仅类型面，本插件未消费】、`PermissionDomain` 增 `rules`、TUI tabs 语义调整；2.0.2 `Preferences`+`config/shell`；2.0.3 compaction `cost`/`tokens`。`Plugin.define`、全部注册域、`Tool.Options.codemode` 至 2.0.3 逐字节不变 | tarball 归一化 diff（19271/19507/2.0.0/2.0.1/2.0.2/2.0.3 六版三方分解），见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) |
+| 可选 peer | `@opentui/solid >=0.5.10`、`solid-js >=1.9.0`、`zod ^4.0.0`；前两者 optional | `package.json:47-59`（对齐 `@opencode/plugin@2.0.3` peerDeps 的 `@opentui/* >=0.5.10`；正式版 plugin 另有 optional `@opencode/theme` 与 `@opentui/core`，本插件不消费不声明） |
 | 构建目标 | Bun build，Node/ESM；OpenCode plugin、schema、OpenTUI 和 Solid 外部化 | `package.json:25` |
 | 入口 | CLI `dist/index.js`，TUI `dist/tui.js` | `package.json:6-16` |
 
-锁定版本不是宿主版本号映射。升级时应同时检查 `package.json`、`bun.lock`、安装后的类型声明和真实 OpenCode Host，而不是只替换 beta 编号。
+锁定版本不是宿主版本号映射。升级时应同时检查 `package.json`、`bun.lock`、安装后的类型声明和真实 OpenCode Host，而不是只替换 beta 编号；**升 2.0 正式版需整体迁 `@opencode/*` 新 scope**（包坐标 + import 路径）。
 
 ## 已核实的 v2 API 约束
 
@@ -35,14 +37,14 @@
 | `ctx.mcp.transform` + `ctx.mcp.reload`（`MCPDomain = Pick<McpApi, "list">` 形态） | CBM server 注册只调用 `transform`（`draft.get/set/remove`）与 `reload`，两者在 beta-18721→19271 类型面均未变化（18743/19242/19271 三版 `mcp.d.ts` 对比：18743→19242 变化不影响本用法，19242→19271 零差异） | `src/cbm/mcp.ts:150-252`；宿主 `@opencode/cli@19296` 实测：日志出现 `server=codebase-memory-mcp` 连接尝试即证明 transform 注册生效（连接失败为 CBM daemon 生命周期问题，与注册契约无关，2026-09-09） |
 | permission 对象形式（资源级规则）经 `toPermissions` 转换 | `prometheus` 主 agent 权限已收敛（2026-09-10）：`task`/`subagent` 整体 `deny`（不委派任何 subagent，全部研究自查）+ `skill: 'deny'`、`question: 'allow'`；对象形式仅剩 `shell` 模式表（继承只读表）。**注册层真实宿主已验证（beta-19296，2026-09-10，隔离 serve 实例 + 工作区 dist）**：prometheus 以 `mode: primary` 注册、temperature 0.3、system prompt 注入正确；宿主接受资源级规则并按"基线在前、插件规则在后"合并；宿主内置 build/plan 被移除。**运行时评估已实锤（2026-09-10 真实会话）**：宿主 task 工具以裸 agent 名评估权限——宿主 `tool/task.ts` `ctx.ask({ permission: 'task', patterns: [params.subagent_type] })`，`evaluate` 走 `Wildcard.match(裸名, rule.pattern)`，前缀式 resource（`task.explorer`）永不匹配、findLast 命中 `{'*': 'deny'}`，旧白名单 fail-closed 全拒（真实会话报「@explorer 不可用（白名单中的目标在权限层实际不存在）」属实）；处置：移除对象形式白名单，收敛为整体 deny + prompt 自查纪律。**仍待验证**：`question`（插件自定义工具）在受限 primary 会话的阻塞行为 | `src/config/constants.ts`（`PROMETHEUS_PERMISSION`）、`src/index.ts:23-48`（`toPermissions` 资源级转换）、`src/agents/prometheus.ts`；隔离实例 API 验证记录见本行（验证用临时 serve 已清理，未触碰用户全局配置与共享服务） |
 
-## 宿主 Windows shell 事实矩阵（2026-09-11 源码核实）
+## 宿主 Windows shell 事实矩阵（2026-09-11 源码核实；2026-09-14 经 `@opencode/core@2.0.3` 复核）
 
 以下事实来自宿主源码直接阅读（`packages/core/src/shell.ts`、`packages/opencode/src/tool/shell.ts`、`tool/shell/id.ts`、`tool/shell/prompt.ts`、`permission/arity.ts`、`permission/index.ts`、`packages/cli/src/services/daemon.ts`），是插件跨平台适配（Windows 兼容修复）的依据：
 
 | 事实 | 宿主行为 | 插件适配 |
 |---|---|---|
-| bash 工具权限键恒为 `'bash'` | `tool/shell/id.ts:16`：`ToolID = "bash"`（注释预告 2.0 才改名，现保持 bash 兼容存量权限） | 只读 shell 护栏挂 `bash` 主键 + `shell` 兼容双写（`src/config/constants.ts`）；此前仅挂 `shell` 键导致整表在所有平台未生效，2026-09-11 修复 |
-| Windows 实际 shell 选择 | `core/src/shell.ts:98-106,119`：默认按 `pwsh → powershell → Git Bash → COMSPEC(cmd)` 选择；可配置覆盖 | 提示词不再默认 Unix 语法；明确"实际 shell 以 bash 工具描述中的 OS/Shell 标注为准"（`constants.ts` 文件操作规则、`oceanus-plan` 计数验证） |
+| shell 工具权限键 | beta 宿主恒为 `'bash'`（`tool/shell/id.ts` 注释预告 2.0 改名）；**2.0（beta-19507+）已落地改名 `'shell'`**（`@opencode/core@2.0.3` 源码：`name = "shell"`、`permission.assert({action: name})`；v1 配置迁移层 `normalizeAction2` 将 bash→shell、task→subagent、write/patch→edit） | 只读 shell 护栏 `shell` + `bash` 双键（两代宿主均有效键在表）；2026-09-11 修复 + 2026-09-14 注释主次更新 |
+| Windows 实际 shell 选择 | `core/src/shell.ts:98-106,119`：默认按 `pwsh → powershell → Git Bash → COMSPEC(cmd)` 选择；可配置覆盖 | 提示词不再默认 Unix 语法；明确"实际 shell 以 shell 工具描述（beta 宿主为 bash 工具）中的 OS/Shell 标注为准"（`constants.ts` 文件操作规则、`oceanus-plan` 计数验证） |
 | 工具描述按 shell 动态渲染 | `tool/shell/prompt.ts`：PowerShell/cmd 有专门 commandSection（含 PowerShell 5.1 无 `&&` 提示、cmd 用 `%VAR%`、here-string/临时文件提交 PR body）；`shell.txt:3` 注入 `OS/Shell/tmp` | 插件提示词与宿主描述冲突时以宿主为准；`git-commit` 指令改用 `-F` 临时文件规避 PowerShell/cmd 中文消息编码与引号问题 |
 | 权限 pattern 生成 | `tool/shell.ts:392-410`：tree-sitter 解析命令，`BashArity.prefix` 取前缀 token（cmdlet/cmd/未知名取首 token），管道两侧 command 节点分别生成 pattern（不含 `\|`） | deny 表用动词式规则即可覆盖管道右侧（`Out-File *` 拦 `\| Out-File`）；git/npm/bun 子命令跨 shell 同名继续生效 |
 | `Wildcard.match` 大小写语义 | `core/src/util/wildcard.ts:13`：win32 大小写不敏感（`si`），其余平台敏感（`s`） | PowerShell cmdlet 规则 PascalCase + 小写双写（覆盖非 win32 平台 pwsh 场景）；cmd 动词惯例小写单写 |
@@ -50,6 +52,16 @@
 | 宿主 daemon 注册协议 | `packages/cli/src/services/daemon.ts:39-41`：`<state>/opencode/server.json`（`{id?,version?,url,pid}`，无 password）+ 同目录 `password` 文本文件 | `src/update/host-update.ts` 按 `server.json → service.json` 双候选探测，password 从 JSON 内联（旧）→ 独立文件（新）解析 |
 
 评估链完整语义（修复依据）：`toPermissions`（`src/index.ts`）生成 v2 `{action, resource, effect}` → 宿主映射为 v1 `{permission: action, pattern: resource, action: effect}` → `evaluate(permission='bash', pattern, ruleset)` 走 `Wildcard.match('bash', rule.permission) && Wildcard.match(pattern, rule.pattern)`、findLast 后声明优先（`permission/index.ts:28-38`）。语义级回归测试见 `src/config/shell-permission.test.ts`（复刻宿主 wildcard/evaluate 语义，宿主升级时需同步复刻函数）。
+
+## 2.0.3 适配记录（2026-09-14）
+
+依赖与代码已全量迁移到 OpenCode 2.0 正式版（`@opencode/{plugin,schema}@2.0.3`）：
+
+1. **依赖坐标迁移**：`@opencode-ai/{plugin,schema}@0.0.0-beta-18743` → `@opencode/{plugin,schema}@2.0.3`；`src/{index.ts, agents/index.ts, tui.tsx, runtime/types.ts}` 共 5 处 import 随迁（含 `@opencode-ai/client` → `@opencode/client`，transitive 依赖确认存在）；build `--external` 更新为 `@opencode/{plugin,schema}`；peer `@opentui/solid` 提升至 `>=0.5.10`（对齐 2.0.3 plugin peerDeps）。typecheck + 972 测试零错误——插件消费面与 2.0.3 类型完全兼容（`SessionContext.options` 合并等 breaking 面本插件未消费，explorer 全量盘点 + 编译双确认）。
+2. **权限 action 键改名落地**（宿主源码 `@opencode/core@2.0.3` 核实 + 当前 2.0.3 会话工具目录实证）：shell 工具 `bash→shell`、subagent 工具 `task→subagent`、edit/write/patch 工具统一 action `edit`（v1 配置迁移层 `normalizeAction2` 同口径）。本插件权限表双写（bash+shell、task+subagent、edit+write+apply_patch）在两代宿主下语义均正确，无需改表——仅更新注释主次（2.0 起 `shell`/`subagent` 为有效键，`bash`/`task` 为 beta 兼容保留）。`evaluate` 语义（findLast + 双 wildcard + 默认 ask）与 `Wildcard.match`（win32 大小写不敏感）经 2.0.3 源码复核与 beta 逐字一致，`shell-permission.test.ts` 复刻仍准确。
+3. **提示词与 hook 工具名对齐**：agents 提示词中"bash 工具"表述全部改为"shell 工具"（`constants.ts` ×2、`tool-matrix.ts`、`git-commit.ts`；2.0.3 会话工具目录实证工具名为 `shell`/`subagent`）。**三处按宿主工具名键控的 hook 表同步双名键控**（Oracle 审查发现，2026-09-14 修复）：`json-error-recovery` 排除清单 +`shell`、`tool-loop-guard` 豁免表 +`subagent`（写工具表 +`patch`）、`apply-patch` hook 改 `APPLY_PATCH_TOOLS` 集合（`apply_patch`+`patch` 双键；2.0.3 会话目录实证两者均未直接暴露，双键保守覆盖两代宿主）——与权限表既有双写策略同构。
+4. **事件 wire 双形态确认**：`ctx.event.subscribe` 的 2.0.3 wire 为 `{id, created, type, location, data:{sessionID, parentID?}, durable}`（隔离 serve SSE 实测），beta 为 `properties.info`；`src/update/index.ts` 消费代码本就双形态兼容读取（`properties.info ?? data`），仅注释更新；测试两种形态均覆盖。
+5. **配置发现**：项目配置 2.0.3 实测需 `opencode.jsonc`（`.json` 不被识别）；插件本地路径必须目录（单文件 beta-18721 与 2.0.3 双实测一致）；README 已按实测修正（含 TUI 配置段——`plugins` 指向 `dist` 目录即可双入口加载，`cli.json` 为官方 V2 文档口径的 CLI-only 配置文件）。**宿主惰性加载时序注记**：serve 进程对某 location 的插件加载是异步的——进程启动后立即发出的首个 API 请求可能返回"未加载快照"（agents 仅宿主内置、插件条目缺失）；稍候重查或二次查询即得完整状态（2026-09-14 反复实测确认，非插件缺陷；排查插件加载问题时勿以首查快照下结论）。
 
 ## 插件侧版本与运行时边界
 
@@ -72,13 +84,15 @@
 
 - 真实 Host 中 `session.active`、`interrupt`、skill draft 形态、CLI/TUI 加载字段的最终行为。
 - 真实 Host 是否接受图片 `prompt` / `retry` hook 名称，以及 `/builtin/...` skill location 是否要求可直接访问的物理文件。
-- `beta-18743` 之后版本的完整向后兼容性（`beta-19271` 类型面已核对零 breaking；宿主 `@opencode/cli@19296` 已实测插件加载与注册链路正常，2026-09-09，见「当前版本基线」）。
+- 兼容链路（截至 2026-09-14）：beta-18743 类型面 → beta-19271 零 breaking → beta-19507/2.0.0（session hooks 重构，本插件未消费面）→ 2.0.3，宿主实测插件加载与注册链路正常（beta-19296 于 2026-09-09、2.0.3 于 2026-09-14，见「当前版本基线」与「2.0.3 适配记录」）。**待复测**：2.0.3 宿主上 TUI 侧栏（`tui.js`）渲染与图片 hook 的端到端运行时行为（serve 实测覆盖注册面与 `features.tui` 声明，未覆盖 TUI 进程内渲染）。
 
 ## 升级检查清单
 
-1. 读取目标 OpenCode beta 的官方 API/类型声明，确认 `Plugin`, `Context`, `Agent.Info`, `SkillDraft`, `SessionDomain` 的变化。
-2. 更新 `package.json` 与 `bun.lock`，确认 plugin 与 schema 版本配套，并记录确切版本，不写未经证实的宿主版本号。
-3. 检查 `src/index.ts`、`src/tui.tsx`、`src/runtime/`、`src/agents/` 的兼容性探测与 fallback。
-4. 运行 `bun run typecheck`、`bun test`、`bun run build`、`bun run check:dist`。
-5. 在真实 OpenCode Host 安装构建产物，分别验证 CLI agent/skill/tool/hook、TUI sidebar、session 能力和 task reuse；将 skip、degraded、失败与通过分别记录。
-6. 若 API 变化影响公共接线，先更新本文件和 [`AGENTS.md`](../AGENTS.md)，再提交实现变更；不要把 README 的旧表述当作升级依据。
+1. 读取目标 OpenCode 版本的官方 API/类型声明，确认 `Plugin`, `Context`, `Agent.Info`, `SkillEditor`, `SessionDomain` 的变化（本库事实台账：[`../opencode2/`](../opencode2/README.md) 各分篇 + [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md)）。
+2. 升级到 2.0 正式版时**先迁包坐标**：`@opencode-ai/{plugin,schema}` → `@opencode/{plugin,schema}`（import 路径全量随迁；旧 scope 无 2.x 版本）。核对 plugin peerDeps 新增的 optional `@opencode/theme`/`@opentui/core`。
+3. 若消费 session `context` hook：迁移 `generation`/`providerOptions` → `options`（beta-19507 起的 breaking，本插件当前未消费）。
+4. 更新 `package.json` 与 `bun.lock`，确认 plugin 与 schema 版本配套，并记录确切版本，不写未经证实的宿主版本号。
+5. 检查 `src/index.ts`、`src/tui.tsx`、`src/runtime/`、`src/agents/` 的兼容性探测与 fallback。
+6. 运行 `bun run typecheck`、`bun test`、`bun run build`、`bun run check:dist`。
+7. 在真实 OpenCode Host 安装构建产物，分别验证 CLI agent/skill/tool/hook、TUI sidebar、session 能力和 task reuse；将 skip、degraded、失败与通过分别记录。项目配置使用 `opencode.jsonc`（2.0.3 实测 `.json` 不被识别）。
+8. 若 API 变化影响公共接线，先更新本文件和 [`AGENTS.md`](../AGENTS.md)，再提交实现变更；不要把 README 的旧表述当作升级依据。

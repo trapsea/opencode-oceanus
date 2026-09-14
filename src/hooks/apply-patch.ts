@@ -488,8 +488,11 @@ export function writePatchInput(event: ApplyPatchHookEvent, patchText: string): 
 
 // ─────────────────────────────── Hook 工厂 ───────────────────────────────
 
-/** 工具名：只处理宿主 apply_patch 工具的调用。 */
-export const APPLY_PATCH_TOOL = 'apply_patch';
+/** 工具名集合：只处理宿主补丁工具的调用。
+ * 双名键控：beta 宿主为 `apply_patch`，OpenCode 2.0 builtin 为 `patch`
+ * （@opencode/core@2.0.3 builtin `opencode.tool.patch`；2.0.3 会话目录实证两者
+ * 均未见直接暴露，双键保守覆盖两代宿主，免疫改名窗口）。 */
+export const APPLY_PATCH_TOOLS: ReadonlySet<string> = new Set(['apply_patch', 'patch']);
 
 /**
  * 构造 v2 `execute.before` Hook。
@@ -505,7 +508,7 @@ export function createApplyPatchHook(options: ApplyPatchHookOptions): ApplyPatch
   const onStatus = options.onStatus ?? (() => {});
 
   return async (event): Promise<void> => {
-    if (event.tool !== APPLY_PATCH_TOOL) return;
+    if (!APPLY_PATCH_TOOLS.has(event.tool)) return;
 
     // 1) 输入形状校验（fail-closed）
     let patchText: string;

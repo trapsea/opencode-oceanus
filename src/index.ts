@@ -1,6 +1,6 @@
 import { watch } from 'node:fs';
 import * as path from 'node:path';
-import { Plugin } from '@opencode-ai/plugin';
+import { Plugin } from '@opencode/plugin';
 import { getAgentDefinitions } from './agents';
 import type { AgentOverrideConfig, PluginConfig } from './config/schema';
 import { loadPluginConfig } from './config/loader';

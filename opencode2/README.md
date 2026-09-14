@@ -1,10 +1,11 @@
 # opencode2 参考库
 
-OpenCode v2 beta 宿主的能力 / API / 工具 / hook / 配置参考文档，服务于 `opencode-oceanus` 插件开发与版本适配。
+OpenCode v2 宿主的能力 / API / 工具 / hook / 配置参考文档，服务于 `opencode-oceanus` 插件开发与版本适配。
 
-> **版本基线**：`0.0.0-beta-19271`（2026-09-09 核实，npm `beta` dist-tag；与 19242 的差异见 [versions/changelog.md](versions/changelog.md)——全部为 optional 新增，零 breaking；18743→19242 差异同见该文件）
-> **本项目锁定版本**：`beta-18743`（`package.json`）；宿主 `@opencode/cli@0.0.0-beta-19296` 实测加载 beta-18743 API 插件无回归（2026-09-09）；`@opencode-ai/plugin` 无 19296 版本（npm E404），CLI 宿主已迁往新包名 `@opencode/cli`（旧名 `@opencode-ai/cli` 仍在发布，beta tag 19271）
-> **beta-19242 差异摘要**：`*Draft`→`*Editor` 重命名、`Plugin.vcs` 移除、新增 `worktree` 域与 TUI `session.panel` 插槽；beta-19271 增量：`compaction` 配置、`providerContext` 会话溯源、TUI `DialogSelectOption.footer`（详见 [versions/changelog.md](versions/changelog.md)）。
+> **版本基线**：`@opencode/plugin@2.0.3` + `@opencode/schema@2.0.3`（GA 正式版，2026-09-14 核实，npm `latest`；beta-19271 → 2.0.3 差异见 [versions/changelog.md](versions/changelog.md)——含 session hooks 重构、会话级权限、包族迁移 `@opencode-ai/*` → `@opencode/*`；宿主 `@opencode/cli@2.0.3` 隔离实测通过）
+> **本项目锁定版本**：`@opencode-ai/plugin@0.0.0-beta-18743`（`package.json`，旧 scope 精确锁定）；**beta-18743 API 面在 2.0.3 宿主上实测零回归**（2026-09-14：插件 active、14 agents/12 skills 全量注册、CBM MCP server connected）
+> **包族迁移**：2.0 GA 起 V2 线全部迁往 `@opencode/*` 新 scope（cli/plugin/schema/core/client/sdk/ai/protocol/server/theme/util 均 2.0.3）；旧 `@opencode-ai/*` 为 v1 线并行维护（latest 1.18.30，未 deprecated）。CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。GitHub 迁至 `anomalyco/opencode`，V2 文档站 `opencode.ai/v2/docs`。
+> **历史差异摘要**：beta-19242：`*Draft`→`*Editor` 重命名、`Plugin.vcs` 移除、`worktree` 域与 TUI `session.panel`；beta-19271：`compaction` 配置、`providerContext` 会话溯源、`DialogSelectOption.footer`；2.0 GA 线（beta-19507 落地）：session hooks `options` 合并 + `compaction`/`generate`/`title` hook、会话级 `permissions` + `session.permissions.updated` 事件、`PermissionDomain.rules`、provider/model `websocket`；2.0.2：`Preferences` + `config/shell`；2.0.3：compaction `cost`/`tokens` 可观测（详见 [versions/changelog.md](versions/changelog.md)）。
 
 ## 文档索引
 
@@ -19,15 +20,15 @@ OpenCode v2 beta 宿主的能力 / API / 工具 / hook / 配置参考文档，�
 | [07-infra-domains.md](07-infra-domains.md) | mcp / permission / storage / vcs / shell / websearch / reference / integration / aisdk / experimental |
 | [08-host-capabilities.md](08-host-capabilities.md) | TUI 插件上下文（Data/Keymap/Storage/UI/Slot 系统）、API server、ACP、worktree、Form/PTY |
 | [09-config-schema.md](09-config-schema.md) | opencode.json 配置全景（config 家族 schema 字段级） |
-| [10-builtin-inventory.md](10-builtin-inventory.md) | 宿主内置工具 / agent / 命令 / skill 清单（实测证据分级） |
-| [versions/changelog.md](versions/changelog.md) | beta 版本变动台账（含 beta-18230 → beta-18721、beta-18721 → beta-18743）+ 追加模板 |
+| [10-builtin-inventory.md](10-builtin-inventory.md) | 宿主内置工具 / agent / 命令 / skill 清单（实测证据分级；2.0 起含 builtin 插件化清单） |
+| [versions/changelog.md](versions/changelog.md) | 版本变动台账（beta-18230 → 2.0.3 GA 全链路）+ 追加模板 |
 
 ## 使用方式
 
 - **开发插件功能时**：按域查 03→07 分篇；工具/hook 相关先读 05。
 - **升级依赖版本时**：先读 `versions/changelog.md` 对应条目评估 breaking，再按分篇核对签名。
-- **甄别原则**：所有事实标注证据源——tarball 类型声明 > 宿主实测 > 官方文档（文档站 v1/v2 混杂，仅参考）。冲突时以类型定义与实测为准。
-- **追加新版本记录**：npm 拉取两版 tarball 解压 diff `.d.ts`，按 changelog 模板（版本号/日期/证据源类型）追加条目。
+- **甄别原则**：所有事实标注证据源——tarball 类型声明 > 宿主实测 > 官方文档（V1/V2 文档站分轨：`/docs` 为 v1、`/v2/docs` 为 v2，仅参考）。冲突时以类型定义与实测为准。
+- **追加新版本记录**：npm 拉取两版 tarball 解压 diff `.d.ts`（跨 scope 对比需先把旧包 `@opencode-ai/` import 归一化为 `@opencode/` 再 diff，剥离纯包名迁移噪音），按 changelog 模板（版本号/日期/证据源类型）追加条目。
 
 ## 维护约定
 

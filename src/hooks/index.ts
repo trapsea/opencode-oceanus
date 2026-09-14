@@ -18,7 +18,7 @@
  *
  * 使用真实 v2 event.input / event.result / event.error 形状，不复制 v1 双参数 output。
  */
-import { createApplyPatchHook } from './apply-patch';
+import { APPLY_PATCH_TOOLS, createApplyPatchHook } from './apply-patch';
 import { applyJsonErrorRecovery } from './json-error-recovery';
 import { createToolOutputTruncator } from './tool-output-truncator';
 import { createToolLoopGuardHook } from './tool-loop-guard';
@@ -91,7 +91,7 @@ export async function registerOceanusHooks(
   if (isHookEnabled(config, 'apply_patch')) {
     try {
       await ctx.tool.hook('execute.before', async (event: any) => {
-        if (event?.tool !== 'apply_patch') return;
+        if (!APPLY_PATCH_TOOLS.has(event?.tool)) return;
         try {
           const root = await resolveWorkspaceRoot(ctx.session, event.sessionID);
           if (!root) {

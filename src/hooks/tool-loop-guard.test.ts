@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  LOOP_GUARD_EXEMPT,
   LOOP_GUARD_MARKER,
   LOOP_GUARD_REREAD_MARKER,
   MAX_RECENT_EDITS,
@@ -155,6 +156,16 @@ describe('tool-loop-guard 现有行为回归', () => {
     const input = { taskID: 'tk_1' };
     for (let i = 0; i < 10; i++) {
       const result = await invoke(hook, 'task', input);
+      expect(contentText(result)).not.toContain(LOOP_GUARD_MARKER);
+    }
+  });
+
+  test('豁免表双键：OpenCode 2.0 名 subagent 重复调用同样豁免', async () => {
+    expect(LOOP_GUARD_EXEMPT).toMatchObject({ task: true, subagent: true });
+    const hook = createToolLoopGuardHook();
+    const input = { agent: 'explorer', prompt: 'p' };
+    for (let i = 0; i < 10; i++) {
+      const result = await invoke(hook, 'subagent', input);
       expect(contentText(result)).not.toContain(LOOP_GUARD_MARKER);
     }
   });

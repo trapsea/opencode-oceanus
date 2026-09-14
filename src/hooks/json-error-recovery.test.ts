@@ -64,6 +64,13 @@ describe('排除工具', () => {
     }
   });
 
+  test('宿主工具名双键：beta 名 bash 与 OpenCode 2.0 名 shell 均被排除', () => {
+    expect(JSON_ERROR_TOOL_EXCLUDE_LIST).toContain('bash');
+    expect(JSON_ERROR_TOOL_EXCLUDE_LIST).toContain('shell');
+    expect(isExcludedTool('shell')).toBe(true);
+    expect(isExcludedTool('SHELL')).toBe(true);
+  });
+
   test('大小写不敏感匹配排除工具', () => {
     expect(isExcludedTool('Bash')).toBe(true);
     expect(isExcludedTool('READ')).toBe(true);

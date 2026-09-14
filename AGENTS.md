@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-`opencode-oceanus` 是基于 OpenCode v2 beta 插件 API 的 TypeScript/Bun 插件，当前包版本为 `1.0.0`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。
+`opencode-oceanus` 是基于 OpenCode v2（2.0 正式版）插件 API 的 TypeScript/Bun 插件，当前包版本为 `1.0.0`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。依赖 `@opencode/{plugin,schema}@2.0.3`（2.0 起宿主包族已迁 `@opencode/*` 新 scope）。
 
 OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode-v2-compatibility.md`](docs/opencode-v2-compatibility.md)，变更 OpenCode 依赖或宿主 API 前必须先更新该文档。
 
@@ -60,7 +60,7 @@ bun run check
 ## 重要文档
 
 - [`README.md`](README.md)：安装、配置、功能概览；遇到与源码不一致时以源码、类型和锁文件为准。
-- [`docs/opencode-v2-compatibility.md`](docs/opencode-v2-compatibility.md)：OpenCode v2 beta 兼容矩阵与升级清单。
+- [`docs/opencode-v2-compatibility.md`](docs/opencode-v2-compatibility.md)：OpenCode v2（含 2.0 正式版）兼容矩阵与升级清单。
 - [`docs/tooling-and-runtime.md`](docs/tooling-and-runtime.md)：工具与运行时保护。
 - [`docs/codebase-memory-mcp.md`](docs/codebase-memory-mcp.md)：CBM 安装、缓存、权限和降级。
 - [`docs/agent-browser.md`](docs/agent-browser.md)：浏览器验证（browser_verify）安装、配置、批问语义与降级。
