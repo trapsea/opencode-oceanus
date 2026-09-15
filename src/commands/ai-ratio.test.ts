@@ -22,6 +22,10 @@ describe('ai-ratio command', () => {
     expect(text).toContain('[@开发者]');
     expect(text).toContain('.ai-attribution/');
     expect(text).toContain('人工修改率');
+    expect(text).toContain('AI 代码贡献率 = AI 生成新增行数 / (人工新增行数 + AI 生成新增行数) × 100%');
+    expect(text).toContain('总提交数、AI 提交数与占比、AI 生成新增行数、人工新增行数、AI 代码贡献率');
+    expect(text).toContain('开发者 | AI 提交 | AI 新增行 | 人工提交 | 人工新增行 | AI 代码贡献率');
+    expect(text).toContain('除零错误');
     expect(text).toContain('Markdown 报告');
     expect(text).toContain('禁止任何工作区或仓库写操作');
     // 解耦约束：不出现脚本文件名或 python 调用。
