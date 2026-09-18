@@ -36,6 +36,7 @@
 | `summary` | primary | 摘要生成 |
 
 - **beta→2.0 变化**：beta-18721 时代 strings 证据的 `build`/`plan` agent 在 2.0.3 `/api/agent` 中不存在（`opencode.plan` 为 builtin 插件而非 agent；`default_agent: build|plan` 为官方文档旧口径）。新增 `compaction`/`title`/`summary` 辅助 primary agent——与 session hooks 的 `kind: "compaction"|"title"|"generate"` 判别对应。
+- **2.0.7 观察（2026-09-18 实测，未定论）**：纯内置状态（无用户插件）下 `/api/agent` 再次出现 `build`/`plan`（共 7 个：build/general/explore/compaction/title/summary/plan）；加载 opencode-oceanus（设置默认 agent）后两者不再出现（14 = 9 插件 agent + 5 内置）。语义待确认——可能与 default agent 设置或注册时序相关，引用内置清单时以目标宿主实测为准。
 - 插件注册 agent 与内置混排同目录（本插件 9 agent + 内置 5 = 14，2.0.3 实测）。
 
 ## 3. 内置命令（干净目录 `/api/command` 实测，beta-18721）

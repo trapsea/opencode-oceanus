@@ -32,6 +32,9 @@ interface SessionHooks {
   readonly "model.request": SessionModelRequest
   readonly "http.request": SessionHttpRequest
   readonly "http.response": SessionHttpResponse
+  readonly "experimental.ws.handshake": SessionWebSocketHandshake  // 2.0.5 新增（实验性）
+  readonly "experimental.ws.send": SessionWebSocketSend            // 2.0.6 新增（实验性）
+  readonly "experimental.ws.receive": SessionWebSocketReceive      // 2.0.6 新增（实验性）
   readonly retry: SessionRetry              // beta-18721 正式新增
 }
 ```
@@ -111,6 +114,16 @@ interface SessionRetry {
 
 `model.request`：`{ sessionID, agent, model, request }`，`request` 可变（改写模型请求体；接受 providerID 限定）；`kind: "primary"|"compaction"|"title"|"generate"` 判别辅助请求与主 loop（beta-19242 起）。`http.request`/`http.response`：底层 fetch 层 `{ request }` / `{ request, response }`，可变。
 
+### experimental.ws.handshake / send / receive（2.0.5 / 2.0.6，实验性）
+
+WebSocket 传输路由（provider 配置 `transport: "websocket"`）的拦截点；WS 路由每会话一条连接复用，`http.request`/`http.response` 看不到 WS 流量（HTTP hooks 对 WS 路由的 fallback 请求仍生效）：
+
+- `experimental.ws.handshake`（2.0.5）：`{ sessionID, agent, model, kind, url, headers }`——连接选择前触发，改写 `url`/`headers` 会改变使用的 socket（如轮换 bearer token 会重开连接）；接受 providerID 限定。
+- `experimental.ws.send`（2.0.6）：`{ sessionID, agent, model, kind, frame: string }`——出站帧在 provider driver 构建后、写入 socket 前触发；替换 `frame` 原样发送，改写协议语义的责任在插件（driver 仍从 provider 回复跟踪状态）。
+- `experimental.ws.receive`（2.0.6）：同上形态——入站帧在 socket 读取后、driver 观察前触发；替换 `frame` 原样交给 driver。
+
+三者均标注 Experimental，名称与形态可能变化。
+
 ## 3. GenerateApi（ctx.generate）
 
 `GenerateApi = Client["generate"]`，核心方法 `generate.text(input, options?)`——插件可脱离会话直接调用模型生成（内部走 `/api/generate` 路由，宿主实测存在）。输入含 model、prompt、generation 参数；SDK 层另有 structured output 能力（`format: {type:"json_schema", schema, retryCount?}`，官方 sdk 页口径，属 `@opencode-ai/sdk` 包能力，plugin 侧经 generate 间接可用部分功能）。
@@ -127,6 +140,8 @@ interface EventDomain extends Pick<EventApi, "subscribe"> {}
 - **新事件 `session.permissions.updated`**（`PermissionsUpdated`，durable 事件；`session-event.d.ts`/`event-manifest.d.ts` 登记，transfer 载荷同步）。
 - provider/model 新增 optional `websocket: boolean` 会话 WebSocket 传输策略（model 侧注释"omitted inherits the provider policy, then defaults to disabled"）。
 - **2.0.3**：`CompactionCompleted`/`CompactionFailed` 事件新增 optional `cost: Money.USD` 与 `tokens: { input, output, reasoning, cache: { read, write } }`——压缩成本/用量可观测（`session-message.d.ts`/`session-transfer.d.ts`）。
+- **2.0.6**：新事件 `location.shutdown`（`LocationEvent.Shutdown`，ephemeral；新 schema 文件 `location-event.d.ts`，event-manifest 同步登记）——"location 的缓存服务已关闭，客户端必须重新验证其读取"，与宿主 location 级配置热重载机制配套（2.0.7 补全 `opencode reload` CLI 命令）。`FileSystem.Write` schema（`{ path: AbsolutePath }`）新增，为 HTTP API fs.write 端点载荷。
+- **2.0.7**：`session.step.started` 事件新增 required `started: Int`（"Request dispatch time, before waiting for provider output."；运行时 schema 为 `NonNegativeInt`）——step 耗时统计口径从事件时间戳改为请求分发时间（client `solid/data.js` 同步改用 `event.data.started`）。事件构造方需提供该字段；只读消费方不受影响。注意 shell 两事件的 `data.time.started: Finite` 为 2.0.5 起既有，2.0.7 未变。
 
 ## 5. RpcDomain（beta-18721 全新）
 

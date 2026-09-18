@@ -7,6 +7,7 @@ import { AGENT_BROWSER_SKILL } from './agent-browser';
 import { OCEANUS_EXECUTE_SKILL } from './oceanus-execute';
 import { OCEANUS_REVIEW_SKILL } from './oceanus-review';
 import { OCEANUS_FINISH_SKILL } from './oceanus-finish';
+import { CLIPBOARD_IMAGE_OBSERVER_SKILL } from './clipboard-image-observer';
 import { buildOceanusPrompt } from '../agents/oceanus';
 
 const content = OCEANUS_PLAN_SKILL.content;
@@ -301,5 +302,23 @@ describe('agent-browser 安全与门控契约', () => {
     expect(browserVerifyContent).toContain('.oceanus/media/browser/');
     expect(browserVerifyContent).toContain('严禁把截图或 base64 读入主上下文');
     expect(browserVerifyContent).toContain('@observer');
+  });
+
+  test('阶段 skill 对 agent-browser 的引用必须是显式加载指令（防上下文断链）', () => {
+    // skill 内容不会自动注入上下文（autoinvoke 默认关闭），
+    // 各 browser_verify 门控场景的 skill 文案必须包含"加载 agent-browser skill"
+    // 明确指令，不允许只写"见 agent-browser skill"式文档引用。
+    expect(intakeContent).toContain('先加载 agent-browser skill');
+    expect(intakeContent).toContain('后续任何阶段的浏览器验证操作');
+    expect(intakeContent).toContain('以 agent-browser skill 为唯一来源');
+    expect(content).toContain('先加载 agent-browser skill');
+    expect(executeContent).toContain('进入本节任何操作前先加载 agent-browser skill');
+    expect(reviewContent).toContain('先加载 agent-browser skill');
+    expect(CLIPBOARD_IMAGE_OBSERVER_SKILL.content).toContain('先加载 agent-browser skill');
+    // designer 断链修复：subagent 不继承主会话 skill 内容，
+    // execute 与视觉流程必须要求委派 prompt 显式携带加载指令。
+    expect(executeContent).toContain('委派 prompt 必须显式包含');
+    expect(CLIPBOARD_IMAGE_OBSERVER_SKILL.content).toContain('委派 prompt 必须显式指示');
+    expect(CLIPBOARD_IMAGE_OBSERVER_SKILL.content).toContain('browser_verify 配置上下文');
   });
 });

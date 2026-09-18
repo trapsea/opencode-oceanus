@@ -35,7 +35,7 @@
 | `plugins` | (string \| PluginConfig)[] | 插件列表（见 §plugins） |
 | `warming` | `{ prompt, interval, duration }` | 预热 |
 | `providers` | Provider 配置族 | provider 覆盖 |
-| `experimental` | `{ portable_shell_scanner, subagent_depth, policies }` | 实验特性 |
+| `experimental` | `{ portable_shell_scanner, subagent_depth, policies }` | 实验特性（2.0.7：policies.action 扩展 `"provider.use" \| "permission"`） |
 
 \* 版本归属：`small_model`、`server{port,hostname,mdns,cors}`、`attachment` 等字段在官方 config 页出现但未见于 beta-18721 schema 顶层提取，属文档站滞后或 v1 口径——引用前以 schema/宿主实测为准。
 
@@ -60,7 +60,7 @@ type PluginEntry = string                  // npm 包名或本地目录路径
 ## 5. permissions / policies
 
 - `permissions`：按 action（read/edit/bash/task/skill/webfetch/...）配置 `allow|ask|deny` 或模式对象（官方口径，schema `permission.d.ts` 为运行时结构 `{action, resource, effect}`）。
-- `experimental.policies: Array<{ action, resource, effect }>`：策略引擎（如 `provider.use` 控制可用 provider），通配符匹配、后匹配优先、全局 config 优先于项目 config；无匹配默认 allow（官方 policies 页，实验性）。
+- `experimental.policies: Array<{ action, resource, effect }>`：策略引擎，通配符匹配、后匹配优先、全局 config 优先于项目 config；无匹配默认 allow（官方 policies 页，实验性）。**2.0.7 起 `action` 扩展为 `"provider.use" | "permission"`**：`provider.use` 控制可用 provider（provider 移除过滤）；`permission` 在 `ctx.permission.hook("evaluate")` 管线按 `action:resource` wildcard 匹配、effect=deny 时将 permission 事件强制置 deny（message `"Blocked by configuration policy"`）。
 
 ## 6. mcp（`config/mcp.d.ts` + schema `mcp.d.ts`）
 

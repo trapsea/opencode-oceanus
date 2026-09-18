@@ -66,10 +66,10 @@ description: 统一图片流程：将粘贴/截图图片落盘，按任务理解
 - L5 验收必复用当初分析的 observer 会话（它已读过基准图），不重开
 
 ## 前端消费场景（L3-L5 的典型下游，非本 skill 的全部）
-- designer（\`lane:fe-ui\`）：**亲自读原图 + spec** 实现视觉层（组件/样式/交互态/响应式），交付时必须声明接口契约（props/事件回调/数据形状）；browser_verify 开启时配合 agent-browser skill 的视觉短反馈（完成即截图自查，不等验收）
+- designer（\`lane:fe-ui\`）：**亲自读原图 + spec** 实现视觉层（组件/样式/交互态/响应式），交付时必须声明接口契约（props/事件回调/数据形状）；browser_verify 开启时配合 agent-browser skill 的视觉短反馈（完成即截图自查，不等验收）；designer 是独立 subagent 会话、不继承主会话已加载的 skill 内容，委派 prompt 必须显式指示其执行浏览器操作前先加载 agent-browser skill，并携带 browser_verify 配置上下文
 - fixer（\`lane:fe-logic\`）：按契约实现非视觉部分（API/状态/校验/类型），**禁改样式、布局、类名**
 - 组件与数据严格分文件 → 可同 Wave 并行；同一文件 → 串行（designer 先交带 mock 数据的组件）
-- 验收：实现后取得渲染截图（browser_verify 开启时经 agent-browser 自动截图，命令与落盘协议见 agent-browser skill；关闭或不可用时由用户人工提供截图）→ observer（复用会话）执行 L5 diff → FAIL 退回 designer（≤3 轮，第 3 轮仍 FAIL → 停止自动重试，按 3 轮中断上报模板用 \`question\` 上报：模板须含推荐项及理由）；全 PASS 才进 Completion Audit。L3 验收核对"组件齐全+文案逐字"（token 允许合理近似，browser_verify 开启时可用 \`get styles\` 实测值按容差表核对）；L4 全项核对（token 偏差也计 FAIL，实测值以 \`get styles\` 为准）；L1/L2 无需视觉验收
+- 验收：实现后取得渲染截图（browser_verify 开启时先加载 agent-browser skill，再经 agent-browser 自动截图，命令与落盘协议以其为唯一来源；关闭或不可用时由用户人工提供截图）→ observer（复用会话）执行 L5 diff → FAIL 退回 designer（≤3 轮，第 3 轮仍 FAIL → 停止自动重试，按 3 轮中断上报模板用 \`question\` 上报：模板须含推荐项及理由）；全 PASS 才进 Completion Audit。L3 验收核对"组件齐全+文案逐字"（token 允许合理近似，browser_verify 开启时可用 \`get styles\` 实测值按容差表核对）；L4 全项核对（token 偏差也计 FAIL，实测值以 \`get styles\` 为准）；L1/L2 无需视觉验收
 - Sisyphus 在 Intake 任务识别时即完成分级，分级结果写入 intake_report
 
 ## 禁止事项

@@ -125,6 +125,9 @@ interface ToolHooks {
 | session | `model.request` | request | 每次模型请求前改写（支持 `ModelHookOptions.providerID` 限定；`kind` 判别辅助请求） |
 | session | `http.request` | request | 底层 HTTP 请求改写 |
 | session | `http.response` | response | 底层 HTTP 响应处理 |
+| session | `experimental.ws.handshake` | url, headers | **2.0.5 新增（实验性）**：WS 连接选择前改写 url/headers（接受 providerID 限定） |
+| session | `experimental.ws.send` | frame | **2.0.6 新增（实验性）**：WS 出站帧改写（driver 构建后、写入 socket 前） |
+| session | `experimental.ws.receive` | frame | **2.0.6 新增（实验性）**：WS 入站帧改写（socket 读取后、driver 观察前） |
 | session | `retry` | decision | **beta-18721 正式**；错误重试决策 `{retry:false}` \| `{retry:true, delay}` |
 | permission | `evaluate` | effect, message | 权限判定覆盖（action/resources/metadata 输入） |
 | shell | `create.before` | command, cwd, timeout, shell, env | shell 执行前改写 |

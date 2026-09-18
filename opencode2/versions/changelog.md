@@ -27,7 +27,125 @@
 | beta-18743 → beta-19271 | ✅ 已核实（全量 dist diff 三方分解，2026-09-09；19242→19271 增量详列，18743→19242 部分见下条目） |
 | beta-19271 → 2.0.3（GA） | ✅ 已核实（tarball 归一化 diff 三方分解 + 宿主 2.0.3 实测，2026-09-14） |
 | 2.0.3 → 2.0.5 | ✅ 已核实（plugin/schema tarball 全量 diff + `@opencode/cli@2.0.5` 真实宿主失败日志，2026-09-17） |
+| 2.0.5 → 2.0.6 | ✅ 已核实（plugin/schema tarball 全量 diff + GitHub compare 官方 commit 序列，2026-09-18） |
+| 2.0.6 → 2.0.7 | ✅ 已核实（plugin/schema/client tarball 全量 diff + GitHub compare + `@opencode/cli@2.0.7` 隔离 serve 实测，2026-09-18） |
 | 更早历史版本 | 未回溯（build 数百个，按需增量补录） |
+
+---
+
+## 2.0.5 → 2.0.6
+
+- 日期：2026-09-18（记录）；发布时间线：v2.0.6 tag 2026-09-17 11:17 UTC，npm cli/plugin/schema 同步发布
+- 证据源类型：`@opencode/{plugin,schema}@2.0.5` 与 `2.0.6` tarball dist 全量 diff（`diff -rq` 定位 + 逐文件 `diff -u`）+ GitHub `anomalyco/opencode` compare v2.0.5...v2.0.6（36 commits，官方 commit 序列）+ npm registry metadata；无官方 release notes（negative_findings 见条目末）
+- 影响分级：全部为新增面，无 breaking（对本插件消费面）
+
+### 1. plugin：`SessionHooks` 新增 `experimental.ws.send` / `experimental.ws.receive`【新增；本插件未消费】
+
+`promise|effect/session.d.ts` 双层同步（官方 commit 9073c52 `feat(plugin): add experimental WebSocket send and receive hooks`，core 侧 `transport.bind` 回调从单函数改为 `{ handshake, send, receive }` 对象——仅影响直接消费 websocket transport bind 接口的代码）：
+
+- `SessionWebSocketSend`：出站帧 hook——provider driver 构建帧之后、写入 socket 之前触发；替换 `frame: string` 后改写帧原样发送；driver 仍从 provider 回复跟踪状态，改写协议语义的责任在插件。
+- `SessionWebSocketReceive`：入站帧 hook——socket 读到帧之后、driver 观察之前触发；替换 `frame` 后原样交给 driver。
+- 两者载荷：`{ sessionID, agent, model, kind: SessionRequestKind, frame }`（`kind: "primary"|"compaction"|"title"|"generate"` 判别与 http hooks 一致）；JSDoc 均标注 Experimental。
+- 官方 V2 文档语义补充：WebSocket 路由每会话一条连接复用，`http.request`/`http.response` 看不到 WS 流量；`experimental.ws.handshake`（2.0.5 引入）负责连接选择前的 url/headers 改写；HTTP hooks 对 WS 路由的 fallback 请求仍然生效。
+- 对插件影响：纯新增 hook，未注册零影响。
+
+### 2. schema：新事件 `location.shutdown`【新增；本插件未消费】
+
+新文件 `location-event.d.ts`（`LocationEvent.Shutdown` + `Definitions`），`event-manifest.d.ts` 同步登记（官方 location 热重载机制引入：`feat(tui): reload all locations` 7390832、`fix(client): preserve state during location reload` b81be46；2.0.7 补全 CLI 面 `reload` 命令）：
+
+- `type: "location.shutdown"`，durability `ephemeral`，`data: {}`；注释："The location's cached services were shut down; clients must revalidate its reads."（location 的缓存服务已关闭，客户端必须重新验证其读取）。
+- 多 location 宿主/TUI 消费方收到该事件后应使对应 location 的缓存读失效。
+
+### 3. schema：`FileSystem.Write` 新增【新增；本插件未消费】
+
+`filesystem.d.ts` 新增 `Write: { path: AbsolutePath }`——为 HTTP API 文件写入端点预留（官方 commit 1685e70 `feat(server): add fs.write endpoint`；`@opencode/client@2.0.7` 落地为 `file.write()` 方法，见下一条目）。plugin context 域无对应新增。
+
+### 4. 官方 commit 口径行为项（tarball 类型面无对应物）【行为级】
+
+- `feat(cli): support inline config content`（49399）：配置加载新增内联内容方式。
+- `fix(core): skip session warming for subagents`（49387）：**subagent 不再触发 session warming**——影响 subagent 冷启动行为；本插件 9 agent 委派路径建议升级宿主后观察冷启动表现。
+- `fix(core): serialize MCP endpoint startup`（f28d1b4）：MCP endpoint 启动串行化。
+- `fix: honor provider transport overrides and preserve errors`（49350）：provider transport 覆盖语义修复（衔接 2.0.5 `websocket` → `transport` 迁移）。
+- provider 错误处理细化：重试窗口约 84s、间隔上限 10s（49441）；gateway 限额归类 quota、4xx 不再重试（49195）；恢复的 shell 通知不再唤醒空闲会话（49378 两笔）。
+- `feat(server): expose server info endpoint`（ab3566a）：server info 端点（client 面在 2.0.7 落地为 `server.status` → `server.info`，见下一条目）。
+- `feat(codemode): carry cause and own data across the error boundary`（49390）：codemode 工具执行错误信息保真度提升——本插件 `codemode: false` 注入策略不受影响。
+- TUI/桌面 UI 项 10+ 笔（模型选择、MCP sign-in 提示、subagent model 展示、themes 等）。
+
+---
+
+## 2.0.6 → 2.0.7
+
+- 日期：2026-09-18（记录）；发布时间线：v2.0.7 tag 2026-09-17 19:29 UTC
+- 证据源类型：plugin/schema/client tarball dist 全量 diff + GitHub compare v2.0.6...v2.0.7（20 commits）+ 宿主 `@opencode/cli@2.0.7` 隔离 serve 实测（2026-09-18，本仓库 dist 加载验证）
+- 影响分级：见逐条标注
+
+### 0. plugin 包两版 dist 完全一致【零类型面变化】
+
+`diff -rq` 证明 `@opencode/plugin@2.0.6` 与 `2.0.7` 仅 package.json 版本号与 peerDeps `@opencode/theme` 跟随差异；全部类型面变化落在 schema（与 client）。
+
+### 1. schema：`experimental.policies[].action` 扩展为 `"provider.use" | "permission"`【类型放宽 + 行为新增】
+
+`config/experimental.d.ts` 与 `config/policy.d.ts`（`Policy.Info.action`）的 policies action 从 `Literal<"provider.use">` 扩为 `Literals<["provider.use", "permission"]>`（官方 commit fa126d6 `feat(core): enforce permission policies`——本区间最重要行为变更，经 commit patch 核实）：
+
+- policy 强制点新增：action 为 `"permission"`、resource 按 `action:resource` wildcard 匹配且 effect=deny 的 policy 会将 permission 事件强制置 deny（message `"Blocked by configuration policy"`）。
+- provider 移除过滤现要求 `policy.action === "provider.use"`。
+- 未使用 experimental policies 的部署零影响（标准 `permission` 权限表评估不变）。本插件 prometheus 的 agent 级 `permissions` 声明不受影响；若用户配置 experimental policies 可获得新的强制 deny 点。
+
+### 2. schema：字段级 `hidden?: boolean` 广泛新增【新增（全部 optional）】
+
+`form.d.ts`（+45 处）、`integration.d.ts`（+60 处）、`event-manifest.d.ts`（对应登记 +20 处），合计约 125 处的字段定义（title/description/required/when 同级）新增 optional `hidden: boolean`——表单/策略/集成字段可对用户隐藏（配合 `when` 条件实现条件可见性）。注：`config/policy.d.ts` 在 2.0.7 无 hidden 变化，其实际差异为下述条目 1 的 `Policy.Info.action` 同步扩展。
+
+### 3. schema：`session.step.started` 新增 required `started: Int`【新增（required 字段；事件构造方 breaking）】
+
+`session-event.d.ts`/`event-manifest.d.ts` 登记（全部 diff hunk 均落在该事件的编码/解码双侧定义）：
+
+- `started: Int`——"Request dispatch time, before waiting for provider output."（请求分发时间，等待 provider 输出之前）；运行时 schema（`session-event.js`）声明为 `NonNegativeInt`，类型声明（`.d.ts`）为 `Schema.Int`，以 `.d.ts` 为契约口径。
+- client 侧 `solid/data.js` 同步：step `time.created` 改用 `event.data.started`——TUI/客户端对 step 耗时统计口径从事件时间戳改为请求分发时间（排除排队时间）。
+- required 字段意味着**事件构造方**必须提供（宿主内部）；插件一般只消费事件，不受影响；回放旧事件存档的消费方需注意新字段缺失会校验失败。
+- 辨析注记：`session.shell.started`/`session.shell.ended` 的 `data.time.started: Finite` 是 **2.0.5 起既有字段**（位于 `time` struct 内，语义为 shell 自身计时），2.0.7 未变——全量 grep `started` 时易误判，差异定位须以两版 diff 为准。
+
+### 4. 官方 commit 口径其余行为项【行为级】
+
+- `feat(location): reload configuration`（b52f241）+ `feat(cli): add reload command`（0018f08）：location 级配置热重载补全 CLI 面（`opencode reload`），与 2.0.6 `location.shutdown` 事件配套。open question：配置热重载是否触发插件 setup 重跑、对已注册 agents/tools/hooks 的影响——官方无说明。
+- `fix(cli): keep updates client-owned`（49577）：更新机制改为客户端全权负责——与本插件 `src/update/` 自动更新能力的交互需升级宿主后验证。
+- `fix(acp): propagate request cancellation and close sessions cleanly`（49563）：ACP 取消传播与会话清理。
+- `feat(cli): support custom Console logins`（49542）；TUI 4 笔（TPS 计入 provider latency、vertical tabs 提前切换等）；docs 4 笔。
+
+### 5. `@opencode/client` 2.0.5 → 2.0.7（附带核查；本插件 `src/tui.tsx` 消费）【breaking（client SDK 面）+ 新增】
+
+- **`server.status()` → `server.info()`**：重命名；返回 `ServerInfo { version, pid, urls, paths: { tmp } }`（新增 `paths.tmp`）。直接调用旧方法名的 client 消费方需迁移。
+- 新增 `location.reload()`、`file.write(input)`（`FileSystemWrite { path: string }`，对应 schema `FileSystem.Write`）。
+- `V2Event` 联合新增 `LocationShutdown`（对应 `location.shutdown` 事件）。
+- `SessionStatus` 类型 2.0.5 → 2.0.7 逐字节一致——本插件 `src/tui.tsx` 的 `import type { SessionStatus }` 消费安全。
+- `effect/{api,client,generated}` 与 `promise/{client,generated}` 同步变化。
+
+### 6. 宿主实测（@opencode/cli@2.0.7，2026-09-18，隔离 serve + 临时 XDG + `OPENCODE_CONFIG` 指向本仓库 `dist`）
+
+本插件（按 `@opencode/{plugin,schema}@2.0.5` 构建，未升级依赖）在 2.0.7 宿主上：
+
+- 加载 **active**：`/api/plugin` 返回 `opencode-oceanus`，`source: {type: "local", path: ".../dist/index.js"}`，`features: {server: true, tui: true}`，`state.status: "active"`；插件总数 85（84 builtin + 本插件）。
+- 14 个 agent 全量注册（oceanus/sisyphus/prometheus + explorer/librarian/oracle/designer/fixer/observer + 5 内置 general/explore/compaction/title/summary）。
+- 12 个 skill 全量注册（本插件 10 个，路径均为 `path: /builtin/opencode-oceanus/.../SKILL.md`——2.0.5 的 `path` 字段形态保持）+ 宿主 opencode/report。
+- 插件 console 日志正常输出（`[oceanus] agent-browser 探测`、`[oceanus:update] auto_update`）。
+- `/api/mcp` 显示 `codebase-memory-mcp: disabled`（隔离环境配置门控默认关闭；transform 注册未导致插件失败）。
+- 实测方法注记（2.0.7 复测要点）：
+  - `plugins` 配置必须为**数组**形态；对象形态会被 schema 静默丢弃且无告警（`/api/config` 返回的 info 不含解析后字段即可识别该状况）。
+  - `file://` 必须指向含 `index.js`/`tui.js` 的 dist 目录——宿主 `Host.resolve` 按 `<dir>/server|index` 与 `<dir>/tui` 子路径解析入口，**不读 package.json main**。
+  - serve 随机 server password 的 HTTP 认证为 **Basic**，用户名固定 `opencode`（`curl -u "opencode:$PW"`；空用户名/Bearer/其它用户名均 401）。
+  - 插件注册为异步：冷启动后立即查 `/api/plugin` 可能得到空集（连 builtin 都为空），需等待就绪（实测数秒）。
+- 观察（未定论，待后续核实）：纯内置状态（无用户插件）下 `/api/agent` 出现 `build`/`plan` 两个 agent（2.0.3 时代实测不存在，见 `10-builtin-inventory.md`）；本插件加载（设置默认 agent）后两者不再出现——语义待确认（可能与 default agent 设置或注册时序相关）。
+
+### 7. 本插件验证结论
+
+- **类型面零破坏**：2.0.5 → 2.0.7 的 plugin 变化（新增 2 个实验性 ws hook）与 schema 变化（新事件/新 schema 导出/optional `hidden` 字段/required 事件字段/类型放宽）均不命中本插件消费面——Context 注册域、`session.hook("prompt"/"retry")`、`@opencode/schema/tool` 的 `Tool` 类型（`tool.d.ts` 两版零变化）、TUI context（`tui/context.d.ts` 两版零变化）、`@opencode/client` 的 `SessionStatus`（两版一致）。
+- **运行时零回归（实测）**：见上节——2.0.5 API 构建的插件在 2.0.7 宿主 active 加载、agent/skill 全量注册。
+- 结论：**无需升级依赖即可运行于 2.0.7 宿主**。是否将 `@opencode/{plugin,schema}` 锁定从 2.0.5 提到 2.0.7 属可选维护动作：当前无类型面收益（2.0.7 未提供本插件需要的新能力；experimental ws hooks 与 permission policies 均未纳入使用计划）。
+- peerDeps 注记：`@opencode/plugin@2.0.5` 的 peerDependencies 精确锁定 `@opencode/theme@2.0.5`，在 2.0.7 宿主环境（theme 2.0.7）下独立 npm 安装会报 peer 不匹配警告——宿主内嵌运行不受影响（本插件由宿主直接加载 dist），仅独立安装场景有告警噪音；升级锁定版本可消除。
+
+### 8. negative_findings
+
+- v2.0.6 / v2.0.7 **无 GitHub Release notes**（列表页无条目；tag 页 body 仅为 commit message）；官方 changelog 页（opencode.ai/changelog）仍只有 v1.18.x；V2 文档站无版本级 changelog 且下载链接仍锚定 2.0.6（文档滞后）；npm metadata 无变更说明。行为级变更唯一官方载体是 GitHub tags compare。
+- 官方 V2 文档 plugins 页的 `SkillEditor.add` 示例仍用旧字段名 `location`（与 2.0.5+ schema 的必填 `path` 冲突——文档示例未随 schema 更新）；按本库甄别原则以 tarball 类型声明为准。本插件已用 `path`，不受影响。
 
 ---
 

@@ -74,7 +74,7 @@ description: 第 3 阶段 — 计划：读取已批准 spec，映射文件结构
 
 <目标反推：目标达成为真时，哪些行为可观察、哪些文件必须存在、哪些连接必须接通。
 每条一行、可被 review 独立核验；这是 Completion Audit 的逐条锚点，不是泛泛的验收重述。
-browser_verify 开启的前端任务：交互/渲染类 truths 应写成 agent-browser 可取证形式（如 get styles 断言值、find role … click 后的 snapshot 状态），命令映射见 agent-browser skill。>
+browser_verify 开启的前端任务：编写此类 truths 前先加载 agent-browser skill（命令映射唯一来源），交互/渲染类 truths 写成 agent-browser 可取证形式（如 get styles 断言值、find role … click 后的 snapshot 状态）。>
 ~~~
 
 ## 任务结构（固定模板）
