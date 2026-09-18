@@ -239,8 +239,9 @@ export async function runSetup(
         description: skill.description,
         slash: skill.slash ?? false,
         autoinvoke: skill.autoinvoke ?? false,
-        // location 必须是绝对路径（SkillV2.AbsolutePath），否则宿主 schema 校验失败
-        location: `/builtin/opencode-oceanus/${skill.name}/SKILL.md`,
+        // OpenCode 2.0.5 将 Skill.Info.location 重命名为必填的 path。
+        // 路径必须为绝对路径，否则宿主 schema 校验失败。
+        path: `/builtin/opencode-oceanus/${skill.name}/SKILL.md`,
         content: skill.content,
       };
       // beta-18743 的官方 SkillDraft 契约使用 add/update/remove；不调用未公开

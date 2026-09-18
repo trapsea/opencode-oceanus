@@ -4,6 +4,7 @@ import { runSetup } from '../index';
 /** 只提供 setup 所需的最小宿主面；测试不触碰真实网络、安装或宿主进程。 */
 function host(overrides: Record<string, unknown> = {}) {
   const calls: string[] = [];
+  const registeredSkills: Array<Record<string, unknown>> = [];
   // 陷阱记录：SessionDomain 无 sessionID/id 属性；setup 读取即违约。
   const sessionIdentityReads: string[] = [];
   const getCalls: Array<{ sessionID: string }> = [];
@@ -11,7 +12,9 @@ function host(overrides: Record<string, unknown> = {}) {
     transform: async (fn: (draft: any) => void) => {
       calls.push(`${name}.transform`);
       fn({
-        add: () => {},
+        add: (value: Record<string, unknown>) => {
+          if (name === 'skill') registeredSkills.push(value);
+        },
         get: () => undefined,
         remove: () => {},
         set: () => {},
@@ -24,6 +27,7 @@ function host(overrides: Record<string, unknown> = {}) {
   });
   return {
     calls,
+    registeredSkills,
     sessionIdentityReads,
     getCalls,
     agent: domain('agent'),
@@ -58,6 +62,17 @@ const cbm = (logger?: (message: string, meta?: Record<string, unknown>) => void)
 });
 
 describe('setup 入口阶段化韧性（RED）', () => {
+  test('skill 注册使用 OpenCode 2.0.5 要求的 path 字段', async () => {
+    const ctx = host();
+    await runSetup(ctx, { loadConfig: config, cbm: cbm() });
+
+    expect(ctx.registeredSkills.length).toBeGreaterThan(0);
+    for (const skill of ctx.registeredSkills) {
+      expect(skill.path).toMatch(/^\/builtin\/opencode-oceanus\/.*\/SKILL\.md$/);
+      expect(skill).not.toHaveProperty('location');
+    }
+  });
+
   test('配置加载硬失败：不启动任何可选阶段', async () => {
     const ctx = host();
     await expect(runSetup(ctx, {

@@ -1,6 +1,6 @@
 {
   "name": "opencode-oceanus",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "OpenCode v2 plugin that registers the Oceanus agent orchestrator and its specialist agents",
   "type": "module",
   "main": "dist/index.js",
@@ -41,8 +41,8 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@opencode/plugin": "2.0.3",
-    "@opencode/schema": "2.0.3"
+    "@opencode/plugin": "2.0.5",
+    "@opencode/schema": "2.0.5"
   },
   "peerDependencies": {
     "@opentui/solid": ">=0.5.10",

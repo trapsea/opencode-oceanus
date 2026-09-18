@@ -2,10 +2,10 @@
 
 OpenCode v2 宿主的能力 / API / 工具 / hook / 配置参考文档，服务于 `opencode-oceanus` 插件开发与版本适配。
 
-> **版本基线**：`@opencode/plugin@2.0.3` + `@opencode/schema@2.0.3`（GA 正式版，2026-09-14 核实，npm `latest`；beta-19271 → 2.0.3 差异见 [versions/changelog.md](versions/changelog.md)——含 session hooks 重构、会话级权限、包族迁移 `@opencode-ai/*` → `@opencode/*`；宿主 `@opencode/cli@2.0.3` 隔离实测通过）
-> **本项目锁定版本**：`@opencode-ai/plugin@0.0.0-beta-18743`（`package.json`，旧 scope 精确锁定）；**beta-18743 API 面在 2.0.3 宿主上实测零回归**（2026-09-14：插件 active、14 agents/12 skills 全量注册、CBM MCP server connected）
-> **包族迁移**：2.0 GA 起 V2 线全部迁往 `@opencode/*` 新 scope（cli/plugin/schema/core/client/sdk/ai/protocol/server/theme/util 均 2.0.3）；旧 `@opencode-ai/*` 为 v1 线并行维护（latest 1.18.30，未 deprecated）。CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。GitHub 迁至 `anomalyco/opencode`，V2 文档站 `opencode.ai/v2/docs`。
-> **历史差异摘要**：beta-19242：`*Draft`→`*Editor` 重命名、`Plugin.vcs` 移除、`worktree` 域与 TUI `session.panel`；beta-19271：`compaction` 配置、`providerContext` 会话溯源、`DialogSelectOption.footer`；2.0 GA 线（beta-19507 落地）：session hooks `options` 合并 + `compaction`/`generate`/`title` hook、会话级 `permissions` + `session.permissions.updated` 事件、`PermissionDomain.rules`、provider/model `websocket`；2.0.2：`Preferences` + `config/shell`；2.0.3：compaction `cost`/`tokens` 可观测（详见 [versions/changelog.md](versions/changelog.md)）。
+> **版本基线**：`@opencode/plugin@2.0.5` + `@opencode/schema@2.0.5`；宿主 `@opencode/cli@2.0.5`（2026-09-17 核实）。2.0.3 → 2.0.5 的完整类型差异见 [versions/changelog.md](versions/changelog.md)。
+> **本项目锁定版本**：`@opencode/{plugin,schema}@2.0.5`（`package.json` 精确锁定）。2.0.5 要求 `Skill.Info.path`，本插件已由 `location` 迁移；此前旧字段会导致插件在 `skill.transform` 阶段被整体禁用。
+> **包族迁移**：2.0 GA 起 V2 线全部迁往 `@opencode/*` 新 scope（cli/plugin/schema/core/client/sdk/ai/protocol/server/theme/util）。旧 `@opencode-ai/*` 为 v1 线并行维护。CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。GitHub 迁至 `anomalyco/opencode`，V2 文档站 `opencode.ai/v2/docs`。
+> **本次关键差异**：2.0.4/2.0.5 将 `Skill.Info.location` 重命名为必填 `path`；`catalog` 拆为 `provider`/`model`，`Session.rename` 改为 `update`，`Vcs.branches` 改为 `Vcs.branch.list`，provider/model 的 `websocket` 改为 `transport`。详见 [versions/changelog.md](versions/changelog.md)。
 
 ## 文档索引
 
@@ -21,7 +21,7 @@ OpenCode v2 宿主的能力 / API / 工具 / hook / 配置参考文档，服务�
 | [08-host-capabilities.md](08-host-capabilities.md) | TUI 插件上下文（Data/Keymap/Storage/UI/Slot 系统）、API server、ACP、worktree、Form/PTY |
 | [09-config-schema.md](09-config-schema.md) | opencode.json 配置全景（config 家族 schema 字段级） |
 | [10-builtin-inventory.md](10-builtin-inventory.md) | 宿主内置工具 / agent / 命令 / skill 清单（实测证据分级；2.0 起含 builtin 插件化清单） |
-| [versions/changelog.md](versions/changelog.md) | 版本变动台账（beta-18230 → 2.0.3 GA 全链路）+ 追加模板 |
+| [versions/changelog.md](versions/changelog.md) | 版本变动台账（beta-18230 → 2.0.5 全链路）+ 追加模板 |
 
 ## 使用方式
 

@@ -26,7 +26,51 @@
 | beta-18743 → beta-19242 | ✅ 已核实（全量 dist diff，2026-09-07） |
 | beta-18743 → beta-19271 | ✅ 已核实（全量 dist diff 三方分解，2026-09-09；19242→19271 增量详列，18743→19242 部分见下条目） |
 | beta-19271 → 2.0.3（GA） | ✅ 已核实（tarball 归一化 diff 三方分解 + 宿主 2.0.3 实测，2026-09-14） |
+| 2.0.3 → 2.0.5 | ✅ 已核实（plugin/schema tarball 全量 diff + `@opencode/cli@2.0.5` 真实宿主失败日志，2026-09-17） |
 | 更早历史版本 | 未回溯（build 数百个，按需增量补录） |
+
+---
+
+## 2.0.3 → 2.0.5
+
+- 日期：2026-09-17
+- 证据源类型：`@opencode/{plugin,schema}@2.0.3` 与 `2.0.5` tarball 的 `dist` 全量 diff；官方 V2 plugins 文档；真实 `@opencode/cli@2.0.5` 服务日志与 `/api/plugin`。
+- 影响分级：下列均为 API/schema 破坏性变化，未消费的域不影响本插件。
+
+### 1. `Skill.Info.location` → 必填 `path`【breaking；本插件受影响】
+
+`schema/skill.d.ts` 的 `Skill.Info`、`Skill.Update` 及事件载荷将绝对路径字段由 `location: AbsolutePath` 重命名为 `path: AbsolutePath`。`SkillEditor` 方法集合不变。
+
+- 真实失败证据：2.0.5 宿主加载旧版 `opencode-oceanus@1.0.2` 时，服务日志记录 `disabled plugin after transform failure ... state=skill ... SchemaError(Missing key at ["path"])`；`/api/plugin` 状态为 `failed`。插件加载成功但在 skill transform 时被整体禁用。
+- 适配：技能注册对象改用 `path: "/builtin/opencode-oceanus/<skill>/SKILL.md"`；依赖同步精确锁定到 `@opencode/{plugin,schema}@2.0.5`，以便类型检查阻止旧字段回归。
+
+### 2. `catalog` 拆分为 `provider` 与 `model`【breaking；本插件未消费】
+
+`Context.catalog` 及 `promise|effect/catalog.*` 移除。其 provider 与 model 读写/transform/reload 功能分别迁至 `Context.provider` 与 `Context.model`；新增对应 `promise|effect/{provider,model}.*`。
+
+### 3. session、VCS 与权限 API 重命名/移除【breaking；本插件未消费】
+
+- `SessionDomain.rename(input)` 改为 `update(input)`。
+- `VcsDomain.branches(input)` 改为 `vcs.branch.list(input)`。
+- `PermissionDomain.rules` 移除；会话权限仍可通过宿主配置/API 管理，但插件 context 不再暴露该方法。
+- 表单类型从 `FormReplyInput`/`FormCancelInput` 改名为 `SessionFormReplyInput`/`SessionFormCancelInput`。
+
+### 4. provider/model 会话传输配置【breaking；本插件未消费】
+
+`websocket?: boolean` 移除，provider 与 model 配置改为 `transport?: "http" | "websocket"`。旧配置应映射为 `true → "websocket"`、`false → "http"`。新增实验性 `experimental.ws.handshake` session hook；同时保留 HTTP hook。
+
+### 5. 其余 schema 变化【需按消费面评估】
+
+- `catalog.updated` 改为 `provider.updated`，并新增 `model.updated`；消费旧事件名的订阅者需迁移。
+- `session.permissions.updated` 改为 `session.permissions`。
+- 配置 `Preferences`/`PreferencesPatch` 移除，收敛为 `Patch: { shell: string | null }`；`websearch` 不再是该偏好 schema 的字段。
+- instruction entry 不再包含 `agents`、`claude` 两类目录变体，仅保留 `document`、`directory`。
+- MCP 新增 `protocol: "legacy" | "auto" | "2026-07-28"`。
+
+### 6. 本插件验证结论
+
+- 本插件只命中 Skill 路径字段变化；未使用 `catalog`、`Session.rename`、`Vcs.branches`、`PermissionDomain.rules`、`websocket` 配置或上述事件名。
+- 已在隔离的真实 2.0.5 Host（`OPENCODE_CONFIG` 指向本仓库 `dist`）复测：`/api/plugin` 返回 `opencode-oceanus`、`features: {server: true, tui: true}`、`state.status: "active"`；`/api/skill` 返回全部 10 个 Oceanus skills，且路径均为 `path: /builtin/opencode-oceanus/.../SKILL.md`。
 
 ---
 

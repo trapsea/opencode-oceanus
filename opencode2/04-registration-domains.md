@@ -1,8 +1,8 @@
 # 注册类域：Agent / Skill / Command / Catalog
 
-> 版本基线：`@opencode/plugin@2.0.3`（GA；注册域与 beta-19271 逐字节一致，归一化 diff 证据见 `versions/changelog.md`）
-> **beta-19242 变化**：全部 `*Draft` 接口重命名为 `*Editor`（AgentDraft→AgentEditor、SkillDraft→SkillEditor、CommandDraft→CommandEditor、CatalogDraft→CatalogEditor 等），方法签名不变；`SkillEditor` 新增 `get(id)`。**2.0（beta-19507 起）无进一步变化**。
-> 证据源：tarball `promise/{agent,skill,command,catalog}.d.ts`、schema `{agent,skill,prompt-input,session-inbox}.d.ts`；官方 V2 文档 agents/skills/commands 页。
+> 版本基线：`@opencode/plugin@2.0.5` + `@opencode/schema@2.0.5`。
+> **2.0.3 → 2.0.5 破坏性变化**：`Skill.Info.location` 重命名为必填 `path`；`catalog` 域移除并拆为独立 `provider`/`model` 域。`SkillEditor` 的 `list/get/add/update/remove` 方法不变。
+> 证据源：2.0.3/2.0.5 tarball `promise/{context,skill}.d.ts`、schema `skill.d.ts` 全量 diff；官方 V2 plugins/skills 页。
 
 ## 1. AgentDomain
 
@@ -73,12 +73,12 @@ interface Info {
   description?: string             // 1-1024 字符（官方）
   slash?: boolean                  // 是否注册为 /命令
   autoinvoke?: boolean
-  location: AbsolutePath           // skill 内容文件的绝对路径（宿主按需读取）
+  path: AbsolutePath               // skill 内容文件的绝对路径（宿主按需读取）
   content: string                  // SKILL.md 正文内容
 }
 ```
 
-- 插件注册 skill：`draft.add({ id, name, description, content, location, ... })`，**不要依赖未公开的 `source()`**。
+- 插件注册 skill：`draft.add({ id, name, description, content, path, ... })`，**不要依赖未公开的 `source()`**。2.0.5 不再接受 `location`：缺少 `path` 会令宿主报 `SchemaError: Missing key at ["path"]` 并禁用该插件。
 - skill 通过宿主 `skill` 工具暴露给 agent；`slash: true` 的 skill 同时出现在命令目录（实测宿主 command 列表中 skill 与 command 混排）。
 - 文件系统 skill 目录：`.opencode/skills/<name>/SKILL.md`（frontmatter：name/description/license/compatibility/metadata）；宿主兼容 `.claude/`、`.agents/` 路径（官方 skills 页）。
 - 变更事件：`skill.updated`（schema skill.d.ts Event）。
