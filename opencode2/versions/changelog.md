@@ -29,7 +29,46 @@
 | 2.0.3 → 2.0.5 | ✅ 已核实（plugin/schema tarball 全量 diff + `@opencode/cli@2.0.5` 真实宿主失败日志，2026-09-17） |
 | 2.0.5 → 2.0.6 | ✅ 已核实（plugin/schema tarball 全量 diff + GitHub compare 官方 commit 序列，2026-09-18） |
 | 2.0.6 → 2.0.7 | ✅ 已核实（plugin/schema/client tarball 全量 diff + GitHub compare + `@opencode/cli@2.0.7` 隔离 serve 实测，2026-09-18） |
+| 2.0.7 → 2.0.10 | ✅ 已核实（plugin/schema/client tarball 全量 diff + GitHub compare；尚未真实 Host 实测，2026-09-20） |
 | 更早历史版本 | 未回溯（build 数百个，按需增量补录） |
+
+---
+
+## 2.0.7 → 2.0.10
+
+- 日期：2026-09-20（记录）；发布时间线：v2.0.8、v2.0.9、v2.0.10 tags 均发布于 2026-09-18 至 2026-09-19 UTC。
+- 证据源类型：`@opencode/{plugin,schema,client}@2.0.7` 与 `2.0.10` tarball 的 dist 全量 diff（重点逐文件 `.d.ts` diff）+ GitHub `anomalyco/opencode` compare v2.0.7...v2.0.10（81 commits、359 个文件变更）。GitHub Release 正文仅含 release 标题，未提供版本级迁移说明。
+- 可复现性：在空目录执行 `npm pack @opencode/{plugin,schema,client}@2.0.7 @opencode/{plugin,schema,client}@2.0.10`，分别解压后运行 `diff -rq old/<pkg>/dist new/<pkg>/dist` 与关键 `diff -u`。npm registry `dist.shasum`：2.0.7 plugin `b806d35554095d96db387fe5b001ec42b923c51e`、schema `807ef0b7fa1c7de0b65e49afe5e4f9e45f116506`、client `58b73ef1daa4e91a7e3dee6fb611ea7b9889ef85`；2.0.10 plugin `71fb47d0c9164d64605ff949e82d6fae42a99fc6`、schema `5a131d72e3e573c2b5de029de0767a7f672ecdf7`、client `bdec6427b00727fcad77f2dd2698b5091220f390`。
+- 影响分级：provider/model 配置为 breaking；工具 API 为新增；Oceanus 当前消费面无代码适配项。
+
+### 1. plugin：`ToolEditor.list()`【新增；本插件未消费】
+
+`promise/tool.d.ts` 与 `effect/tool.d.ts` 为 `ToolEditor` 新增 `list()`：返回每次 transform 后按有效名称索引的只读工具信息（含 `id`）。既有 `transform`/`reload`/draft API 未变；Oceanus 的 `src/tools/` 只注册工具、不读取宿主已注册工具，故无需调整。
+
+### 2. schema：provider/model/agent 请求设置收敛【breaking；本插件未消费】
+
+- `Provider.Compaction` 从 `{ mode: "local" } | { mode: "provider"; threshold? }` 改为 `{ type: "summary" } | { type: "native" }`。
+- provider、model 与 agent 的 `timeout`、`chunkTimeout`、`compaction`、`transport` 迁入 `settings`；provider/model 顶层 `compaction` 与 `transport` 被移除。`settings` 仍保留扩展 record，因此自定义 provider 设置可继续存在。
+- config provider/model 的 `settings` 同步具名化：provider 允许上述四项，model/variant 允许 `compaction`。
+
+Oceanus 没有生成或读取 provider/model 配置。`src/index.ts` 只向 agent `request.settings` 写入 `temperature` 与用户定义 options；新 schema 的 settings 保留扩展 record，编译可验证该用法。因此无需迁移 Oceanus 配置或运行时逻辑；使用旧 provider/model 顶层字段的**用户 OpenCode 配置**必须迁至 `settings`。
+
+### 3. client：类型与运行时辅助变化【无关；本插件未消费】
+
+- promise client 的 provider/model 配置类型随 schema 同步；`experimental.policies[].action` 保持并包含 `"permission"`。
+- `EnsureTiming` 移除 `attempts`，shell status 联合成员仅重排，新增 bundle chunks 与若干内部 RPC/服务实现调整。
+- `SessionStatus` 未发生声明变化；Oceanus TUI 的 `SessionStatus` 类型消费不受影响。
+
+### 4. 本插件验证结论
+
+- 依赖升级：`package.json` 与 `bun.lock` 将 `@opencode/{plugin,schema}` 精确锁定到 `2.0.10`，同时消除与 2.0.10 Host 内置 theme 的独立安装 peer 版本告警。
+- 代码适配：未发现 `Plugin`、Context、Agent/Skill/MCP 注册域、session hooks、TUI context 或 `Tool` 执行契约的破坏性类型变化；不为未使用的 `ToolEditor.list()` 或 provider settings 重构引入代码。
+- 验证边界：本次只能以 tarball 类型 diff 和本仓库的类型/单元/构建验证为证据；必须在真实 `@opencode/cli@2.0.10` Host 复测插件 active 加载、agent/skill/tool/hook 注册及 TUI sidebar，才能声明运行时兼容。
+
+### 5. negative_findings
+
+- v2.0.8、v2.0.9、v2.0.10 GitHub Release 页面没有 API 变更或迁移说明；npm package metadata 也未提供变更说明。
+- plugin package manifest 的公开导出入口（`.`, `./effect`, `./host`, `./tui`, `./*`）未删除或重命名。
 
 ---
 

@@ -1,9 +1,9 @@
 # 配置全景（opencode.jsonc）
 
-> 版本基线：`@opencode/schema@2.0.5`
-> 证据源：2.0.3/2.0.5 tarball schema `dist/config.d.ts` 与 `dist/config/*.d.ts` 全量 diff；官方 V2 config 页。字段为 schema 声明级事实；标注"官方"处为文档口径。
+> 版本基线：`@opencode/schema@2.0.10`
+> 证据源：2.0.3/2.0.5 与 2.0.7/2.0.10 tarball schema `dist/config.d.ts`、`dist/config/*.d.ts` 全量 diff；官方 V2 config 页。字段为 schema 声明级事实；标注"官方"处为文档口径。
 > **2.0 实测注意**：项目目录配置文件应使用 `opencode.jsonc` 扩展名（2.0.3 实测 `opencode.json` 未被识别，见 `02-plugin-lifecycle.md` §3.2）。
-> **2.0.5 变化**：provider/model `websocket: boolean` 重命名为 `transport?: "http" | "websocket"`；`Preferences`/`PreferencesPatch` 收敛为仅含必填 `shell: string | null` 的 `Patch`。
+> **2.0.5/2.0.10 变化**：2.0.5 将 provider/model `websocket: boolean` 重命名为 `transport?: "http" | "websocket"`；2.0.10 再将 provider/model 的 `transport` 与 `compaction` 迁入 `settings`，并把 compaction 改为 `{ type: "summary" } | { type: "native" }`。`Preferences`/`PreferencesPatch` 已在 2.0.5 收敛为仅含必填 `shell: string | null` 的 `Patch`。
 
 ## 1. 顶层 Config 字段（schema `config.d.ts`）
 
@@ -13,7 +13,7 @@
 | `small_model`*（官方） | ModelRef | 轻量任务模型（官方 config 页口径，schema 顶层未见独立字段，经 model 族表达） |
 | `shell` | shell 配置 | 默认 shell |
 | `default_agent` | string | 默认 agent（如 build/plan） |
-| `autoupdate` | — | 自动更新（**beta-19242 变化**：已移除，改为 `update: "disable" \| "notify" \| "auto"`；另新增 `worktree: { directory }`；`config/command` 命令新增 `subagent?: boolean`；`config/provider`、`model`、`project` 新增 `canonical` 字段。**beta-19271 变化**：`config/provider` 与 `model` 条目新增 optional `compaction: { mode: "local" } \| { mode: "provider"; threshold?: number }`。**2.0.5 变化**：旧 `websocket: boolean` 已改为 `transport?: "http" \| "websocket"`） |
+| `autoupdate` | — | 自动更新（**beta-19242 变化**：已移除，改为 `update: "disable" \| "notify" \| "auto"`；另新增 `worktree: { directory }`；`config/command` 命令新增 `subagent?: boolean`；`config/provider`、`model`、`project` 新增 `canonical` 字段。**2.0.10 变化**：provider/model 的 compaction、transport 改置于 `settings`，详见 §8） |
 | `share` | — | 会话共享 |
 | `enterprise` | — | 企业配置 |
 | `username` | string | 用户名 |
@@ -103,7 +103,8 @@ type PluginEntry = string                  // npm 包名或本地目录路径
 
 - provider 覆盖：`settings`/`headers`/`body`（请求覆盖）、`read`/`write`（能力位）、`tier`、`cost{input,output,cache}`、`context{input,output}`、`capabilities`、`variants`、`disabled`、npm registry 等。
 - `config/model.d.ts` 定义 ModelRef：`{ providerID, model, variant? }`。
-- 2.0.5 的 provider 条目/顶层与 model 条目使用 optional `transport: "http" | "websocket"`（会话传输策略）；迁移旧 `websocket: true` 为 `transport: "websocket"`，`false` 为 `transport: "http"`。
+- 2.0.10 的 provider `settings` 可含 `timeout?: number | false`、`chunkTimeout?: number`、`transport?: "http" | "websocket"` 与 `compaction?: { type: "summary" } | { type: "native" }`；model/variant `settings` 可含后者。其余键仍可作为扩展设置。
+- 2.0.10 已移除 provider/model 顶层 `transport` 与 `compaction`。迁移 2.0.7 配置时，将顶层字段移入 `settings`，并将 `{ mode: "local" }` 改为 `{ type: "summary" }`、`{ mode: "provider", threshold? }` 改为 `{ type: "native" }`（旧 `threshold` 无对应字段）。旧 `websocket: true/false` 的 2.0.5 迁移规则仍是 `settings.transport: "websocket"/"http"`。
 
 ## 9. references（`config/reference.d.ts`）
 

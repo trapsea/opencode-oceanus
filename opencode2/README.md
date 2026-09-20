@@ -2,10 +2,10 @@
 
 OpenCode v2 宿主的能力 / API / 工具 / hook / 配置参考文档，服务于 `opencode-oceanus` 插件开发与版本适配。
 
-> **版本基线**：`@opencode/plugin@2.0.5` + `@opencode/schema@2.0.5`（本项目锁定）；宿主已核实至 `@opencode/cli@2.0.7`（2026-09-18 隔离 serve 实测）。2.0.3 → 2.0.5 与 2.0.5 → 2.0.7 的完整类型差异见 [versions/changelog.md](versions/changelog.md)。
-> **本项目锁定版本**：`@opencode/{plugin,schema}@2.0.5`（`package.json` 精确锁定）。2.0.5 要求 `Skill.Info.path`，本插件已由 `location` 迁移；此前旧字段会导致插件在 `skill.transform` 阶段被整体禁用。
+> **版本基线**：`@opencode/plugin@2.0.10` + `@opencode/schema@2.0.10`（本项目锁定）；宿主已核实至 `@opencode/cli@2.0.7`（2026-09-18 隔离 serve 实测）。2.0.3 → 2.0.5、2.0.5 → 2.0.7 与 2.0.7 → 2.0.10 的完整类型差异见 [versions/changelog.md](versions/changelog.md)。
+> **本项目锁定版本**：`@opencode/{plugin,schema}@2.0.10`（`package.json` 精确锁定）。2.0.5 要求 `Skill.Info.path`，本插件已由 `location` 迁移；此前旧字段会导致插件在 `skill.transform` 阶段被整体禁用。
 > **包族迁移**：2.0 GA 起 V2 线全部迁往 `@opencode/*` 新 scope（cli/plugin/schema/core/client/sdk/ai/protocol/server/theme/util）。旧 `@opencode-ai/*` 为 v1 线并行维护。CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。GitHub 迁至 `anomalyco/opencode`，V2 文档站 `opencode.ai/v2/docs`。
-> **2.0.5 → 2.0.7 关键差异**：全部为新增面——实验性 ws.send/receive 帧 hook（2.0.6）、`location.shutdown` 事件与配置热重载（2.0.6/2.0.7）、fs.write 端点、experimental policies 支持 `permission` 动作强制 deny（2.0.7）、字段级 `hidden`（form/integration）、`session.step.started` 事件 `started` 分发时间戳；`@opencode/client` 的 `server.status()` → `server.info()` 为重命名 breaking。**本插件在 2.0.7 宿主实测零回归，无需升级依赖**（详见 changelog「2.0.6 → 2.0.7 → 本插件验证结论」）。
+> **2.0.7 → 2.0.10 关键差异**：plugin 的 `ToolEditor.list()` 为纯新增；provider/model/agent 的请求覆盖收敛进 `settings`，`compaction` 改为 `{ type: "summary" | "native" }`，顶层 `compaction`/`transport` 被移除。Oceanus 未消费这些 provider/model 字段，升级到 2.0.10 后类型检查通过；真实 2.0.10 Host 的加载与 TUI 验证仍待执行（详见 changelog）。
 > **2.0.3 → 2.0.5 关键差异**：`Skill.Info.location` 重命名为必填 `path`；`catalog` 拆为 `provider`/`model`，`Session.rename` 改为 `update`，`Vcs.branches` 改为 `Vcs.branch.list`，provider/model 的 `websocket` 改为 `transport`。详见 [versions/changelog.md](versions/changelog.md)。
 
 ## 文档索引
@@ -22,7 +22,7 @@ OpenCode v2 宿主的能力 / API / 工具 / hook / 配置参考文档，服务�
 | [08-host-capabilities.md](08-host-capabilities.md) | TUI 插件上下文（Data/Keymap/Storage/UI/Slot 系统）、API server、ACP、worktree、Form/PTY |
 | [09-config-schema.md](09-config-schema.md) | opencode.json 配置全景（config 家族 schema 字段级） |
 | [10-builtin-inventory.md](10-builtin-inventory.md) | 宿主内置工具 / agent / 命令 / skill 清单（实测证据分级；2.0 起含 builtin 插件化清单） |
-| [versions/changelog.md](versions/changelog.md) | 版本变动台账（beta-18230 → 2.0.7 全链路）+ 追加模板 |
+| [versions/changelog.md](versions/changelog.md) | 版本变动台账（beta-18230 → 2.0.10 全链路）+ 追加模板 |
 
 ## 使用方式
 

@@ -8,10 +8,10 @@
 
 | 项目 | 当前值 | 证据 |
 |---|---|---|
-| 插件包 | `opencode-oceanus@1.0.3` | `package.json:2-4` |
-| OpenCode 插件 API | `@opencode/plugin@2.0.5`，精确锁定 | `package.json`、`bun.lock` |
-| OpenCode schema | `@opencode/schema@2.0.5`，精确锁定 | `package.json`、`bun.lock` |
-| 正式版包族 | `@opencode/cli@2.0.5` 与 `@opencode/{plugin,schema}@2.0.5` 已核实；旧 `@opencode-ai/*` 仍是 v1 线。CLI bin 双名 `opencode`（主）+ `opencode2`（别名） | npm registry 与本机 `opencode --version`（2026-09-17），详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) 2.0.3 → 2.0.5 条目 |
+| 插件包 | `opencode-oceanus@1.0.4` | `package.json:2-4` |
+| OpenCode 插件 API | `@opencode/plugin@2.0.10`，精确锁定 | `package.json`、`bun.lock` |
+| OpenCode schema | `@opencode/schema@2.0.10`，精确锁定 | `package.json`、`bun.lock` |
+| 正式版包族 | `@opencode/{plugin,schema}@2.0.10` 已核实；目标宿主为 `@opencode/cli@2.0.10`，真实 Host 尚待复测。旧 `@opencode-ai/*` 仍是 v1 线；CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。 | npm tarball 与官方 tags（2026-09-20），详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) 2.0.7 → 2.0.10 条目 |
 | 实测宿主 | `@opencode/cli@2.0.5`：升级前发布包在 `skill.transform` 报 `SchemaError: Missing key at ["path"]`，宿主将插件标为 `failed`；修复后在隔离 Host 加载本仓库 `dist`，`/api/plugin` 返回 `opencode-oceanus: active`（server+tui），`/api/skill` 返回全部 10 个 Oceanus skills，均有 `path`。 | `~/.local/share/opencode/log/opencode.log`、隔离 `opencode serve` + `/api/{plugin,skill}`（2026-09-17） |
 | 2.0.3 → 2.0.5 类型面差异（对本插件） | `Skill.Info.location` → 必填 `path`【本插件受影响，已迁移】；`catalog` 拆为 `provider`/`model`、`Session.rename` → `update`、`Vcs.branches` → `Vcs.branch.list`、`PermissionDomain.rules` 移除、`websocket` → `transport`。其余均未被本插件消费。 | plugin/schema 2.0.3/2.0.5 tarball 全量 diff，见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) |
 | 可选 peer | `@opentui/solid >=0.5.10`、`solid-js >=1.9.0`、`zod ^4.0.0`；前两者 optional | `package.json:47-59`（对齐 `@opencode/plugin@2.0.3` peerDeps 的 `@opentui/* >=0.5.10`；正式版 plugin 另有 optional `@opencode/theme` 与 `@opentui/core`，本插件不消费不声明） |
@@ -19,6 +19,13 @@
 | 入口 | CLI `dist/index.js`，TUI `dist/tui.js` | `package.json:6-16` |
 
 锁定版本不是宿主版本号映射。升级时应同时检查 `package.json`、`bun.lock`、安装后的类型声明和真实 OpenCode Host，而不是只替换 beta 编号；**升 2.0 正式版需整体迁 `@opencode/*` 新 scope**（包坐标 + import 路径）。
+
+## 2.0.7 → 2.0.10 兼容性审查（2026-09-20）
+
+- `ToolEditor.list()` 是唯一 plugin 声明新增面；Oceanus 只通过 `ctx.tool.transform` 注册工具，不枚举宿主工具，**无需代码调整**。
+- provider/model/agent 请求设置的 schema 收敛：`compaction` 由顶层 `{ mode: "local" } | { mode: "provider"; threshold? }` 改为 `settings.compaction: { type: "summary" } | { type: "native" }`，`transport` 同样迁入 `settings`。Oceanus 不消费 provider/model 字段；对 agent `request.settings` 写入的 `temperature` 和自定义 options 仍受扩展 record 支持，**无需代码调整**。
+- `@opencode/client` 的 `SessionStatus` 声明未变，`src/tui.tsx` 的类型消费安全；`EnsureTiming.attempts` 移除及 shell status 联合重排均未命中 Oceanus。
+- 本次升级仅已完成静态兼容性审查。真实 `@opencode/cli@2.0.10` 中的插件加载、agent/skill/tool/hook 注册、更新桥接与 TUI sidebar 仍是交付前运行时复测项；不得将类型、mock 或构建通过表述为真实 Host 通过。
 
 ## 已核实的 v2 API 约束
 
