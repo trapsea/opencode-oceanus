@@ -32,6 +32,31 @@ describe('Sisyphus 工作流澄清契约', () => {
     expect(prompt).toContain('next_action');
   });
 
+  test('phase_handoff 使用统一 Markdown 结果外壳', () => {
+    const prompt = createSisyphusAgent().system!;
+    for (const section of [
+      '# 结果',
+      '## 状态',
+      '## 摘要',
+      '## 详情',
+      '## 证据',
+      '## 验证',
+      '## 未确认项',
+      '## 负向发现',
+      '## 剩余风险',
+      '### 阶段交接',
+      '#### current_phase',
+      '#### input_sources',
+      '#### completed',
+      '#### next_action',
+      '#### updated',
+      '其中 `status`、`current_phase`、`input_sources`、`completed`、`open_questions`、`next_action`、`risks`、`evidence`、`updated` 为强制语义字段',
+    ]) {
+      expect(prompt).toContain(section);
+    }
+    expect(prompt).toContain('不得使用 XML/HTML 标签、JSON/YAML、数组字面量或管道分隔的伪表格');
+  });
+
   test('Sisyphus 阶段完成后自主续航，暂停必须以带推荐和自定义入口的问题建立边界', () => {
     const prompt = createSisyphusAgent().system!;
     const intake = skill('oceanus-intake').content;

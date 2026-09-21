@@ -29,7 +29,8 @@ describe('oracle 基础定义', () => {
 describe('oracle 场景路由段', () => {
   test('system 包含场景路由关键锚点', () => {
     const system = createOracleAgent().system!;
-    expect(system).toContain('<oracle_scene');
+    expect(system).toContain('## Oracle 场景：');
+    expect(system).not.toContain('<oracle_scene');
     expect(system).not.toContain('[OKAY]');
     expect(system).not.toContain('[REJECT]');
     expect(system).not.toContain('Blocking Issues');
@@ -83,7 +84,7 @@ describe('oracle 场景路由段', () => {
 describe('oracle 内嵌场景标准指令（0.46.1 修复：注册表 checks 不再是死代码）', () => {
   test('内嵌 analysis 完整检查清单与必附上下文', () => {
     const system = createOracleAgent().system!;
-    expect(system).toContain('<oracle_scene name="analysis">');
+    expect(system).toContain('## Oracle 场景：analysis');
     expect(system).toContain('**必附上下文**');
     expect(system).toContain('信息缺口');
     expect(system).toContain('spec / intake 报告路径');
@@ -92,10 +93,10 @@ describe('oracle 内嵌场景标准指令（0.46.1 修复：注册表 checks 不
 
   test('内嵌 solution-analysis 指令', () => {
     const system = createOracleAgent().system!;
-    expect(system).toContain('<oracle_scene name="analysis">');
+    expect(system).toContain('## Oracle 场景：analysis');
     expect(system).toContain('BACKGROUND_RESEARCH');
     expect(system).toContain('SOLUTION_ANALYSIS');
-    expect(system).toContain('<oracle_scene name="review">');
+    expect(system).toContain('## Oracle 场景：review');
     expect(system).toContain('性能与资源');
     expect(system).toContain('安全');
     expect(system).toContain('边界与异常');
@@ -103,7 +104,7 @@ describe('oracle 内嵌场景标准指令（0.46.1 修复：注册表 checks 不
 
   test('visual-acceptance（observer 场景）不内嵌于 oracle', () => {
     const system = createOracleAgent().system!;
-    expect(system).not.toContain('<oracle_scene name="visual-acceptance">');
+    expect(system).not.toContain('## Oracle 场景：visual-acceptance');
   });
 
   test('内嵌内容与场景注册表单一来源一致', () => {
@@ -128,20 +129,22 @@ describe('oracle 原人设与注入保持', () => {
 });
 
 describe('oracle 提示词覆盖逻辑', () => {
-  test('customPrompt 整体替换 system', () => {
+  test('customPrompt 保留 Markdown 返回契约', () => {
     const definition = createOracleAgent(undefined, '自定义整体提示词');
-    expect(definition.system).toBe('自定义整体提示词');
+    expect(definition.system).toContain('自定义整体提示词');
+    expect(definition.system).toContain('# 结果');
     expect(definition.system).not.toContain('战略技术顾问');
   });
 
   test('customAppendPrompt 追加到默认提示词之后', () => {
-    const base = createOracleAgent().system!;
     const definition = createOracleAgent(undefined, undefined, '追加段落');
-    expect(definition.system).toBe(`${base}\n\n追加段落`);
+    expect(definition.system).toContain('战略技术顾问');
+    expect(definition.system).toContain('追加段落\n\n\n## 返回格式（强制）');
   });
 
   test('customPrompt 与 customAppendPrompt 同时提供时 customPrompt 优先', () => {
     const definition = createOracleAgent(undefined, '整体替换', '被忽略的追加');
-    expect(definition.system).toBe('整体替换');
+    expect(definition.system).toContain('整体替换');
+    expect(definition.system).not.toContain('被忽略的追加');
   });
 });

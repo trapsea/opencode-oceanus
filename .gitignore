@@ -16,5 +16,9 @@ dist/
 .vscode/
 *.swp
 
+# Oceanus 阶段产物与媒体（SDD/运行产物，一律不入库）
 .oceanus/progress/
 .oceanus/media/
+.oceanus/spec/
+.oceanus/plan/
+.oceanus/review/

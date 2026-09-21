@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { Model } from '@opencode/plugin';
 import { AGENT_ALIASES } from './constants';
 import { getConfigDir } from './paths';
 import type { AgentOverrideConfig } from './schema';
@@ -164,6 +165,65 @@ export function describeOverride(override: AgentOverrideConfig): string {
   if (override.mcps?.length) bits.push(`mcps=${override.mcps.length}`);
   if (override.options && Object.keys(override.options).length > 0) bits.push('options');
   return bits.length > 0 ? bits.join(', ') : '(unset)';
+}
+
+/** 会话切换用的模型引用（与宿主 session.switchModel 的 model 入参同构）。 */
+export interface SessionModelRef {
+  providerID: string;
+  id: string;
+  variant?: string;
+}
+
+/**
+ * 解析 preset 覆盖中的会话切换模型引用（provider/model#variant）。
+ *
+ * 复用宿主 Model.Ref.parse 的规范化语义（#variant 分离、无效输入抛错）：
+ * - 字符串形式：'zai/glm-5.3#flash' → { providerID:'zai', id:'glm-5.3', variant:'flash' }；
+ * - 数组形式取首项：字符串按上解析；对象项解析其 id，对象项 variant 生效
+ *   （对象项显式 variant 字段优先于其 id 内嵌 #variant）；
+ * - 顶层 override.variant 仅在 variant 未定时回落填充（内嵌 #variant 与对象项
+ *   variant 优先，二者显式更具体）。
+ * 解析失败（无斜杠、空 variant、多处 # 等 Model.Ref.parse 拒绝的输入）告警并
+ * 返回 undefined，由调用方静默跳过。
+ * 注意：与 agents/index.ts 的 getPrimaryModelFromOverride 语义有意不同（后者
+ * 顶层 override.variant 覆盖解析结果），不要合并二者。
+ */
+export function resolveSessionModelRef(
+  override: Pick<AgentOverrideConfig, 'model' | 'variant'> | undefined,
+): SessionModelRef | undefined {
+  const model = override?.model;
+  if (model === undefined) return undefined;
+  let input: string;
+  let itemVariant: string | undefined;
+  if (typeof model === 'string') {
+    input = model;
+  } else if (model.length > 0) {
+    const first = model[0];
+    if (typeof first === 'string') {
+      input = first;
+    } else {
+      input = first?.id ?? '';
+      if (typeof first?.variant === 'string') itemVariant = first.variant;
+    }
+  } else {
+    return undefined;
+  }
+  try {
+    const ref = Model.Ref.parse(input);
+    const variant =
+      itemVariant ??
+      ref.variant ??
+      (typeof override?.variant === 'string' ? override.variant : undefined);
+    return variant === undefined
+      ? { providerID: ref.providerID, id: ref.id }
+      : { providerID: ref.providerID, id: ref.id, variant };
+  } catch (error) {
+    console.warn(
+      `[opencode-oceanus] 无效的 preset 模型引用 "${input}":`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return undefined;
+  }
 }
 
 /**

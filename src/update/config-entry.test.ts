@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { discoverConfigEntries, findConfigFiles, syncEntryVersion } from "./config-entry"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join } from "node:path"
 
 describe("config entries", () => {
   test("项目 .opencode 优先，支持 JSONC、BOM、字符串和对象", () => {
@@ -49,5 +49,29 @@ describe("config entries", () => {
     writeFileSync(file, original)
     syncEntryVersion(file, "1.1.0")
     expect(readFileSync(file, "utf8")).toBe(original)
+  })
+
+  test("HOME 未定义（Windows 语义）：用户级候选锚定 homedir()，不再产生相对路径", () => {
+    // Windows 上 HOME env 通常不存在（宿主用 os.homedir() = USERPROFILE 基准）。
+    // 旧实现默认参数 env.HOME ?? "" 在 HOME 缺失时退化为 join("", ".config") 相对
+    // 路径——cwd 下恰好存在 .config/opencode/ 时会被误当作用户级配置发现；全局
+    // 配置 %USERPROFILE%\.config\opencode\ 则永不命中 → 自动更新 no_entry 静默跳过。
+    const prevCwd = process.cwd()
+    const root = mkdtempSync(join(tmpdir(), "oceanus-nohome-"))
+    mkdirSync(join(root, ".config", "opencode"), { recursive: true })
+    writeFileSync(join(root, ".config", "opencode", "opencode.json"), "{}")
+    const prevHome = process.env.HOME, prevXdg = process.env.XDG_CONFIG_HOME
+    delete process.env.HOME
+    delete process.env.XDG_CONFIG_HOME
+    try {
+      process.chdir(root)
+      const found = findConfigFiles()
+      expect(found.every(f => isAbsolute(f))).toBe(true)
+      expect(found).not.toContain(join(".config", "opencode", "opencode.json"))
+    } finally {
+      process.chdir(prevCwd)
+      if (prevHome !== undefined) process.env.HOME = prevHome
+      if (prevXdg !== undefined) process.env.XDG_CONFIG_HOME = prevXdg
+    }
   })
 })

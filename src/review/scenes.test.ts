@@ -132,6 +132,12 @@ describe('plan-gate · momus 契约迁移', () => {
     expect(scene!.name).toBe('plan-gate');
   });
 
+  test('分级场景将 verdict 放入 Markdown 状态章节，不使用行首文本协议', () => {
+    expect(REVIEW_SCENES['review']!.checks).toContain('“状态”章节');
+    expect(REVIEW_SCENES['diff-review']!.checks).toContain('“状态”章节');
+    expect(REVIEW_SCENES['visual-acceptance']!.checks).toContain('“状态”章节');
+  });
+
   test('review：Oracle 正式全量审查（graded/fresh-session/return-execute）', () => {
     const scene = REVIEW_SCENES['review']!;
     expect(scene.reviewer).toBe('oracle');

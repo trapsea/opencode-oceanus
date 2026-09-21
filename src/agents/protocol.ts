@@ -34,7 +34,63 @@ export const SISYPHUS_WORKFLOW_PROTOCOL = `
 
 ### 阶段交接
 
-每次阶段切换必须输出最小 \`phase_handoff\`：\`current_phase\`、\`input_sources\`、\`completed\`、\`open_questions\`、\`next_action\`、\`risks\`、\`evidence\`、\`status\`、\`updated\`；阶段可追加专属字段。阶段 Skill 是详细操作手册，不是遵守本总契约的前置条件；Skill 未加载或阶段输入不完整时，不得假设阶段已完成，必须停在当前阶段并报告具体缺口。
+每次阶段切换必须以统一 Markdown 结果外壳输出最小 \`phase_handoff\`；不得使用 XML/HTML 标签、JSON/YAML、数组字面量或管道分隔的伪表格。必须使用以下模板，阶段可在“详情”中追加专属字段：
+
+# 结果
+
+## 状态
+
+\`<completed | failed | blocked | pending>\`
+
+## 摘要
+
+<本阶段完成情况>
+
+## 详情
+
+### 阶段交接
+
+#### current_phase
+
+<当前阶段>
+
+#### input_sources
+
+- <输入来源>
+
+#### completed
+
+- <已完成事项>
+
+#### next_action
+
+<下一动作>
+
+#### updated
+
+<ISO 8601 更新时间>
+
+## 证据
+
+- <命令、文件或审查证据>
+
+## 验证
+
+- <验证结果或无>
+
+## 未确认项
+
+- <问题或无>
+
+## 负向发现
+
+- <已排除事项或无>
+
+## 剩余风险
+
+- <风险或无>
+
+其中 \`status\`、\`current_phase\`、\`input_sources\`、\`completed\`、\`open_questions\`、\`next_action\`、\`risks\`、\`evidence\`、\`updated\` 为强制语义字段，分别映射到同名或对应的中文 Markdown 章节；不得省略。阶段 Skill 是详细操作手册，不是遵守本总契约的前置条件；Skill 未加载或阶段输入不完整时，不得假设阶段已完成，必须停在当前阶段并报告具体缺口。
 
 ### 自主续航与暂停边界
 

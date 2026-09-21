@@ -104,3 +104,39 @@ describe('autoUpdate 配置', () => {
     expect(getAutoUpdateConfig({ autoUpdate: { cleanup: false } }).cleanup).toBe(false);
   });
 });
+
+describe('tools/hooks 结构化配置键面（P1-2 回归）', () => {
+  test('clipboard_image / oceanus_config_generate 可被 tools 结构化配置', () => {
+    expect(
+      PluginConfigSchema.safeParse({
+        tools: { clipboard_image: { enabled: false }, oceanus_config_generate: { enabled: true } },
+      }).success,
+    ).toBe(true);
+  });
+
+  test('image_materializer / image_error_hint 可被 hooks 结构化配置', () => {
+    expect(
+      PluginConfigSchema.safeParse({
+        hooks: { image_materializer: { enabled: false }, image_error_hint: { enabled: true } },
+      }).success,
+    ).toBe(true);
+  });
+
+  test('结构化关闭 image hooks 不再使整份配置失效', () => {
+    const result = PluginConfigSchema.safeParse({
+      agents: {},
+      hooks: { image_materializer: { enabled: false }, image_error_hint: { enabled: false } },
+      tools: { clipboard_image: { enabled: false }, oceanus_config_generate: { enabled: false } },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.hooks?.image_materializer?.enabled).toBe(false);
+      expect(result.data.tools?.clipboard_image?.enabled).toBe(false);
+    }
+  });
+
+  test('未知工具/Hook 名仍被 strict 拒绝', () => {
+    expect(PluginConfigSchema.safeParse({ tools: { bogus_tool: { enabled: false } } }).success).toBe(false);
+    expect(PluginConfigSchema.safeParse({ hooks: { bogus_hook: { enabled: false } } }).success).toBe(false);
+  });
+});

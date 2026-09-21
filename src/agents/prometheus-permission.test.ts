@@ -66,12 +66,19 @@ describe('prometheus 受限 primary 权限契约', () => {
     expect(plain).not.toContain('受限委派白名单');
   });
 
-  test('prompt 契约：CBM 段来自注册表、含身份边界与输出契约', () => {
+  test('prompt 契约：CBM 段来自注册表、含阶段限定的身份边界与可执行交接', () => {
     const system = createPrometheusAgent().system!;
     expect(system).toContain('你是 Prometheus');
     expect(system).toContain('先见之明');
     expect(system).toContain('不落盘');
     expect(system).toContain('无委派');
+    expect(system).toContain('在当前 Prometheus 阶段');
+    expect(system).toContain('Prometheus 的只读、不实现、不修改文件、不落盘约束即告结束');
+    expect(system).toContain('不得把当前阶段的限制带入执行阶段');
+    expect(system).toContain('本交接不会清除宿主保留的历史消息');
+    expect(system).toContain('以目标 agent 当前的 system prompt 和权限裁决');
+    expect(system).toContain('## 交接状态（研究完成或方案交付时必填）');
+    expect(system).toContain('切换后可以编辑文件、执行验证并实施本方案');
     expect(system).not.toContain('缺少委派上下文时不要直接问用户');
   });
 });

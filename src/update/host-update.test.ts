@@ -12,16 +12,30 @@ import {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 describe('host-update 桥接层', () => {
-  test('注册文件候选：首选 server.json（当前宿主 daemon），兼容 service.json（历史版本）', () => {
-    expect(serviceRegistryPath({ XDG_STATE_HOME: '/tmp/state' } as NodeJS.ProcessEnv)).toBe('/tmp/state/opencode/server.json');
+  test('注册文件候选：首选 service.json（2.0.10 正式宿主，password 内联），server.json 为 beta 遗留兜底', () => {
+    expect(serviceRegistryPath({ XDG_STATE_HOME: '/tmp/state' } as NodeJS.ProcessEnv)).toBe('/tmp/state/opencode/service.json');
     expect(serviceRegistryPaths({ XDG_STATE_HOME: '/tmp/state' } as NodeJS.ProcessEnv)).toEqual([
-      '/tmp/state/opencode/server.json',
       '/tmp/state/opencode/service.json',
+      '/tmp/state/opencode/server.json',
     ]);
-    expect(serviceRegistryPath({} as NodeJS.ProcessEnv)).toContain(joinSep(['.local', 'state', 'opencode', 'server.json']));
+    expect(serviceRegistryPath({} as NodeJS.ProcessEnv)).toContain(joinSep(['.local', 'state', 'opencode', 'service.json']));
   });
 
-  test('discoverServiceAuth：当前宿主协议（server.json + 同目录 password 文件）优先', () => {
+  test('两文件并存（升级残留）时 service.json 优先且内联 password 生效', () => {
+    const fs: Record<string, string> = {
+      '/x/opencode/service.json': '{"url":"http://127.0.0.1:9","password":"current-pw"}',
+      '/x/opencode/server.json': '{"url":"http://127.0.0.1:1","pid":123}',
+      '/x/opencode/password': 'stale-pw',
+    };
+    const read = (p: string) => {
+      if (p in fs) return fs[p]!;
+      throw new Error('ENOENT');
+    };
+    const info = discoverServiceAuth({ XDG_STATE_HOME: '/x' } as NodeJS.ProcessEnv, read);
+    expect(info).toEqual({ url: 'http://127.0.0.1:9', password: 'current-pw' });
+  });
+
+  test('discoverServiceAuth：beta 遗留协议（server.json + 同目录 password 文件）在 service.json 缺失时兜底', () => {
     const fs: Record<string, string> = {
       '/x/opencode/server.json': '{"url":"http://127.0.0.1:1","pid":123}',
       '/x/opencode/password': '  base64url-secret\n',
@@ -34,7 +48,7 @@ describe('host-update 桥接层', () => {
     expect(info).toEqual({ url: 'http://127.0.0.1:1', password: 'base64url-secret' });
   });
 
-  test('discoverServiceAuth：server.json 缺失时回退 service.json（旧协议 password 内联）', () => {
+  test('discoverServiceAuth：当前宿主协议 service.json（password 内联）直接命中', () => {
     const fs: Record<string, string> = {
       '/x/opencode/service.json': '{"url":"http://127.0.0.1:2","password":"inline-pw"}',
     };

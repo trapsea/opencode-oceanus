@@ -1,5 +1,5 @@
 import { WRITABLE_FILE_OPERATIONS_RULES, WRITER_TOOL_PERMISSION } from '../config/constants';
-import type { AgentDefinition, ModelRef } from './oceanus';
+import { withMarkdownResultContract, type AgentDefinition, type ModelRef } from './oceanus';
 
 const DESIGNER_PROMPT = `你是 Designer，一名专注视觉设计迭代的前端 UI/UX 专家。
 
@@ -88,7 +88,7 @@ export function createDesignerAgent(
     description:
       '视觉设计迭代专家：样式开发、布局调整、动效/微交互与组件观感润色；普通前端功能实现由主 agent 直接完成。',
     mode: 'subagent',
-    system,
+    system: withMarkdownResultContract(system),
     temperature: 0.7,
     // 写入走宿主原生工具 + ast_grep_replace（与 fixer 一致）。
     permission: WRITER_TOOL_PERMISSION,

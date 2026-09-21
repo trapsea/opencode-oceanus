@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, renameSync, copyFileSync } from "node:fs"
+import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 
 export const PACKAGE_NAME = "opencode-oceanus"
@@ -36,7 +37,13 @@ function entriesIn(value: any, file: string, path: string[] = []): ConfigEntry[]
   })
 }
 
-export function findConfigFiles(home = process.env.HOME ?? "", cwd = process.cwd()): string[] {
+/**
+ * home 默认 homedir()——与宿主 Global.Path 的 os.homedir() 语义一致（Windows 上
+ * HOME env 不存在，此前 env.HOME ?? "" 退化为 join("", ".config") 相对路径，导致
+ * 全局配置 %USERPROFILE%\.config\opencode\ 永不发现、自动更新 no_entry 静默跳过）。
+ * XDG_CONFIG_HOME 优先级保持不变（宿主 xdg-basedir 同样读取该 env）。
+ */
+export function findConfigFiles(home = homedir(), cwd = process.cwd()): string[] {
   const candidates: string[] = []
   for (let dir = cwd;;) {
     candidates.push(join(dir, ".opencode", "opencode.json"), join(dir, ".opencode", "opencode.jsonc"))

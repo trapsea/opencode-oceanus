@@ -5,7 +5,7 @@ import { getAgentDefinitions } from './agents';
 import type { AgentOverrideConfig, PluginConfig } from './config/schema';
 import { loadPluginConfig } from './config/loader';
 import { getAgentBrowserConfig } from './config/utils';
-import { getUserPresetConfigPath, readUserConfig, switchPresetOnDisk, type Preset } from './config/presets';
+import { getUserPresetConfigPath, readUserConfig, resolveSessionModelRef, switchPresetOnDisk, type Preset } from './config/presets';
 import { OCEANUS_SKILLS } from './skills';
 import { detectAgentBrowser, installAgentBrowser } from './browser';
 import { createCommands } from './commands';
@@ -92,6 +92,7 @@ async function applyAgentDefinitions(
     for (const name of state.managedNames) {
       if (!activeNames.has(name)) draft.remove(name);
     }
+    // 集成到 OpenCode 时隐藏宿主同名 agent，避免与 Oceanus 工作流入口重复显示。
     if (draft.get('build')) {
       draft.remove('build');
     }
@@ -160,18 +161,21 @@ export interface RunSetupOptions {
  * 后台安装不阻塞、失败降级与共享 indexer/缓存根。生产环境由 {@link runSetup}
  * 以真实 ctx 调用。
  *
- * 接线顺序（CBM 相关）：
+ * 接线顺序：
  *   1. 解析 resolved codebaseMemory，计算共享 cacheRoot，构造共享依赖；
  *   2. `startBackgroundInstall(installOptions)`，**不 await**（后台安装非阻塞）；
  *   3. 注册 agents / skills（agent 拓扑已收敛：metis/momus 并入 oracle 场景，见 src/review/）；
- *   4. 注册命令（仅 /preset；cbm 不再暴露用户命令，能力由 MCP 工具供 agent 调度）；
+ *   4. 注册命令（preset / git-commit / ai-ratio / oceanus-config；cbm 不再暴露
+ *      用户命令，能力由 MCP 工具供 agent 调度）；
  *   5. `cbm-daemon` 阶段**前台等待** permanent daemon 就绪（默认 15s 上限，
  *      超时/失败 fail-open）——必须先于 mcp 注册完成，使宿主 reload 后 spawn 的
  *      stdio MCP server 全部 connect-to-warm，消除 daemon 冷启动竞态；
  *   6. **非阻塞**注册 `codebase-memory-mcp`（占位→安装完成启用；安装完成路径
  *      在 reload 前再次确保 daemon 就绪，不阻塞插件启动）；
  *   7. 注册 CLI fallback 工具，传入共享 runDeps / indexer（env 经 config 推导）；
- *   8. 注册 guidance hooks，复用同一 indexer / runDeps。
+ *   8. 注册 guidance hooks，复用同一 indexer / runDeps；
+ *   9. agent-browser 能力探测与可选安装（fail-open、detached，不阻塞启动）；
+ *  10. 注册自动更新（依赖 ctx.event；含历史版本清扫与三级回退安装）。
  *
  * 所有 CBM 接线独立 try/catch/fail-open：任一环节失败不阻塞其余子系统。
  */
@@ -255,7 +259,8 @@ export async function runSetup(
     {
       name: 'commands',
       run: async () => {
-  // 注册命令（仅 /preset）：cbm 能力由 MCP 工具供 agent 调度，不再暴露用户命令。
+  // 注册命令（preset / git-commit / ai-ratio / oceanus-config 共 4 个）：cbm
+  // 能力由 MCP 工具供 agent 调度，不再暴露用户命令。
   await ctx.command.transform((draft) => {
     // preset synthetic 回执：注入消息但不触发 LLM turn。
     const syntheticReply = async (sessionID: string, text: string) => {
@@ -267,29 +272,24 @@ export async function runSetup(
         const config = (options.loadConfig ?? loadPluginConfig)({ directory });
         const agentName = (await ctx.session.get?.({ sessionID }))?.agent;
         if (!agentName) return null;
-        const override = (config.presets ?? {})[presetName]?.[agentName] as
-          | { model?: string | Array<string | { id: string; variant?: string }>; variant?: string }
-          | undefined;
-        let model: string | undefined;
-        let variant: string | undefined;
-        if (typeof override?.model === 'string') model = override.model;
-        else if (Array.isArray(override?.model) && override.model.length > 0) {
-          const first = override.model[0];
-          model = typeof first === 'string' ? first : first?.id;
-          if (typeof first !== 'string' && typeof first?.variant === 'string') variant = first.variant;
-        }
-        if (!model || !model.includes('/')) return null;
-        if (!variant && typeof override?.variant === 'string') variant = override.variant;
-        const slash = model.indexOf('/');
+        const override = (config.presets ?? {})[presetName]?.[agentName];
+        // 复用 resolveSessionModelRef 的 Model.Ref.parse 语义，修复
+        // 'provider/model#variant' 字符串的 #variant 被并入 model id 的解析 bug。
+        const ref = resolveSessionModelRef(override);
+        if (!ref) return null;
+        // 宿主 switchModel 能力缺失时静默跳过，不产生"已切换"假回执
+        //（与 synthetic 回执能力缺失时的静默口径一致；2.0.10 类型面该能力必含，此为防御）。
+        if (typeof ctx.session.switchModel !== 'function') return null;
         await ctx.session.switchModel?.({
           sessionID,
           model: {
-            providerID: model.slice(0, slash),
-            id: model.slice(slash + 1),
-            variant,
+            providerID: ref.providerID,
+            id: ref.id,
+            variant: ref.variant,
           },
         });
-        return `当前会话（${agentName}）已立即切换到 ${variant ? `${model}#${variant}` : model}；`;
+        const display = `${ref.providerID}/${ref.id}${ref.variant ? `#${ref.variant}` : ''}`;
+        return `当前会话（${agentName}）已立即切换到 ${display}；`;
       } catch {
         return null;
       }
@@ -653,8 +653,8 @@ export async function runSetup(
       presetFileWatcher = undefined;
     }
     const presetWatcher = setInterval(comparePreset, 2000);
-    // 不改变 runSetup 的返回契约（hasCleanup 不因此置 true）；
-    // unref 避免定时器阻塞进程退出。
+    // unref 避免定时器阻塞进程退出；注册了 watcher 资源即置 hasCleanup，
+    // 使宿主卸载/重载时能释放 2s 轮询与 fs.watch（返回 cleanup 的契约保持一致）。
     presetWatcher.unref?.();
     cleanupRunner.add('preset-watcher.dispose', async () => {
       clearInterval(presetWatcher);
@@ -665,6 +665,7 @@ export async function runSetup(
         /* noop */
       }
     });
+    hasCleanup = true;
   }
 
   return hasCleanup || agentStageFailed ? createHostCleanup(cleanupRunner) : undefined;

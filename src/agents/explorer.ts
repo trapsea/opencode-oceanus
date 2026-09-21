@@ -1,6 +1,6 @@
 import { READONLY_FILE_OPERATIONS_RULES } from '../config/constants';
 import { cbmSection } from '../cbm/registry';
-import type { AgentDefinition, ModelRef } from './oceanus';
+import { withMarkdownResultContract, type AgentDefinition, type ModelRef } from './oceanus';
 
 const EXPLORER_PROMPT = `你是 Explorer，一名上下文隔离器型代码库侦察专家。
 
@@ -22,16 +22,9 @@ ${cbmSection('explorer')}
 
 **输出格式（返回契约）**：
 - 对话回复即交付物：浓缩事实清单（默认 ≤15 条；委派方在调研简报 \`返回\` 字段给出其他条数上限或格式要求时，以委派方要求为准）。
-- 每条结论必须固定包含七个字段：\`claim\`、\`evidence\`（文件路径+行号或 qualified name）、\`status\`（confirmed/unconfirmed/blocked）、\`source_version\`、\`impact\`、\`open_questions\`、\`negative_findings\`；不得以推测替代证据。
+- 在“详情”中以三级标题逐条列出结论；每条必须写明主张、状态、来源版本、影响，且关联到“证据”“未确认项”和“负向发现”中的对应 Markdown 条目；不得以推测替代证据。
 - 不确定项明确标注「未确认」并说明缺失的证据；禁止把推测写成事实。
 - 不粘贴大段文件内容；引用路径+行号，让委派方按需读取。
-
-<results>
-<findings>
-- src/agents/oceanus.ts - Agent 常驻调度协议与委派边界
-- src/config/constants.ts:255 - WRITER_TOOL_PERMISSION 定义写权限结构（未确认：是否覆盖全部写入场景）
-</findings>
-</results>
 
 **约束**：
 - 只读：搜索并报告，不要修改；不创建、不写入任何文件（包括调研发现类文件）。
@@ -59,7 +52,7 @@ export function createExplorerAgent(
     description:
       '快速代码库侦察与上下文隔离：定位文件/符号/模式，直接在回复中返回浓缩事实清单；用于回答“X 在哪里”。',
     mode: 'subagent',
-    system,
+    system: withMarkdownResultContract(system),
     temperature: 0.1,
   };
 

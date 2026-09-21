@@ -131,4 +131,41 @@ describe('OpenCode sandbox 布局', () => {
     expect(readFileSync(join(live,'index.js'),'utf8')).toBe('ok')
     expect(readdirSync(dirname(installRoot)).filter(n=>n.includes('quarantine')||n.includes('staging'))).toEqual([])
   })
+
+  test('依赖安装子进程携带 windowsHide 与显式 stdio（Windows 不弹 cmd 窗口）', async () => {
+    // Bun.spawn 默认 windowsHide:false——宿主进程无控制台时（GUI 启动的 TUI），
+    // npm.cmd/bun 控制台子进程会新开可见 cmd 窗口（Bun PR #26559 + Win32 默认行为）。
+    // stdio 必须显式 pipe/ignore：libuv 在 UV_INHERIT_FD 场景会跳过 CREATE_NO_WINDOW。
+    const root = mkdtempSync(join(tmpdir(),'pmhide-'))
+    const seenOpts: Array<Record<string, unknown>> = []
+    const live = await installStaged({
+      cacheRoot: root, version:'1.1.0', packageSpec:'ignored', sourceDir:'ignored',
+      download: async () => new Response(tarball(),{status:200}),
+      run: async (_c,_a,opts) => { seenOpts.push(opts); return {status:0} },
+    })
+    expect(live).toBe(join(root,'live'))
+    expect(seenOpts.length).toBeGreaterThanOrEqual(1)
+    expect(seenOpts.every(o => o.windowsHide === true && o.stdin === 'ignore' && o.stdout === 'pipe' && o.stderr === 'pipe')).toBe(true)
+  })
+
+  test('新版本落位后旧目录清理失败（Windows 文件锁模拟）不回滚、不记 update_failed', async () => {
+    // Windows 上旧版本目录可能仍被本进程/其他实例占用句柄，rmSync 抛 EPERM/EBUSY；
+    // 此时新版本已 mv 落位，清理失败必须 fail-open——报 update_failed 即"假失败"。
+    const root = mkdtempSync(join(tmpdir(),'qlock-'))
+    const installRoot = join(root,'.cache','opencode','packages','opencode-oceanus@latest')
+    const oldPkg = join(installRoot,'node_modules','opencode-oceanus')
+    mkdirSync(oldPkg,{recursive:true})
+    writeFileSync(join(oldPkg,'package.json'),JSON.stringify({name:'opencode-oceanus',version:'1.0.0',main:'index.js'}))
+    const live = await installStaged({
+      cacheRoot: join(root,'oceanus-state'),
+      version:'1.1.0', packageSpec:'ignored', sourceDir:'ignored',
+      installRoot,
+      download: async () => new Response(tarball(),{status:200}),
+      run: async () => ({status:0}),
+      rm: () => { throw new Error('EPERM: directory in use') },
+    })
+    expect(JSON.parse(readFileSync(join(live,'package.json'),'utf8')).version).toBe('1.1.0')
+    // quarantine 残留仅占磁盘，不影响功能（清理失败被吞）
+    expect(readdirSync(dirname(installRoot)).some(n=>n.includes('quarantine'))).toBe(true)
+  })
 });

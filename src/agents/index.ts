@@ -108,12 +108,7 @@ function applyOverrides(
   if (override.orchestratorPrompt) {
     agent.orchestratorPrompt = override.orchestratorPrompt;
   }
-  if (override.skills) {
-    agent.skills = override.skills;
-  }
-  if (override.mcps) {
-    agent.mcps = override.mcps;
-  }
+  // skills/mcps 仅用于检测并告警（v2 Agent.Info 无对应字段，不落注册面）。
   if (override.skills || override.mcps) {
     console.warn(
       `[opencode-oceanus] Agent '${agent.name}': skills/mcps 配置在 v2 Agent.Info 中没有直接字段，已忽略。`,

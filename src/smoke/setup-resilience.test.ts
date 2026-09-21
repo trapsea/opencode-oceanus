@@ -120,6 +120,22 @@ describe('setup 入口阶段化韧性（RED）', () => {
     cleanup?.();
     expect(reloads).toBeGreaterThan(0);
   });
+
+  test('preset-watcher 资源存在时即使无其他 cleanup 源也返回 cleanup（P3-8）', async () => {
+    const ctx = host({
+      agent: {
+        transform: async (fn: (draft: any) => void) => {
+          fn({ add() {}, get() {}, remove() {}, set() {}, update() {}, default() {} });
+          // 无 dispose：隔离 agents.dispose，让 preset-watcher 成为唯一 cleanup 来源。
+          return {};
+        },
+        reload: async () => {},
+      },
+    });
+    const cleanup = await runSetup(ctx, { loadConfig: config, cbm: cbm() });
+    expect(typeof cleanup).toBe('function');
+    expect(() => cleanup?.()).not.toThrow();
+  });
 });
 
 describe('setup 会话身份契约（Wave 2A）', () => {

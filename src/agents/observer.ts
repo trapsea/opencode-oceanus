@@ -1,5 +1,5 @@
 import { READONLY_FILE_OPERATIONS_RULES } from '../config/constants';
-import type { AgentDefinition, ModelRef } from './oceanus';
+import { withMarkdownResultContract, type AgentDefinition, type ModelRef } from './oceanus';
 
 const OBSERVER_PROMPT = `你是 Observer，一名视觉分析专家。
 
@@ -42,7 +42,7 @@ export function createObserverAgent(
     description:
       '视觉分析；用于解读图像、截图、PDF 和图表，在不加载原始文件到主上下文的情况下提取结构化观察结果。需要支持视觉的模型。',
     mode: 'subagent',
-    system,
+    system: withMarkdownResultContract(system),
     temperature: 0.1,
   };
 

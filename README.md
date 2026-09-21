@@ -10,8 +10,8 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 
 ## 兼容性
 
-- 需要 **OpenCode 2.0+**（`@opencode/cli` ≥ 2.0.5，安装：`npm install -g @opencode/cli`）
-- 依赖 `@opencode/plugin@2.0.5` + `@opencode/schema@2.0.5`（精确锁定；2.0 起包族已迁 `@opencode/*` 新 scope，旧 `@opencode-ai/*` 无 2.x 版本）
+- 需要 **OpenCode 2.0+**（`@opencode/cli` ≥ 2.0.10，安装：`npm install -g @opencode/cli`）
+- 依赖 `@opencode/plugin@2.0.10` + `@opencode/schema@2.0.10`（精确锁定；2.0 起包族已迁 `@opencode/*` 新 scope，旧 `@opencode-ai/*` 无 2.x 版本）
 - 入口为 v2 的 `Plugin.define({ id, setup })`，通过 `ctx.agent.transform` 注册 agent
 - beta-18743 API 面在 2.0.3 宿主实测零回归（注册链路 + MCP connected）；详见 [`docs/opencode-v2-compatibility.md`](docs/opencode-v2-compatibility.md)
 

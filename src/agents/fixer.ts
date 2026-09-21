@@ -1,6 +1,6 @@
 import { WRITABLE_FILE_OPERATIONS_RULES, WRITER_TOOL_PERMISSION } from '../config/constants';
 import { cbmSection } from '../cbm/registry';
-import type { AgentDefinition, ModelRef } from './oceanus';
+import { withMarkdownResultContract, type AgentDefinition, type ModelRef } from './oceanus';
 
 /** 写入工具指引：宿主原生 edit/write/apply_patch + ast_grep_replace（预览保护）。 */
 const WRITE_GUARD = `- 文件编辑使用宿主原生工具：\`edit\`（精确单项变更——\`oldString\` 必须与文件准确且唯一匹配）、\`write\`（创建或完整重写文件）、\`apply_patch\`（批量补丁，部分模型会自动优先使用）。结构/语法级重写可使用 \`ast_grep_replace\`（默认仅预览 dry-run；传入 \`dryRun: false\` 才写入）。绝不要通过 shell 重定向（\`>\` / \`>>\` / \`tee\`）写入源文件。`;
@@ -44,17 +44,9 @@ ${writeGuard}
 ${cbmSection('fixer')}
 
 **输出格式**：
-<summary>
-已实现内容的简要摘要
-</summary>
-<changes>
-- file1.ts：将 X 改为 Y
-- file2.ts：新增 Z 函数
-</changes>
-<verification>
-- 已执行：[命令/检查，或说明跳过原因]
-- 结果：[通过/失败/未知]
-</verification>
+- “摘要”写已实现内容的简要摘要。
+- “详情”用 Markdown 列表逐文件说明变更。
+- “验证”逐项写已执行的命令或跳过原因，以及通过、失败或未知的结果。
 
 `;
 }
@@ -78,7 +70,7 @@ export function createFixerAgent(
     description:
       '逃生舱执行 worker：仅当编排器确认逃生舱三条件（文件集完全不相交+改动机械同构+任务数≥3）时被并行派发，批量执行机械变更。',
     mode: 'subagent',
-    system,
+    system: withMarkdownResultContract(system),
     temperature: 0.2,
     // 写入走宿主原生工具 + ast_grep_replace（默认 dry-run 预览保护）。
     permission: WRITER_TOOL_PERMISSION,

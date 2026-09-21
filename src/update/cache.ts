@@ -19,6 +19,8 @@ export interface InstallOptions {
   platform?: NodeJS.Platform;
   /** tarball 下载源；默认跟随 registry 候选链首个（NPM_CONFIG_REGISTRY 优先，否则 npmjs）。 */
   registry?: string;
+  /** 旧版本目录清理（默认 rmSync recursive+force）；测试注入用。清理失败 fail-open，不回滚已落位的更新。 */
+  rm?: (path: string) => void;
 }
 export interface LockOwner { token:string; pid:number; createdAt:number; stage:string; }
 export class UpdateError extends Error { constructor(public code:string,message:string){super(message);} }
@@ -88,6 +90,7 @@ export async function installStaged(o:InstallOptions){
   const quarantine=join(stagingArea,`quarantine-${owner.token}`);
   const partial=join(o.cacheRoot,'downloads',`${o.version}.tgz.partial`);
   const mv=o.rename??renameSync;
+  const rm=o.rm??((p:string)=>rmSync(p,{recursive:true,force:true}));
   try {
     recoverUpdateState(o.cacheRoot); mkdirSync(join(o.cacheRoot,'downloads'),{recursive:true});
     writeUpdateState(o.cacheRoot,{phase:'download',version:o.version});
@@ -129,10 +132,19 @@ async function runPackageManager(o:InstallOptions, cwd:string, env:Record<string
   for (const pm of managers) {
     const bin = resolvePackageManagerBin(pm, platform)
     const args = pm === 'npm' ? ['install','--ignore-scripts','--no-audit','--no-fund'] : ['install','--ignore-scripts']
+    // Windows 上抑制子进程控制台窗口：Bun.spawn 默认 windowsHide:false，宿主进程
+    // 无控制台时（GUI 启动）npm.cmd/bun 会新开可见 cmd 窗口（Bun PR #26559 +
+    // Win32 默认行为）。stdio 必须显式 pipe/ignore：libuv 在 UV_INHERIT_FD 场景
+    // 会跳过 CREATE_NO_WINDOW（Bun PR #42272）。
+    const spawnOpts = {
+      cwd, env,
+      windowsHide: true,
+      stdin: 'ignore' as const, stdout: 'pipe' as const, stderr: 'pipe' as const,
+    }
     try {
       const result = o.run
-        ? await o.run(bin, args, { cwd, env })
-        : await (async()=>{ const p=Bun.spawn([bin,...args],{cwd,env}); return {status:await p.exited}; })()
+        ? await o.run(bin, args, spawnOpts)
+        : await (async()=>{ const p=Bun.spawn([bin,...args],spawnOpts); return {status:await p.exited}; })()
       if (result.status === 0) return
       failures.push(`${pm} exit ${result.status}`)
     } catch (error) { failures.push(`${pm} ${error instanceof Error ? error.message : String(error)}`) }
@@ -149,7 +161,10 @@ async function runPackageManager(o:InstallOptions, cwd:string, env:Record<string
     }
     mv(staging,targetRoot);
     writeUpdateState(o.cacheRoot,{phase:'live',live,version:o.version});
-    if(existsSync(quarantine)) rmSync(quarantine,{recursive:true,force:true});
+    // 新版本已落位（mv 已成功）：旧目录清理是尽力而为——Windows 上目录可能仍被
+    // 本进程/其他实例占用句柄导致 EPERM/EBUSY，失败只放弃清理，绝不把已完成的
+    // 更新回退为 update_failed（磁盘已是新版本，报失败即"假失败"）。
+    if(existsSync(quarantine)) { try { rm(quarantine) } catch { /* fail-open：残留仅占磁盘 */ } }
     writeUpdateState(o.cacheRoot,{phase:'committed',live,version:o.version});
     rmSync(join(o.cacheRoot,'update-state.json'),{force:true});
     return live;

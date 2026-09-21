@@ -30,15 +30,17 @@ export interface HostUpdateDeps {
 /**
  * 宿主后台服务注册文件候选（按优先级）。
  *
- * 当前宿主 daemon 写 `<state>/opencode/server.json`（注册体 { id?, version?,
- * url, pid }，**不含 password**），密码存于同目录独立 `password` 文本文件
- * （宿主 packages/cli/src/services/daemon.ts:40-41）。早期版本（beta-18866
- * 实测时代）为 `service.json` 且 password 内联在 JSON 中，保留兼容探测。
+ * 实证（2026-09-21，@opencode/cli-linux-x64@2.0.10 发布产物二进制反解）：正式宿主
+ * 2.0.10 将注册文件写为 `<state>/opencode/service.json`（注册体 {id, version, url,
+ * pid, password}，**password 内联于 JSON**，无独立密码文件）。beta-18866 实测时代
+ * 为 `server.json` + 同目录独立 `password` 文本文件——降为第二候选，兼容升级残留
+ * 与旧 beta 宿主。两文件并存时 service.json（当前版本）优先，避免残留 server.json
+ * 无内联密码导致 401、把更新流量错误推向自管安装路径。
  */
 export function serviceRegistryPaths(env: NodeJS.ProcessEnv = process.env): string[] {
   const xdgState = env.XDG_STATE_HOME || join(homedir(), '.local', 'state');
   const dir = join(xdgState, 'opencode');
-  return [join(dir, 'server.json'), join(dir, 'service.json')];
+  return [join(dir, 'service.json'), join(dir, 'server.json')];
 }
 
 /** 首选注册文件路径（{@link serviceRegistryPaths} 的第一项，向后兼容导出）。 */

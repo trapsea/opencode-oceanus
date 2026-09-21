@@ -1,6 +1,6 @@
 import { READONLY_FILE_OPERATIONS_RULES } from '../config/constants';
 import { cbmSection } from '../cbm/registry';
-import type { AgentDefinition, ModelRef } from './oceanus';
+import { withMarkdownResultContract, type AgentDefinition, type ModelRef } from './oceanus';
 
 const LIBRARIAN_PROMPT = `你是 Librarian，一名代码库与文档研究专家。
 
@@ -23,7 +23,7 @@ ${READONLY_FILE_OPERATIONS_RULES}
 ${cbmSection('librarian')}
 
 **行为**：
-- 提供有来源支撑的答案；每条结论固定输出 \`claim\`、\`evidence\`、\`status\`、\`source_version\`、\`impact\`、\`open_questions\`、\`negative_findings\`
+- 提供有来源支撑的答案；在“详情”中逐条列出主张、状态、来源版本与影响，并在标准 Markdown 章节中提供相应证据、未确认项和负向发现。
 - 引用相关代码片段
 - 可用时链接官方文档
 - 区分官方模式与社区模式
@@ -50,7 +50,7 @@ export function createLibrarianAgent(
     description:
       '外部文档与库研究；用于检索官方文档、GitHub 示例并理解库内部实现。',
     mode: 'subagent',
-    system,
+    system: withMarkdownResultContract(system),
     temperature: 0.1,
   };
 

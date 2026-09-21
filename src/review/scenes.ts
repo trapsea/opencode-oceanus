@@ -40,8 +40,8 @@ const SOLUTION_ANALYSIS_CHECKS = `### 模式（请求必须准确选择其一；
 - 若本会话此前执行过 BACKGROUND_RESEARCH：直接复用已有背景，只对候选方案做增量验证与挑错，不重新扫描代码库。
 
 ### 输出要求（简洁且具体）
-- 覆盖五类输出：需求缺口（spec/plan 未覆盖的目标、边界与验收标准）、风险（实现阶段最可能出错、成本最高的点）、边界（方案明确不做什么、不可触达的范围）、反例/边界条件（需要显式处理的输入、失败与空场景）、验收标准（可验证、可测的成功判据）。
-- 每个输出项除指出问题外，必须附可操作的建议处理方式（怎么补/怎么改/怎么规避），使消费方可直接落实而不需反向猜测。
+- 在统一 Markdown 结果外壳的“详情”中，用三级标题覆盖五类内容：需求缺口（spec/plan 未覆盖的目标、边界与验收标准）、风险（实现阶段最可能出错、成本最高的点）、边界（方案明确不做什么、不可触达的范围）、反例/边界条件（需要显式处理的输入、失败与空场景）、验收标准（可验证、可测的成功判据）。
+- 每个详情项除指出问题外，必须附可操作的建议处理方式（怎么补/怎么改/怎么规避），使消费方可直接落实而不需反向猜测。
 - 结论引用 qualified name、文件路径、行号等可定位证据；需要对照现有实现时仅用查询型检索：${CBM_LOOKUP_ORDER_NOTE}——用 search_graph/get_code_snippet 定位相关符号与调用链；不初始化索引。
 
 ### 边界（advisory）
@@ -53,7 +53,7 @@ const DIFF_REVIEW_CHECKS = `- 轻量定位（review_intensity: light，docs-only
 - 范围核对：对照计划声明的 Files 逐项检查最终 diff；范围外变更（计划未声明、且不属于声明文件必要伴随改动的文件）判 FAIL 并列出文件与位置；计划声明但未落实的变更为缺口，需明确说明。
 - 验收证据映射：将计划中每条验收标准映射到可审计证据（命令及输出、测试结果、构建产物、文件引用）；证据缺失或不可复现的验收项列为 WARN。
 - 回归与测试缺口：对照计划目标与被改动符号的调用语义，发现的行为回归与缺失的测试按严重度分级列出（BLOCKER=行为回归或验收级缺失；SUGGESTION=覆盖增强建议），每条附 evidence 与 fix。
-- 结论分级：PASS=范围与证据齐全；WARN=存在证据缺失但不影响验收结论；FAIL=存在范围外变更或行为回归。结论词 PASS/WARN/FAIL 必须在行首单独输出，随后给出依据。`;
+- 结论分级：PASS=范围与证据齐全；WARN=存在证据缺失但不影响验收结论；FAIL=存在范围外变更或行为回归。将 PASS/WARN/FAIL 写在统一 Markdown 结果外壳的“状态”章节，随后给出依据。`;
 
 /** completion-audit 检查清单：Completion Audit 六项判定矩阵门禁。 */
 const COMPLETION_AUDIT_CHECKS = `- 逐项执行 Completion Audit 六项判定矩阵，每项给出结论与证据（具体文件/条目引用）：
@@ -82,10 +82,10 @@ const FORMAL_REVIEW_CHECKS = `### 全量审查维度（standard/architecture 全
 - 验证与证据：检查测试、typecheck、build、format、diff --check、真实运行表面及完成矩阵；证据必须绑定当前 state_head、diff_scope、命令、退出码、时间和覆盖准则。
 
 ### 输出要求
-- 每条发现包含 dimension、severity（BLOCKER/WARNING/INFO）、description、evidence、impact、fix_hint、confidence。
+- 在统一 Markdown 结果外壳的“详情”中，以三级标题逐条列出发现，并用 Markdown 列表写明 dimension、severity（BLOCKER/WARNING/INFO）、description、evidence、impact、fix_hint、confidence。
 - 没有证据证明已覆盖的准则必须列为 BLOCKER 或 UNCERTAIN，不得以“看起来没问题”放行。
 - 必须输出 Negative Findings，明确哪些维度已检查且未发现问题；不能只列问题。
-- 结论必须为 PASS/WARN/FAIL，且单独位于输出首行；FAIL 或关键 UNCERTAIN 必须附可执行的 Execute 回退清单。`;
+- 结论必须为 PASS/WARN/FAIL，并写在统一 Markdown 结果外壳的“状态”章节；FAIL 或关键 UNCERTAIN 必须在“详情”附可执行的 Execute 回退清单。`;
 
 const formalReviewScene = defineScene({
   name: 'review',
@@ -108,9 +108,9 @@ const formalReviewScene = defineScene({
 
 /** visual-acceptance 检查清单：L5 取证 diff 视觉验收。 */
 const VISUAL_ACCEPTANCE_CHECKS = `- L5 取证 diff：以设计基准图为基准，与待验图片逐区域比对；输入为基准图路径 + 对比图路径 + 契约项清单（布局、间距、层级、动效、颜色、文案等逐项）。
-- 输出必须包含逐项比对清单：每个契约项给出 PASS/FAIL + 证据（两图中的位置描述）+ 偏差描述；末尾总结 FAIL 数并给出总结论。
+- 在统一 Markdown 结果外壳的“详情”中，用 Markdown 表格列出逐项比对：每个契约项给出 PASS/FAIL、证据（两图中的位置描述）与偏差描述；末尾总结 FAIL 数并给出总结论。
 - 偏差分级：FAIL=验收级偏差（布局错位、结构缺失、明显颜色/层级偏差等影响验收的偏差）；WARN=轻微偏差（token 级近似、细节差异，不影响验收）。严重级排序参考：布局错位 > 颜色偏差 > 文案差异 > 细节。
-- 结论词 PASS/WARN/FAIL 在行首单独输出。
+- 将结论词 PASS/WARN/FAIL 写在统一 Markdown 结果外壳的“状态”章节。
 - 只报告实际可见的差异，不捏造未见过的内容；不确定的区域明确标注不确定，不以猜测替代观察。`;
 
 const planGateScene = defineScene({

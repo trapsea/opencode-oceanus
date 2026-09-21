@@ -8,6 +8,17 @@ const PermissionRuleSchema = z.union([
   z.record(z.string(), PermissionActionSchema),
 ]);
 
+/**
+ * permission 对象形式的键面说明（显式键仅为文档性子集，其余经 catchall 以同一
+ * PermissionRuleSchema 校验，行为等价，不逐键显式声明以避免双重维护）：
+ * - 宿主 2.0 有效键：read/edit/glob/grep/list/lsp/skill/question/webfetch/
+ *   websearch/codesearch/todowrite、shell、subagent；
+ * - beta 兼容双写键：bash（→shell）、task（→subagent）、write/apply_patch
+ *   （→edit），双写策略与完整键表以 src/config/constants.ts
+ *   （READONLY_DEFAULT_PERMISSION）为单一来源；
+ * - 插件工具键：ast_grep_search / ast_grep_replace / clipboard_image /
+ *   oceanus_config_generate / cbm_*（含 cbm_index）。
+ */
 const PermissionObjectSchema = z
   .object({
     read: PermissionRuleSchema.optional(),
@@ -99,13 +110,15 @@ export const HookConfigSchema = z
   .strict();
 
 /**
- * 本次 Wave 1 引入的工具集合。
+ * 结构化工具配置键集合。
  * 使用 `.strict()` 的具名对象：未知工具名会被 schema 拒绝（规格：未知工具必须被报告）。
  */
 export const ToolsConfigSchema = z
   .object({
     ast_grep_search: ToolConfigSchema.optional(),
     ast_grep_replace: ToolConfigSchema.optional(),
+    clipboard_image: ToolConfigSchema.optional(),
+    oceanus_config_generate: ToolConfigSchema.optional(),
     cbm_status: ToolConfigSchema.optional(),
     cbm_index: ToolConfigSchema.optional(),
     cbm_search_graph: ToolConfigSchema.optional(),
@@ -116,7 +129,7 @@ export const ToolsConfigSchema = z
   })
   .strict();
 
-/** 本次 Wave 1 引入的 Hook 集合，同样拒绝未知 Hook 名。 */
+/** 结构化 Hook 配置键集合，同样拒绝未知 Hook 名。 */
 export const HooksConfigSchema = z
   .object({
     apply_patch: HookConfigSchema.optional(),
@@ -126,6 +139,8 @@ export const HooksConfigSchema = z
     cbm_guidance: HookConfigSchema.optional(),
     secret_read_guard: HookConfigSchema.optional(),
     planning_write_guard: HookConfigSchema.optional(),
+    image_materializer: HookConfigSchema.optional(),
+    image_error_hint: HookConfigSchema.optional(),
   })
   .strict();
 

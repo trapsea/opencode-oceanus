@@ -69,6 +69,40 @@ export interface OceanusPromptSections {
 
 export type PromptVariant = 'oceanus' | 'sisyphus';
 
+/** 所有内置 subagent 的默认交付外壳；场景专属信息置于“详情”内。 */
+export const MARKDOWN_RESULT_CONTRACT = `
+## 返回格式（强制）
+
+- 只返回 Markdown；不得使用 XML/HTML 标签、JSON/YAML 对象、数组字面量或管道分隔的伪表格作为结果外壳。
+- 必须按以下一级标题顺序交付；不适用的章节写“无”。
+
+# 结果
+
+## 状态
+
+## 摘要
+
+## 详情
+
+## 证据
+
+## 验证
+
+## 未确认项
+
+## 负向发现
+
+## 剩余风险
+
+- 场景专属字段、逐项结论、变更清单或验收比对统一写入“详情”，使用二级以下 Markdown 标题、项目列表或 Markdown 表格表达。
+- 分级场景在“状态”中写 PASS/WARN/FAIL；只读调研写 confirmed/unconfirmed/blocked；执行场景写 completed/failed/blocked。
+`;
+
+/** 自定义 prompt 也必须保留内置 subagent 的 Markdown 返回契约。 */
+export function withMarkdownResultContract(prompt: string): string {
+  return `${prompt}\n\n${MARKDOWN_RESULT_CONTRACT}`;
+}
+
 const DISPATCH_PROTOCOL = `
 ## 常驻 Agent 调度协议
 

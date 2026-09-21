@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-`opencode-oceanus` 是基于 OpenCode v2（2.0 正式版）插件 API 的 TypeScript/Bun 插件，当前包版本为 `1.0.4`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。依赖 `@opencode/{plugin,schema}@2.0.5`（2.0 起宿主包族已迁 `@opencode/*` 新 scope）。
+`opencode-oceanus` 是基于 OpenCode v2（2.0 正式版）插件 API 的 TypeScript/Bun 插件，当前包版本为 `1.0.4`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。依赖 `@opencode/{plugin,schema}@2.0.10`（2.0 起宿主包族已迁 `@opencode/*` 新 scope；版本基线以 `docs/opencode-v2-compatibility.md` 为准）。
 
 OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode-v2-compatibility.md`](docs/opencode-v2-compatibility.md)，变更 OpenCode 依赖或宿主 API 前必须先更新该文档。
 
@@ -24,7 +24,7 @@ OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode
 | `src/commands/` | `/preset` 等插件命令 |
 | `scripts/` | 构建产物和 skill 一致性验证 |
 | `docs/` | 产品、运行时、CBM 与工作流说明 |
-| `.oceanus/` | 媒体产物目录（`media/`）；SDD 开启时各阶段产物（spec/plan/progress/review）才写入对应子目录 |
+| `.oceanus/` | 媒体产物目录（`media/`）；SDD 开启时各阶段产物（spec/plan/progress/review）才写入对应子目录；全部子目录均被 gitignore，不入库 |
 
 ## Agent 与职责
 
@@ -65,4 +65,4 @@ bun run check
 - [`docs/codebase-memory-mcp.md`](docs/codebase-memory-mcp.md)：CBM 安装、缓存、权限和降级。
 - [`docs/agent-browser.md`](docs/agent-browser.md)：浏览器验证（browser_verify）安装、配置、批问语义与降级。
 - [`docs/prompt-workflow-review-2026-08.md`](docs/prompt-workflow-review-2026-08.md)：工作流审查记录。
-- `.oceanus/spec/` / `.oceanus/plan/` / `.oceanus/review/`：SDD 开启时才生成的阶段产物目录（当前仓库实际仅存在 `media/`）；新增 SDD 文档前确认用户选择开启 SDD。
+- `.oceanus/spec/` / `.oceanus/plan/` / `.oceanus/review/`：SDD 开启时才生成的阶段产物目录（当前仓库实际仅存在 `media/`）；与 `progress/`、`media/` 一同被 gitignore，SDD 产物一律不入库；新增 SDD 文档前确认用户选择开启 SDD。
