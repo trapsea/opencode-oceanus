@@ -8,7 +8,7 @@
 
 | 项目 | 当前值 | 证据 |
 |---|---|---|
-| 插件包 | `opencode-oceanus@1.0.4` | `package.json:2-4` |
+| 插件包 | `opencode-oceanus@1.0.5` | `package.json:2-4` |
 | OpenCode 插件 API | `@opencode/plugin@2.0.10`，精确锁定 | `package.json`、`bun.lock` |
 | OpenCode schema | `@opencode/schema@2.0.10`，精确锁定 | `package.json`、`bun.lock` |
 | 正式版包族 | `@opencode/{plugin,schema}@2.0.10` 已核实；目标宿主为 `@opencode/cli@2.0.10`，真实 Host 尚待复测。旧 `@opencode-ai/*` 仍是 v1 线；CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。 | npm tarball 与官方 tags（2026-09-20），详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) 2.0.7 → 2.0.10 条目 |

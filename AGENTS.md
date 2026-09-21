@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-`opencode-oceanus` 是基于 OpenCode v2（2.0 正式版）插件 API 的 TypeScript/Bun 插件，当前包版本为 `1.0.4`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。依赖 `@opencode/{plugin,schema}@2.0.10`（2.0 起宿主包族已迁 `@opencode/*` 新 scope；版本基线以 `docs/opencode-v2-compatibility.md` 为准）。
+`opencode-oceanus` 是基于 OpenCode v2（2.0 正式版）插件 API 的 TypeScript/Bun 插件，当前包版本为 `1.0.5`。它注册 Oceanus 编排器、Sisyphus 六阶段工作流、专家 agents、内置 skills、工具、运行时 hooks、CBM 集成、TUI 入口和自动更新能力。依赖 `@opencode/{plugin,schema}@2.0.10`（2.0 起宿主包族已迁 `@opencode/*` 新 scope；版本基线以 `docs/opencode-v2-compatibility.md` 为准）。
 
 OpenCode 版本锁定、API 事实与验证边界集中记录在 [`docs/opencode-v2-compatibility.md`](docs/opencode-v2-compatibility.md)，变更 OpenCode 依赖或宿主 API 前必须先更新该文档。
 
