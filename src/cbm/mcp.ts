@@ -38,6 +38,12 @@ export interface McpRegistrationResult {
   installed: boolean;
   /** 是否对 draft 做出了变更（set 或 remove）。 */
   mutated: boolean;
+  /**
+   * 目标配置与 draft 中现有 managed 配置语义一致，因此跳过 set 与 reload。
+   * 宿主会反复重放插件 transform（plugin reconciliation），跳过无变化写入可
+   * 避免无谓关闭/重建 stdio MCP 连接（重建窗口内的工具调用会报 Connection closed）。
+   */
+  unchanged: boolean;
 }
 
 export interface McpRegisterOptions extends ProvisionOptions {
@@ -151,6 +157,32 @@ export function buildLocalConfig(
 }
 
 /**
+ * 判断现有 managed 本地配置与目标配置是否语义一致。
+ *
+ * 用途（根因回归）：宿主会反复重放插件 transform（plugin reconciliation）。
+ * 若每次把内容相同的配置写回 draft 并触发 `ctx.mcp.reload()`，宿主会关闭并
+ * 重建该 instance 的 stdio MCP 连接；落在重建窗口内的 CBM 工具调用即报
+ * `Connection closed`。配置未变时跳过写入即可消除这一我方放大项
+ * （fail-open 语义不变，仅减少无谓重建）。
+ */
+export function isSameManagedLocalConfig(
+  existing: MCPServerConfigLike | undefined,
+  target: MCPLocalConfigLike,
+): boolean {
+  if (!existing || existing.type !== 'local' || !isCbmManaged(existing)) return false;
+  if (existing.disabled !== target.disabled) return false;
+  if (existing.codemode !== target.codemode) return false;
+  if (existing.command.length !== target.command.length) return false;
+  if (existing.command.some((part, i) => part !== target.command[i])) return false;
+  const a = existing.environment ?? {};
+  const b = target.environment ?? {};
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key) => a[key] === b[key]);
+}
+
+/**
  * 注册（或按需移除）Oceanus 托管的 codebase-memory-mcp 本地 server。
  * transform / reload / 安装失败一律 fail-open，绝不抛异常。
  */
@@ -169,6 +201,7 @@ export async function registerCbmMcp(
     reloaded: false,
     installed: false,
     mutated: false,
+    unchanged: false,
   };
 
   const cacheDir = cfg.cacheDir ?? opts.cacheRoot ?? process.env.CBM_CACHE_DIR ?? getCacheRoot();
@@ -195,17 +228,28 @@ export async function registerCbmMcp(
       return;
     }
     if (hasBinary) {
-      draft.set(MCP_SERVER_NAME, buildLocalConfig(cfg, expected, false, cacheDir));
+      const target = buildLocalConfig(cfg, expected, false, cacheDir);
       res.registered = true;
+      if (isSameManagedLocalConfig(existing, target)) {
+        // 配置未变：不写 draft、不触发 reload，避免无谓重建 stdio 连接。
+        res.unchanged = true;
+        return;
+      }
+      draft.set(MCP_SERVER_NAME, target);
       res.mutated = true;
       return;
     }
     if (canAuto) {
       // 占位：disabled 配置，避免 MCP catalog 长时间缺失。
-      draft.set(MCP_SERVER_NAME, buildLocalConfig(cfg, expected, true, cacheDir));
+      const target = buildLocalConfig(cfg, expected, true, cacheDir);
       res.registered = true;
-      res.mutated = true;
       res.disabled = true;
+      if (isSameManagedLocalConfig(existing, target)) {
+        res.unchanged = true;
+      } else {
+        draft.set(MCP_SERVER_NAME, target);
+        res.mutated = true;
+      }
       installPromise = (opts.ensureInstalled ?? ensureInstalled)({
         ...opts,
         cacheRoot: cacheDir,
@@ -233,7 +277,13 @@ export async function registerCbmMcp(
       await ctx.mcp.transform((draft) => {
         const existing = draft.get(MCP_SERVER_NAME);
         if (existing && isCbmManaged(existing)) {
-          draft.set(MCP_SERVER_NAME, buildLocalConfig(cfg, bin, false, cacheDir));
+          const target = buildLocalConfig(cfg, bin, false, cacheDir);
+          if (isSameManagedLocalConfig(existing, target)) {
+            // 安装完成后目标配置与现状一致：无需再次 set/reload。
+            res.unchanged = true;
+            return;
+          }
+          draft.set(MCP_SERVER_NAME, target);
           updated = true;
         }
       });
@@ -242,6 +292,9 @@ export async function registerCbmMcp(
         res.disabled = false;
         res.installed = true;
         res.mutated = true;
+        // 占位路径可能已置 unchanged=true；此处发生了真实写入与 reload，
+        // 必须复位，避免日志同时出现 unchanged 与 mutated/reloaded 的自相矛盾。
+        res.unchanged = false;
       }
     }
     // 安装失败：保留 disabled 占位，fail-open。
@@ -254,6 +307,14 @@ export async function registerCbmMcp(
     } catch (e) {
       log(`[oceanus] CBM mcp reload failed: ${messageOf(e)}`);
     }
+  } else if (res.registered) {
+    // 配置未变：明确记录「跳过 reload」，便于把真实连接失败与「无变化未重连」
+    // 区分开（宿主 reconciliation 会反复重放 transform）。
+    log('[oceanus] CBM mcp 配置未变，跳过 reload', {
+      server: MCP_SERVER_NAME,
+      unchanged: true,
+      disabled: res.disabled,
+    });
   }
   return res;
 }

@@ -10,6 +10,7 @@ export {
   CBM_MANAGED_MARKER_ENV,
   CBM_MANAGED_MARKER_VALUE,
   isCbmManaged,
+  isSameManagedLocalConfig,
   MCP_ENV_WHITELIST,
   MCP_SERVER_NAME,
   registerCbmMcp,

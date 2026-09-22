@@ -11,7 +11,7 @@
 | 插件包 | `opencode-oceanus@1.0.5` | `package.json:2-4` |
 | OpenCode 插件 API | `@opencode/plugin@2.0.10`，精确锁定 | `package.json`、`bun.lock` |
 | OpenCode schema | `@opencode/schema@2.0.10`，精确锁定 | `package.json`、`bun.lock` |
-| 正式版包族 | `@opencode/{plugin,schema}@2.0.10` 已核实；目标宿主为 `@opencode/cli@2.0.10`，真实 Host 尚待复测。旧 `@opencode-ai/*` 仍是 v1 线；CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。 | npm tarball 与官方 tags（2026-09-20），详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) 2.0.7 → 2.0.10 条目 |
+| 正式版包族 | `@opencode/{plugin,schema}@2.0.10` 已核实；npm 最新 stable 为 2.0.12（2026-09-21 发布，tarball 全量 diff 证实零 breaking，见下方 2.0.10 → 2.0.12 审查）；本机宿主已升级 `opencode v2.0.12` 并会话内实测插件 active。旧 `@opencode-ai/*` 仍是 v1 线；CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。 | npm tarball 与官方 tags（2026-09-20/22），详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) 2.0.7 → 2.0.10 与 2.0.10 → 2.0.12 条目 |
 | 实测宿主 | `@opencode/cli@2.0.5`：升级前发布包在 `skill.transform` 报 `SchemaError: Missing key at ["path"]`，宿主将插件标为 `failed`；修复后在隔离 Host 加载本仓库 `dist`，`/api/plugin` 返回 `opencode-oceanus: active`（server+tui），`/api/skill` 返回全部 10 个 Oceanus skills，均有 `path`。 | `~/.local/share/opencode/log/opencode.log`、隔离 `opencode serve` + `/api/{plugin,skill}`（2026-09-17） |
 | 2.0.3 → 2.0.5 类型面差异（对本插件） | `Skill.Info.location` → 必填 `path`【本插件受影响，已迁移】；`catalog` 拆为 `provider`/`model`、`Session.rename` → `update`、`Vcs.branches` → `Vcs.branch.list`、`PermissionDomain.rules` 移除、`websocket` → `transport`。其余均未被本插件消费。 | plugin/schema 2.0.3/2.0.5 tarball 全量 diff，见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) |
 | 可选 peer | `@opentui/solid >=0.5.10`、`solid-js >=1.9.0`、`zod ^4.0.0`；前两者 optional | `package.json:47-59`（对齐 `@opencode/plugin@2.0.3` peerDeps 的 `@opentui/* >=0.5.10`；正式版 plugin 另有 optional `@opencode/theme` 与 `@opentui/core`，本插件不消费不声明） |
@@ -19,6 +19,13 @@
 | 入口 | CLI `dist/index.js`，TUI `dist/tui.js` | `package.json:6-16` |
 
 锁定版本不是宿主版本号映射。升级时应同时检查 `package.json`、`bun.lock`、安装后的类型声明和真实 OpenCode Host，而不是只替换 beta 编号；**升 2.0 正式版需整体迁 `@opencode/*` 新 scope**（包坐标 + import 路径）。
+
+## 2.0.10 → 2.0.12 兼容性审查（2026-09-22）
+
+- 宿主 OpenCode 已升级到 `opencode v2.0.12`（npm `@opencode/{plugin,schema}` latest 同为 2.0.12）。三版 tarball dist 全量 diff + GitHub compare 结论：**零 breaking**——plugin 包仅 3 处实质变化：2.0.11 `tui/context.d.ts` 的 `ToastOptions.sessionID`（optional，本插件 TUI 不消费 Toast）、2.0.12 promise 层 `ToolContext.signal: AbortSignal`（接收方字段 + Promise 工具取消转发修复，官方 #50190）、adapter 内部重命名（#50195，无形状变化）；schema 包 2.0.10 → 2.0.12 dist 全等。详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md)。
+- 宿主行为项：2.0.11 起 session permissions 与工具快照同口径收窄 skill 与 MCP 发现（#50015）——对只读 subagent 与 prometheus deny 表是收紧方向的语义利好，无需改动。
+- 实测证据形态更新：此前"真实 Host 尚待复测"的缺口已部分覆盖——本插件（按 `@opencode/*@2.0.10` 构建）在 `opencode v2.0.12` 宿主上会话内实测 active：oceanus 会话、subagent 派发（librarian）、shell/read 等工具调用正常（2026-09-22）。隔离 serve API 级复测与 TUI 渲染端到端仍待执行，相关结论维持"未验证"口径。
+- 依赖锁定决策：**维持 `@opencode/{plugin,schema}@2.0.10` 精确锁定**（2.0.12 无本插件必需的新能力）；`ToolContext.signal` 协作取消可在未来接入长任务工具时随升级一并评估，升级锁定为可选维护动作，不阻塞交付。
 
 ## 2.0.7 → 2.0.10 兼容性审查（2026-09-20）
 
@@ -99,7 +106,7 @@
 
 - 真实 Host 中 `session.active`、`interrupt`、skill draft 形态、CLI/TUI 加载字段的最终行为。
 - 真实 Host 是否接受图片 `prompt` / `retry` hook 名称，以及 `/builtin/...` skill location 是否要求可直接访问的物理文件。
-- 兼容链路（截至 2026-09-14）：beta-18743 类型面 → beta-19271 零 breaking → beta-19507/2.0.0（session hooks 重构，本插件未消费面）→ 2.0.3，宿主实测插件加载与注册链路正常（beta-19296 于 2026-09-09、2.0.3 于 2026-09-14，见「当前版本基线」与「2.0.3 适配记录」）。**待复测**：2.0.3 宿主上 TUI 侧栏（`tui.js`）渲染与图片 hook 的端到端运行时行为（serve 实测覆盖注册面与 `features.tui` 声明，未覆盖 TUI 进程内渲染）。
+- 兼容链路（截至 2026-09-22）：beta-18743 类型面 → beta-19271 零 breaking → beta-19507/2.0.0（session hooks 重构，本插件未消费面）→ 2.0.3（隔离 serve 实测，2026-09-14）→ 2.0.10（tarball 静态审查，2026-09-20）→ 2.0.12（会话内实测插件 active，2026-09-22；隔离 serve API 级复测未执行）。**待复测**：TUI 侧栏（`tui.js`）渲染与图片 hook 的端到端运行时行为（serve 实测覆盖注册面与 `features.tui` 声明，未覆盖 TUI 进程内渲染）。
 
 ## 升级检查清单
 

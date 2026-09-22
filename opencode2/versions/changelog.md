@@ -30,7 +30,60 @@
 | 2.0.5 → 2.0.6 | ✅ 已核实（plugin/schema tarball 全量 diff + GitHub compare 官方 commit 序列，2026-09-18） |
 | 2.0.6 → 2.0.7 | ✅ 已核实（plugin/schema/client tarball 全量 diff + GitHub compare + `@opencode/cli@2.0.7` 隔离 serve 实测，2026-09-18） |
 | 2.0.7 → 2.0.10 | ✅ 已核实（plugin/schema/client tarball 全量 diff + GitHub compare；尚未真实 Host 实测，2026-09-20） |
+| 2.0.10 → 2.0.12 | ✅ 已核实（plugin/schema 三版 tarball 全量 diff + GitHub compare + `opencode v2.0.12` 宿主会话内实测，2026-09-22） |
 | 更早历史版本 | 未回溯（build 数百个，按需增量补录） |
+
+---
+
+## 2.0.10 → 2.0.12
+
+- 日期：2026-09-22（记录）；发布时间线：v2.0.11 tag 2026-09-20、v2.0.12 tag 2026-09-21 UTC，npm plugin/schema/cli 同步发布（2.0.12 为 latest）。两版之间无 2.0.11-x 等中间 stable 版本（npm 版本历史仅 `0.0.0-dev-*`）。
+- 证据源类型：`@opencode/{plugin,schema}@2.0.10` / `2.0.11` / `2.0.12` 三方 tarball 的 dist 全量 diff（权威口径）+ GitHub `anomalyco/opencode` commits/PR diff（v2.0.11 边界 `cb6d95b`→`9eb6902`、v2.0.12 边界 `991b727`→`2670273`，librarian 经 tag commits 页双向交叉）+ 宿主 `opencode v2.0.12` 会话内实测（2026-09-22）。GitHub Release 正文仅含 release 标题（v2 线一贯无 release notes，见 negative_findings）。
+- 可复现性：空目录 `npm pack @opencode/plugin@2.0.10 @opencode/plugin@2.0.11 @opencode/plugin@2.0.12`（schema 同理），解压后 `diff -rq` 两两比对 dist。npm dist.shasum：2.0.11 plugin `b4daff73be2dc3099a94929164ae4d29cbfe36fb`、schema `bd668831d3171da3c4fe1bc38b8cf584ffffc24b`；2.0.12 plugin `fa4b6393f7f1115b5144ad01533d33ab0c9e5175`、schema `eb0a5cbaa1d99ba83d8069a2150efc28f3352891`（2.0.10 的 shasum 见上一条目）。
+- 影响分级：plugin 变更均为新增 optional 字段、接收方新增字段与行为修复，**零 breaking**（对本插件消费面无适配项）。
+
+### 1. plugin：`ToastOptions.sessionID`【新增 optional；2.0.11；本插件未消费】
+
+`tui/context.d.ts` 的 `ToastOptions` 新增 `readonly sessionID?: string`（JSDoc："When this session's family is not open, the title defaults to the session title and the toast offers to open it."）——toast 可关联会话；该会话 family 未打开时标题回退为会话标题并提供打开入口。本插件 `src/tui.tsx` 不消费 Toast API，无影响。
+
+**方法论注记**：GitHub commits path 过滤（`commits/v2.0.11/packages/plugin`）会漏掉此类变更——预调研的 path 过滤历史曾显示 2.0.10→2.0.11 plugin 包"仅版本号 bump"，tarball diff 推翻了该结论。本台账"以 tarball 类型声明为权威证据源"的甄别原则再次生效：**升级评估必须做 tarball diff，不能只看 commit 标题或 path 过滤历史**。
+
+### 2. plugin：`ToolContext.signal: AbortSignal` + Promise 工具取消转发【新增（能力）+ 行为修复；2.0.12；本插件可选受益】
+
+- `promise/tool.d.ts` 的 `ToolContext` 新增 `readonly signal: AbortSignal`（required 字段，但插件工具的 `execute(input, context)` 是该对象的**接收方**，结构类型下零编译影响）。effect 层无对应变化（Effect fiber 原生具备 interruption，signal 桥接是 promise adapter 的职责）。
+- `promise/adapter.js` 实现层（官方 PR #50190 `fix(plugin): forward Promise tool cancellation`，+74 −6）：`executePromiseTool` 从 `Effect.promise(() => …)` 改为 `Effect.promise((signal) => …)`，中断 signal 真正传入 Promise 工具执行器；`progress(update)` 调用同样携带 `{ signal }` 可被取消（官方新增测试断言"中断 fiber 后 `signal.aborted === true`"）。官方文档新增说明："Promise tool executors receive `tool.signal`. Pass it to cancellable work such as `fetch` so stopping the Session also stops the underlying operation."（官方文档措辞已随 #50195 改为 `context.signal`）。
+- 对本插件影响：现有工具（ast_grep 系列、cbm 系列）不监听 signal 时行为与 2.0.10 一致（不响应取消，非强制适配项）；长任务工具可**选择性接入** `context.signal` 实现协作取消（fetch/子进程终止），属新能力。若工具有高频 `progress` 调用的长循环，升级后中断时的错误抛出路径可能与 2.0.10 略有不同，升级验证时建议跑一次工具中断场景。
+
+### 3. plugin：adapter 内部重命名（官方 #50195 `refactor(plugin): name tool execution context`）【无形状变化】
+
+`promise/adapter.js` 内部变量 `context`（Effect scope）→ `runtime`；工具执行器第二参数文档命名 `tool` → `context`（`tool.signal` → `context.signal`、`tool.progress` → `context.progress`）。tarball 实证仅实现层重命名与 JSDoc 措辞，`.d.ts` 类型形状零变化（除条目 2 的 signal 字段），位置传参不受影响，非 breaking。
+
+### 4. schema：零差异
+
+`@opencode/schema` 2.0.10 → 2.0.12 dist `diff -rq` 全等（两版相对 2.0.10 均仅 package.json 版本号变化）。
+
+### 5. GitHub commit 口径宿主行为项（core/cli/tui/app 层，不在 plugin/schema 包内）【行为级】
+
+- **#50015 `fix(core): honor session permissions in skill and MCP discovery`（2.0.11，permissions 语义）**：skill 可见性与 MCP server instructions 发现改用 `Permission.merge(agent.info.permissions, session.permissions ?? [])`（此前仅用 agent permissions），源码注释 "Session permissions narrow discovery the same way they narrow the tool snapshot."——会话级权限现在与工具快照同口径收窄**发现面**。对本插件的只读 subagent 与 prometheus deny 表是收紧方向的语义利好，无需改动；引用宿主权限语义的文档若存在"session permissions 仅影响工具快照"类旧表述需按此更新。
+- codemode 运行时内置扩展：`Headers`（#49280）、`toLocaleString`/`Error.isError`/`Map.getOrInsert`（#50098）、`keys/values/entries` 返回 live iterators（#50061）、失败定位到提交源码（#50197）、搜索单词整匹配优先（#50275）——仅影响 `codemode: true` 工具的 JS 运行时；本插件全部工具显式注入 `codemode: false`，不受影响。
+- 传输与稳定性：#50031 websocket 流反复丢失后会话降级 http、#50026 移除 bounded websocket inbound queues、#49402 Responses error frames 解码不再失败、#50182 anthropic budget variants、#50240 cli fatal startup 原因输出到 stderr——改善插件依赖的 server client/事件流可靠性。
+- 其余为 app/desktop/tui UI 项（#50284、#49882、#50265、#50273、#50181 及 TUI 样式等），不触及插件 API 面。
+
+### 6. 宿主实测注记（opencode v2.0.12，2026-09-22，真实工作会话）
+
+本机宿主 `opencode --version` → `opencode v2.0.12`。当前 oceanus 会话即运行时证据：本插件（按 `@opencode/{plugin,schema}@2.0.10` 构建）在 2.0.12 宿主上 active——oceanus agent 会话正常、subagent 派发（librarian 外部调研）正常返回、shell/read/grep 等工具调用正常。证据形态为会话内实测（非隔离 serve API 复测，未覆盖 `/api/plugin` 状态断言）；TUI 侧栏渲染与图片 hook 端到端仍属未复测项。
+
+### 7. 本插件验证结论
+
+- **类型面零破坏**：plugin 两处变更（`ToastOptions.sessionID` optional、`ToolContext.signal` 接收方字段）与 schema 零变更均不命中本插件消费面；`Plugin.define`、全部注册域（agent/skill/tool/mcp/command 等）、session hooks、TUI context 其余契约在 2.0.10 → 2.0.12 逐字节一致。
+- **运行时零回归**：见上节会话内实测（2.0.10 依赖构建的插件运行于 2.0.12 宿主）。
+- 结论：**无需升级依赖即可运行于 2.0.12 宿主**（当前精确锁定 2.0.10 继续有效）。是否将锁定提到 2.0.12 属可选维护动作（消除独立 npm 安装场景下与宿主内嵌 `@opencode/theme` 版本告警的对齐收益与 2.0.7 条目同构）；若升级，`ToolContext.signal` 为长任务工具（ast_grep_replace、CBM 索引/查询）提供协作取消接入点，可一并评估。
+
+### 8. negative_findings
+
+- v2.0.11 / v2.0.12 GitHub Release 正文为空（仅 release 标题）；`packages/{opencode,plugin}/CHANGELOG.md` 均 404；官方文档站无 v2 changelog 页（`opencode.ai/docs/build/plugins` 404，v2 文档在 `opencode.ai/v2/docs`，且 `/docs` 仍为 v1 内容——引用时勿混轨）。commit 级唯一官方载体仍是 GitHub tags compare。
+- npm 无 2.0.10 → 2.0.12 之间的 stable patch 版本（版本历史仅 `0.0.0-dev-*` 开发版；dev 线已出现 `@opencode/ai`、`@opencode/protocol`、`effect 4.0.0-rc` 等新依赖结构，预示 plugin 包未来可能有较大重构，本条目结论仅锚定 2.0.12 stable，不外推 dev 线）。
+- 无 breaking changes：区间内 plugin/schema 包 diff 均为新增/修复/纯重命名，未发现任何签名、类型形状或包导出结构的破坏性变化。
 
 ---
 

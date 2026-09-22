@@ -410,10 +410,25 @@ export async function runSetup(
       ensureDaemonReady: (bin, cacheRoot) =>
         waitForDaemonReady(cacheRoot, bin, log, options.cbm?.prewarm),
         });
-        void Promise.resolve(pending).catch((e) => {
-          report('mcp.async', e);
-          log('[oceanus] mcp.async', { error: messageOf(e) });
-        });
+        void Promise.resolve(pending)
+          .then((res) => {
+            // 结构化注册结果：未变（跳过 reload）/占位/安装/移除均可见，便于把
+            // 「连接重建窗口」与真实连接失败区分开（fail-open 不受影响）。
+            log('[oceanus] CBM mcp 注册结果', {
+              server: res.server,
+              registered: res.registered,
+              disabled: res.disabled,
+              unchanged: res.unchanged,
+              installed: res.installed,
+              mutated: res.mutated,
+              reloaded: res.reloaded,
+              skippedUnknown: res.skippedUnknown,
+            });
+          })
+          .catch((e) => {
+            report('mcp.async', e);
+            log('[oceanus] mcp.async', { error: messageOf(e) });
+          });
       },
     },
 

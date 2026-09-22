@@ -12,6 +12,7 @@ import {
   buildMcpEnvironment,
   CBM_MANAGED_MARKER_ENV,
   isCbmManaged,
+  isSameManagedLocalConfig,
   MCP_ENV_WHITELIST,
   MCP_SERVER_NAME,
   registerCbmMcp,
@@ -483,5 +484,196 @@ describe('CBM-08 环境白名单与构造辅助', () => {
     expect(isCbmManaged(local)).toBe(true);
     expect(isCbmManaged({ type: 'local', command: ['x'], environment: {} })).toBe(false);
     expect(isCbmManaged(undefined)).toBe(false);
+  });
+});
+
+/**
+ * CBM-08b：根因回归——宿主会反复重放插件 transform（plugin reconciliation）。
+ * 配置未变时若仍写回 draft 并 reload，宿主会关闭并重建该 instance 的 stdio MCP
+ * 连接，落在重建窗口内的工具调用报 `Connection closed`。此处固定“未变即跳过
+ * 写入与 reload”的幂等语义，以及“变化仍恰好 reload 一次”的既有行为。
+ */
+describe('CBM-08b 幂等注册：重复重放 transform 不重建连接', () => {
+  function withBinary(cacheDir: string): string {
+    const binary = resolveExpectedBinaryPath(
+      { version: '0.10.8', binaryPath: undefined, cacheDir } as never,
+      cacheDir,
+    );
+    mkdirSync(
+      join(cacheDir, 'versions', '0.10.8', getPlatformKey(resolveCbmPlatform('linux', 'x64'))),
+      { recursive: true },
+    );
+    writeFileSync(binary, 'binary');
+    return binary;
+  }
+
+  test('managed 配置未变：不写 draft、不 reload、unchanged=true', async () => {
+    const cacheDir = newRoot();
+    const cfg = baseConfig(cacheDir);
+    withBinary(cacheDir);
+    const { draft, map } = makeFakeDraft();
+
+    const first = await registerCbmMcp(makeFakeMcpCtx(draft) as never, cfg);
+    expect(first.mutated).toBe(true);
+    expect(first.unchanged).toBe(false);
+    const afterFirst = map.get(MCP_SERVER_NAME);
+
+    // 第二次调用等价于宿主 reconciliation 重放同一 transform（同 draft、同配置）。
+    const ctx2 = makeFakeMcpCtx(draft);
+    const second = await registerCbmMcp(ctx2 as never, cfg);
+
+    expect(second.registered).toBe(true);
+    expect(second.unchanged).toBe(true);
+    expect(second.mutated).toBe(false);
+    expect(second.reloaded).toBe(false);
+    expect(ctx2.reloadCalls).toBe(0);
+    // 未发生写入：map 中仍是同一对象引用
+    expect(map.get(MCP_SERVER_NAME)).toBe(afterFirst);
+  });
+
+  test('disabled 占位 → 启用：配置变化仍 set 且 reload 恰好一次', async () => {
+    const cacheDir = newRoot();
+    const cfg = baseConfig(cacheDir);
+    const binary = withBinary(cacheDir);
+    const placeholder = buildLocalConfig(
+      getCodebaseMemoryConfig(cfg),
+      binary,
+      true,
+      cacheDir,
+    );
+    const { draft, map } = makeFakeDraft({ [MCP_SERVER_NAME]: placeholder });
+    const ctx = makeFakeMcpCtx(draft);
+
+    const res = await registerCbmMcp(ctx as never, cfg);
+
+    expect(res.unchanged).toBe(false);
+    expect(res.mutated).toBe(true);
+    expect(res.reloaded).toBe(true);
+    expect(ctx.reloadCalls).toBe(1);
+    const srv = map.get(MCP_SERVER_NAME) as Extract<MCPServerConfigLike, { type: 'local' }>;
+    expect(srv.disabled).toBe(false);
+  });
+
+  test('environment（cacheDir）变化：判定不一致并重建', async () => {
+    const cacheDir = newRoot();
+    const otherCache = newRoot();
+    const cfg = baseConfig(cacheDir);
+    const binary = withBinary(cacheDir);
+    const stale = buildLocalConfig(
+      getCodebaseMemoryConfig(cfg),
+      binary,
+      false,
+      otherCache,
+    );
+    const { draft } = makeFakeDraft({ [MCP_SERVER_NAME]: stale });
+    const ctx = makeFakeMcpCtx(draft);
+
+    const res = await registerCbmMcp(ctx as never, cfg);
+
+    expect(res.unchanged).toBe(false);
+    expect(res.reloaded).toBe(true);
+    expect(ctx.reloadCalls).toBe(1);
+  });
+
+  test('配置未变时记录「跳过 reload」诊断日志', async () => {
+    const cacheDir = newRoot();
+    const cfg = baseConfig(cacheDir);
+    withBinary(cacheDir);
+    const { draft } = makeFakeDraft();
+    await registerCbmMcp(makeFakeMcpCtx(draft) as never, cfg);
+
+    const messages: string[] = [];
+    const second = await registerCbmMcp(makeFakeMcpCtx(draft) as never, cfg, {
+      logger: (message: string) => {
+        messages.push(message);
+      },
+    });
+
+    expect(second.unchanged).toBe(true);
+    expect(messages.some((m) => m.includes('配置未变'))).toBe(true);
+  });
+
+  test('isSameManagedLocalConfig 语义判定', () => {
+    const target = managedLocal() as Extract<MCPServerConfigLike, { type: 'local' }>;
+    expect(isSameManagedLocalConfig({ ...target }, target)).toBe(true);
+    expect(isSameManagedLocalConfig({ ...target, disabled: true } as never, target)).toBe(false);
+    expect(isSameManagedLocalConfig({ ...target, command: ['/other'] } as never, target)).toBe(false);
+    const unmanaged: MCPServerConfigLike = {
+      type: 'local',
+      command: [...target.command],
+      environment: {},
+    };
+    expect(isSameManagedLocalConfig(unmanaged, target)).toBe(false);
+    expect(isSameManagedLocalConfig(undefined, target)).toBe(false);
+
+    // 边界补强（验收标准 2）：command 长度、environment 值/键、非 local 类型。
+    const mk = (
+      over: Partial<Extract<MCPServerConfigLike, { type: 'local' }>> = {},
+    ): Extract<MCPServerConfigLike, { type: 'local' }> => ({
+      type: 'local',
+      command: ['/bin'],
+      environment: { [CBM_MANAGED_MARKER_ENV]: '1', A: '1' },
+      disabled: false,
+      codemode: false,
+      ...over,
+    });
+    const base = mk();
+    expect(isSameManagedLocalConfig(mk({ command: ['/bin', '--x'] }), base)).toBe(false);
+    expect(isSameManagedLocalConfig(mk({ environment: { [CBM_MANAGED_MARKER_ENV]: '1', A: '2' } }), base)).toBe(false);
+    expect(isSameManagedLocalConfig(mk({ environment: { [CBM_MANAGED_MARKER_ENV]: '1', B: '1' } }), base)).toBe(false);
+    expect(isSameManagedLocalConfig(mk({ codemode: true }), base)).toBe(false);
+    expect(isSameManagedLocalConfig({ type: 'remote', url: 'http://x' } as never, base)).toBe(false);
+  });
+
+  test('占位与目标一致后再安装成功：unchanged 复位为 false（诊断不自相矛盾）', async () => {
+    const cacheDir = newRoot();
+    const cfg = baseConfig(cacheDir);
+    const platform = resolveCbmPlatform('linux', 'x64');
+    const archive = buildTarGz([
+      { name: 'codebase-memory-mcp', content: mockBinaryContent('linux') },
+    ]);
+    const manifest = createCanonicalManifest(platform, sha256Hex(archive), {
+      url: 'https://example.invalid/cbm.tar.gz',
+    });
+    const expected = resolveExpectedBinaryPath(
+      { version: '0.10.8', binaryPath: undefined, cacheDir } as never,
+      cacheDir,
+    );
+    // 预置与目标一致的 disabled 占位（模拟上次安装中断后重启）。
+    const placeholder = buildLocalConfig(
+      getCodebaseMemoryConfig(cfg),
+      expected,
+      true,
+      cacheDir,
+    );
+    const { draft, map } = makeFakeDraft({ [MCP_SERVER_NAME]: placeholder });
+    const ctx = makeFakeMcpCtx(draft);
+
+    const res = await registerCbmMcp(ctx as never, cfg, {
+      cacheRoot: cacheDir,
+      platform,
+      manifest,
+      download: async (_u: string, dest: string) => writeFileSync(dest, archive),
+      spawn: () => ({
+        exited: Promise.resolve(0),
+        stdout: async () => '',
+        stderr: async () => '',
+        kill: () => true,
+        get exitCode() {
+          return 0;
+        },
+      }),
+      pid: 123,
+      now: () => 1000,
+      isPidAlive: () => true,
+    } as never);
+
+    expect(res.installed).toBe(true);
+    expect(res.mutated).toBe(true);
+    expect(res.reloaded).toBe(true);
+    expect(res.unchanged).toBe(false);
+    const srv = map.get(MCP_SERVER_NAME) as Extract<MCPServerConfigLike, { type: 'local' }>;
+    expect(srv.disabled).toBe(false);
+    expect(ctx.reloadCalls).toBe(1);
   });
 });

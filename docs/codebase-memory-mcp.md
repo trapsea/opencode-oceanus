@@ -26,6 +26,16 @@ CBM 0.10.8 的 daemon 有两种形态：**session-managed**（随最后一个客
 
 wrapper 层另带有限自愈：当 CLI 报 `could not accept this client within`、版本/指纹冲突等 daemon 坏状态特征时，自动执行一次 `daemon stop` retire 后重试一次原调用（`daemon stop` 被 committed client 拒绝也无害——瞬时性 accept 拒绝靠直接重试即可恢复）。自愈最多一次，不循环。
 
+### 连接重建与幂等注册（根因回归）
+
+宿主会反复执行 `plugin reconciliation`（按 `opencode.log` 统计约每天数十至上百次），其中会**重放插件已注册的 transform**；日志中确实存在 reconciliation（命令域 reload 完成）之后紧跟新的 `mcp connected` 的情形。需要说明的证据边界：全量统计显示 `mcp connected` 与最近一次 reconciliation 的间隔分布很宽（秒级到 20 分钟级），因此**不能断言每次 reconciliation 都会重建连接**。
+
+日志中可稳定复核的相关事实（`opencode.log`，2026-09-20 ~ 2026-09-22）：宿主 `failed to call MCP tool server=codebase-memory-mcp error="Connection closed"` 共 13 次，其中 **12 次在 1–2ms 内紧邻一个 `event.type=command.updated`**（另 1 次与并发失败相邻）。`command.updated` 由宿主命令域 reload 发布，而本插件 `setup` 的 `commands` 阶段正是触发点；同一次 `setup` 里随后执行的 `ctx.mcp.transform` + `ctx.mcp.reload()` 会让宿主关闭并重建该 instance 的 stdio MCP 客户端。因此「工具调用与插件 registry reload 时刻高度重合时连接已失效」有直接证据；但**失败的最终触发源尚未定位**（失败点距最近一次连接建立可达数十秒至数十分钟，部分场景其间无 reconciliation，提示连接可能因其它生命周期原因失效）。宿主参考实现中 `storeClient` 会关闭被替换的旧客户端、实例 finalizer 会对 stdio 子进程发 SIGTERM（注意：可读参考源码版本与运行宿主版本可能不同，这些行为需按实际宿主版本复核）。
+
+插件侧原先存在一个可控放大项：每次 `setup` 都无条件 `draft.set(MCP_SERVER_NAME, ...)` 并触发 `ctx.mcp.reload()`，即使 effective 配置与 draft 中现有 managed 配置**完全一致**——这会额外制造一次连接关闭与重建。现在 `registerCbmMcp` 通过 `isSameManagedLocalConfig` 比较语义一致性，配置未变时**跳过写入与 reload**（结果字段 `unchanged=true`），只保留首次启用、禁用移除与安装完成启用路径。该改动消除的是**插件自身**制造的重建；宿主驱动的重建不受其影响，且**「失败次数因此下降」尚未获得宿主级证据**（需在真实宿主中重载插件并对比）。
+
+诊断口径：管理的 MCP 注册在 `setup` 的 `mcp` 阶段输出 `[oceanus] CBM mcp 注册结果 { registered, disabled, unchanged, installed, mutated, reloaded, skippedUnknown }`；配置未变时输出 `[oceanus] CBM mcp 配置未变，跳过 reload`；daemon 预热/探测/自愈结果由 `[oceanus] CBM daemon …` 系列日志给出。任何 CBM 失败仍走既有降级顺序（direct MCP → `cbm_*` wrapper → `grep/read`），不阻塞工作流。
+
 ## 权限与隐私
 
 CBM 子进程使用受限环境变量白名单，不继承 provider token；调用参数使用参数数组而非 shell，并限制在工作区根目录内，拒绝越界路径。CBM 处理的是用户主动指定的本地代码库；插件不因启用集成而上传源码。网络下载仅访问上述 HTTPS GitHub release（如使用显式 `binaryPath`，可完全跳过下载）。请按组织策略审查 GitHub 访问、缓存目录权限和本地索引内容。
