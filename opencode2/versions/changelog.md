@@ -31,7 +31,62 @@
 | 2.0.6 → 2.0.7 | ✅ 已核实（plugin/schema/client tarball 全量 diff + GitHub compare + `@opencode/cli@2.0.7` 隔离 serve 实测，2026-09-18） |
 | 2.0.7 → 2.0.10 | ✅ 已核实（plugin/schema/client tarball 全量 diff + GitHub compare；尚未真实 Host 实测，2026-09-20） |
 | 2.0.10 → 2.0.12 | ✅ 已核实（plugin/schema 三版 tarball 全量 diff + GitHub compare + `opencode v2.0.12` 宿主会话内实测，2026-09-22） |
+| 2.0.12 → 2.0.14 | ✅ 已核实（plugin/schema/client 三版 tarball 全量 diff + GitHub compare（本地 clone tags）+ `@opencode/*@2.0.14` 编译实证 + `opencode v2.0.14` 隔离 serve 与会话内实测，2026-09-23） |
 | 更早历史版本 | 未回溯（build 数百个，按需增量补录） |
+
+---
+
+## 2.0.12 → 2.0.14
+
+- 日期：2026-09-23（记录）；发布时间线：v2.0.13 tag 2026-09-22 10:07 UTC、v2.0.14 tag 2026-09-22 13:13 UTC（npm plugin/schema/cli 同步发布，2.0.14 为 latest）。本机宿主已升级 `opencode v2.0.14`（2026-09-23 确认）。
+- 证据源类型：`@opencode/{plugin,schema,client}@2.0.12` / `2.0.13` / `2.0.14` tarball 的 dist 全量 diff（权威口径）+ GitHub `anomalyco/opencode` compare v2.0.12...v2.0.14（47 commits、364 文件、边界 `2670273`→`0846214`；API 匿名限流，commit 序列经本地 clone fetch tags 获得，与 compare 页计数一致）+ 编译实证（全量 src 置于 `@opencode/{plugin,schema,client}@2.0.14` 下 `tsc --noEmit` 零错误，typescript 7.0.2 与项目 `^7.0.0` 同基线）+ 隔离 serve 运行时实测（2026-09-23）。
+- 可复现性：空目录 `npm pack @opencode/plugin@2.0.12 @opencode/plugin@2.0.13 @opencode/plugin@2.0.14`（schema/client 同理），解压后 `diff -rq` 两两比对 dist。npm dist.shasum：2.0.13 plugin `01cfa9ded2ab2628f8583de644cd6fd6526e4e3b`、schema `4abbccbd44a8720c8d2e3cfd00c02a0f7ffd735a`；2.0.14 plugin `6891a4425abbb58e6568becbd9310b649e72a6c6`、schema `1987d10fed11810848a0dde173a963c94b1c05dd`、client `509008d9627ac4f030b529b6c7aed68c24c467eb`（2.0.12 的 shasum 见上一条目）。
+- 影响分级：**plugin 三版 dist 全等（零差异）**；schema/client 唯一类型变化 `Connection.CredentialInfo.method` 为新增 required 字段——对**构造**该对象的消费方是 breaking，对本插件无关（消费面不触及 Connection/Integration/Credential）。
+
+### 1. plugin：零差异【无】
+
+`@opencode/plugin` 2.0.12 → 2.0.13 → 2.0.14 dist `diff -rq` 逐字节全等（区间内 `packages/plugin` 目录仅 release/sync 版本号 commit）。这是 beta → GA 以来首个 plugin 包零变化的双版本区间：`Plugin.define`、全部注册域、session hooks、TUI context、promise/effect 双层契约在 2.0.12 → 2.0.14 完全不变。
+
+### 2. schema：`Connection.CredentialInfo` 新增 required `method`【breaking（对消费方）；2.0.13；本插件未消费】
+
+- `connection.d.ts` 的 `CredentialInfo`（及 `ConnectionInfo` 联合内联副本）新增 `readonly method: Schema.Literals<readonly ["key", "oauth"]>`（JSDoc："How the credential was obtained: a stored key or an OAuth grant."）；`integration.d.ts` 第 1571 行附近的内联 credential struct 同步；`connection.js` 运行时 schema 一致。归属 commit `fbacf6a126` `feat(app): sign in to OpenCode Go and Console through the browser (#50267)`（浏览器 OAuth 登录功能，配套 `19e1357a06` fix(core) 取消 MCP OAuth 登录的强制 consent prompt）。
+- 影响评估：构造 `CredentialInfo` 的代码必须提供 `method`；仅读取的消费方不受影响。本插件对 `@opencode/schema` 的唯一 import 是 `Tool` 类型（`src/runtime/types.ts`），零命中。
+- 2.0.13 → 2.0.14 schema dist 全等。
+
+### 3. client：类型面同源单点变化 + 运行时 chunks 重组【无关；本插件仅类型消费 `SessionStatus`】
+
+- `promise/generated/types.d.ts` 唯一变化 = 同源 `ConnectionCredentialInfo.method: "key" | "oauth"`；`SessionStatus`（本插件 `src/tui.tsx` 唯一消费的 client 类型）声明未变；`solid/data.d.ts` 全等。
+- 运行时层（`.js`）：新增 `pty-handoff-*` chunks、`service-contender` 结构调整、`solid/*` 与 rpc/service 更新——均为宿主内部实现，插件不做运行时 import。
+
+### 4. GitHub commit 口径宿主行为项（core/cli/tui/app 层）【行为级】
+
+- **#49729 `feat(core): enforce Console-managed policies`（2.0.13）**：新增 `managed-policy.ts` 与 `config/plugin/policy.ts` 扩展，官方新增 `policies.mdx`（216 行）与 `permissions.mdx` 增补——组织级 Console 托管策略作为叠加层参与权限/请求评估。对本插件：不改变本地 evaluate 语义（`Wildcard.match` + findLast），无代码影响；若用户环境启用 Console policies，权限面只会更收紧（fail-closed 方向）。文档引用权限语义时注意存在该叠加层。
+- `94b9133910 fix(core): share child prompt cache affinity（#50495）`：subagent（child session）prompt cache 亲和共享——对 oceanus 的 subagent 派发是性能利好。
+- `60673aaef3 fix(core): run session HTTP hooks on the AI SDK route（#50487）`：session HTTP hooks 修复；本插件不经 HTTP hooks（全部经 `ctx.*` 域），无关。
+- codemode 运行时大修（11 commits：#50191 程序值类型化、#50389 `Promise.withResolvers`、#50410 Iterator helpers、#50419 `Promise.try`、#50435 签名渲染、#50438 `tools.` 前缀命名空间搜索、#50450 live Map/Set、#50455 unknown-tool 就近命名、#50479/#50489/#50492 参数语义）：仅影响 `codemode: true` 工具的 JS 运行时；本插件全部工具显式 `codemode: false` 不受影响；宿主 `execute` 运行时（主 agent 可用）能力增强 + #50384/#50417 工具目录描述更明确（catalog tools/search 仅 execute 内可用、search 同步），利好 Code Mode 调用纪律。
+- CLI `2f2c861af0 fix(cli): show actionable upgrade errors（#50346）`：升级错误提示改善。
+- TUI 项（#50456 automatic tabs mode、#50475 sidebar onboarding 恢复、#50447 MCP sidebar state 持久化、#50442 renderer listener budget 15、#50412 dark theme base、#50524 清理 active session tab、#50612 worktree 不入项目列表（2.0.14））：不触及插件 TUI sidebar API（`SlotClaim`/slot input 契约不变）。
+- 其余为 desktop/app/console/docs 项（#49291 设备配对、#49750 `/btw` 面板、#50267 登录、#50506 评估 API、#50582/#50599/#50327 等），不触及插件 API 面。
+- 2.0.14 区间本身仅 4 个实质 commit（models.dev 快照刷新、#50612、#50599、#50582 docs）——plugin/schema 包自 2.0.13 起零变化，2.0.14 是宿主侧小补丁版。
+
+### 5. 宿主实测注记（opencode v2.0.14，2026-09-23）
+
+- **隔离 serve API 级实测（本条目新增证据形态，补上 2.0.12 条目遗留的缺口）**：临时 XDG 目录 + `OPENCODE_PASSWORD` 固定密码起 `opencode serve`（独立端口，未触碰用户共享服务），`/api/plugin` 返回 `opencode-oceanus: active`（`source: local dist/index.js`，`features: {server: true, tui: true}`）；`/api/agent` 15 个，oceanus 系 9 个全部注册（prometheus `mode: primary`）；`/api/skill` 13 个（11 个 Oceanus skills + 宿主 OpenCode/Report）；serve 日志显示 setup 阶段 fail-open 路径正常（agent-browser 探测 available、auto_update 决策、CBM daemon 预热；隔离 XDG 下 CBM daemon accept 探测自愈失败属临时目录生命周期问题，与注册契约无关，口径同 2.0.9 条目）。首查 `/api/plugin` 返回 `data: []` 的惰性加载现象复现（与 2.0.3 条目记录一致），二次查询即得完整状态。
+- **serve API 认证事实（新发现，供后续实测复用）**：`opencode serve` HTTP API 认证为 HTTP Basic，用户名硬编码 `opencode`（`packages/server/src/auth.ts` `Config.configLayer` 固定 `username: "opencode"`）、密码取 `OPENCODE_PASSWORD` 环境变量（legacy `OPENCODE_SERVER_PASSWORD`；未设则前台模式随机生成并打印 `server password <pw>` 到 stdout）；亦支持 query `?auth_token=<base64(user:pass)>`（浏览器 WebSocket 场景）。401 响应带 `www-authenticate: Basic realm="Secure Area"`。
+- **会话内实测**：本机宿主 `opencode --version` → `opencode v2.0.14`；当前 oceanus 会话（按 `@opencode/*@2.0.10` 构建的插件）运行于该宿主，shell/read/grep/glob/webfetch 工具调用正常。
+- TUI 侧栏（`tui.js`）进程内渲染端到端仍未复测（serve 实测覆盖注册面与 `features.tui` 声明，与既往口径一致）。
+
+### 6. 本插件验证结论
+
+- **类型面零破坏**：plugin dist 全等 + schema/client 变化均不命中本插件消费面；编译实证——全量 src（含 `tui.tsx`）在 `@opencode/{plugin,schema,client}@2.0.14` 下 `tsc --noEmit` 零错误。
+- **运行时零回归**：隔离 serve 注册面全绿 + 会话内实测（2.0.10 依赖构建的插件运行于 2.0.14 宿主）。
+- 结论：**无需升级依赖即可运行于 2.0.14 宿主**（当前精确锁定 2.0.10 继续有效）；升级锁定至 2.0.14 为可选维护动作（收益与 2.0.7 条目同构：消除独立安装场景 peer 版本告警、取得 `ToolContext.signal` 类型基线；plugin 包自 2.0.12 起零变化使升级风险趋近于零）。
+
+### 7. negative_findings
+
+- GitHub Release 正文未复查（v2 线既往一贯仅含标题，见上一条目 negative_findings）；GitHub REST API 匿名访问限流（403），本次 commit 序列以本地 clone `git fetch origin tag v2.0.x` 后 `git log v2.0.12..v2.0.14` 获得，与 compare 页 totals（47 commits / 364 files）一致，为可靠等价证据源。
+- 无 plugin/schema 包导出结构、注册域、hooks 契约的任何变化；`Connection.CredentialInfo.method` 是区间内唯一 required 字段新增，且仅影响该 schema 的构造方。
+- npm 版本历史在 2.0.12 → 2.0.14 之间无中间 stable 版本（仅 `0.0.0-dev-*`）。
 
 ---
 

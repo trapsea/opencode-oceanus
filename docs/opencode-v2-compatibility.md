@@ -11,7 +11,7 @@
 | 插件包 | `opencode-oceanus@1.0.5` | `package.json:2-4` |
 | OpenCode 插件 API | `@opencode/plugin@2.0.10`，精确锁定 | `package.json`、`bun.lock` |
 | OpenCode schema | `@opencode/schema@2.0.10`，精确锁定 | `package.json`、`bun.lock` |
-| 正式版包族 | `@opencode/{plugin,schema}@2.0.10` 已核实；npm 最新 stable 为 2.0.12（2026-09-21 发布，tarball 全量 diff 证实零 breaking，见下方 2.0.10 → 2.0.12 审查）；本机宿主已升级 `opencode v2.0.12` 并会话内实测插件 active。旧 `@opencode-ai/*` 仍是 v1 线；CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。 | npm tarball 与官方 tags（2026-09-20/22），详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) 2.0.7 → 2.0.10 与 2.0.10 → 2.0.12 条目 |
+| 正式版包族 | `@opencode/{plugin,schema}@2.0.10` 已核实；npm 最新 stable 为 2.0.14（2026-09-22 发布；plugin 2.0.12→2.0.14 dist 三版全等，schema 唯一变化 `Connection.CredentialInfo.method` 不在本插件消费面，见下方 2.0.12 → 2.0.14 审查）；本机宿主已升级 `opencode v2.0.14` 并隔离 serve + 会话内实测插件 active。旧 `@opencode-ai/*` 仍是 v1 线；CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。 | npm tarball 与官方 tags（2026-09-22/23），详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) 2.0.10 → 2.0.12 与 2.0.12 → 2.0.14 条目 |
 | 实测宿主 | `@opencode/cli@2.0.5`：升级前发布包在 `skill.transform` 报 `SchemaError: Missing key at ["path"]`，宿主将插件标为 `failed`；修复后在隔离 Host 加载本仓库 `dist`，`/api/plugin` 返回 `opencode-oceanus: active`（server+tui），`/api/skill` 返回全部 10 个 Oceanus skills，均有 `path`。 | `~/.local/share/opencode/log/opencode.log`、隔离 `opencode serve` + `/api/{plugin,skill}`（2026-09-17） |
 | 2.0.3 → 2.0.5 类型面差异（对本插件） | `Skill.Info.location` → 必填 `path`【本插件受影响，已迁移】；`catalog` 拆为 `provider`/`model`、`Session.rename` → `update`、`Vcs.branches` → `Vcs.branch.list`、`PermissionDomain.rules` 移除、`websocket` → `transport`。其余均未被本插件消费。 | plugin/schema 2.0.3/2.0.5 tarball 全量 diff，见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) |
 | 可选 peer | `@opentui/solid >=0.5.10`、`solid-js >=1.9.0`、`zod ^4.0.0`；前两者 optional | `package.json:47-59`（对齐 `@opencode/plugin@2.0.3` peerDeps 的 `@opentui/* >=0.5.10`；正式版 plugin 另有 optional `@opencode/theme` 与 `@opentui/core`，本插件不消费不声明） |
@@ -19,6 +19,14 @@
 | 入口 | CLI `dist/index.js`，TUI `dist/tui.js` | `package.json:6-16` |
 
 锁定版本不是宿主版本号映射。升级时应同时检查 `package.json`、`bun.lock`、安装后的类型声明和真实 OpenCode Host，而不是只替换 beta 编号；**升 2.0 正式版需整体迁 `@opencode/*` 新 scope**（包坐标 + import 路径）。
+
+## 2.0.12 → 2.0.14 兼容性审查（2026-09-23）
+
+- 宿主 OpenCode 已升级到 `opencode v2.0.14`（npm `@opencode/{plugin,schema}` latest 同为 2.0.14，2026-09-22 发布）。三版 tarball dist 全量 diff + GitHub compare（47 commits）结论：**plugin 2.0.12 → 2.0.14 dist 逐字节全等（GA 以来首个 plugin 零变化区间）**；schema/client 唯一类型变化为 2.0.13 的 `Connection.CredentialInfo` 新增 required `method: "key" | "oauth"`（#50267 浏览器 OAuth 登录），本插件对 schema 的唯一 import 是 `Tool` 类型、对 client 仅消费 `SessionStatus`（声明未变），零命中。详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md)。
+- 编译实证：全量 src（含 `tui.tsx`）在 `@opencode/{plugin,schema,client}@2.0.14` 下 `tsc --noEmit` 零错误（typescript 7.0.2，与项目 `^7.0.0` 同基线；临时目录验证，未改动本仓库依赖）。
+- 运行时实证（证据形态升级，补上 2.0.12 条目遗留的隔离 serve 缺口）：临时 XDG 目录 + 固定密码起隔离 `opencode serve`——`/api/plugin` 返回 `opencode-oceanus: active`（server+tui，local dist）；9 个 oceanus agents 全注册（prometheus `mode: primary`）；11 个 Oceanus skills 全注册；setup 阶段 fail-open 路径正常（agent-browser 探测、auto_update、CBM 预热）。另：当前 oceanus 会话本身运行于 2.0.14 宿主（会话内实测）。TUI 侧栏进程内渲染端到端仍属未复测项（口径同前）。首查 `/api/plugin` 空快照的惰性加载时序复现，二次查询即得完整状态。
+- 宿主行为项：Console-managed policies 叠加层（#49729，不改变本地 `evaluate` 语义，启用环境的权限面只会更收紧）；subagent prompt cache 亲和共享（#50495，派发性能利好）；codemode 运行时大修仅影响 `codemode: true` 工具（本插件全部工具 `codemode: false`）。均无需插件改动。
+- 依赖锁定决策：**维持 `@opencode/{plugin,schema}@2.0.10` 精确锁定**（2.0.14 无本插件必需的新能力）；plugin 包自 2.0.12 起零变化使未来升级风险趋近于零，升级锁定为可选维护动作，不阻塞交付。
 
 ## 2.0.10 → 2.0.12 兼容性审查（2026-09-22）
 
@@ -106,7 +114,7 @@
 
 - 真实 Host 中 `session.active`、`interrupt`、skill draft 形态、CLI/TUI 加载字段的最终行为。
 - 真实 Host 是否接受图片 `prompt` / `retry` hook 名称，以及 `/builtin/...` skill location 是否要求可直接访问的物理文件。
-- 兼容链路（截至 2026-09-22）：beta-18743 类型面 → beta-19271 零 breaking → beta-19507/2.0.0（session hooks 重构，本插件未消费面）→ 2.0.3（隔离 serve 实测，2026-09-14）→ 2.0.10（tarball 静态审查，2026-09-20）→ 2.0.12（会话内实测插件 active，2026-09-22；隔离 serve API 级复测未执行）。**待复测**：TUI 侧栏（`tui.js`）渲染与图片 hook 的端到端运行时行为（serve 实测覆盖注册面与 `features.tui` 声明，未覆盖 TUI 进程内渲染）。
+- 兼容链路（截至 2026-09-23）：beta-18743 类型面 → beta-19271 零 breaking → beta-19507/2.0.0（session hooks 重构，本插件未消费面）→ 2.0.3（隔离 serve 实测，2026-09-14）→ 2.0.10（tarball 静态审查，2026-09-20）→ 2.0.12（会话内实测插件 active，2026-09-22）→ 2.0.14（编译实证 + 隔离 serve API 级实测插件 active + 会话内实测，2026-09-23）。**待复测**：TUI 侧栏（`tui.js`）渲染与图片 hook 的端到端运行时行为（serve 实测覆盖注册面与 `features.tui` 声明，未覆盖 TUI 进程内渲染）。
 
 ## 升级检查清单
 
