@@ -19,8 +19,11 @@ describe('ai-ratio command', () => {
     expect(text).toContain('--no-merges');
     expect(text).toContain('ai-gen@company.com');
     expect(text).toContain('[AI]');
+    expect(text).toContain('Generated-By: plan-generate');
     expect(text).toContain('[@开发者]');
     expect(text).toContain('.ai-attribution/');
+    expect(text).toContain('以 `.` 开头的隐藏项');
+    expect(text).toContain('文件名以 `.md` 结尾');
     expect(text).toContain('人工修改率');
     expect(text).toContain('AI 代码贡献率 = AI 生成新增行数 / (人工新增行数 + AI 生成新增行数) × 100%');
     expect(text).toContain('总提交数、AI 提交数与占比、AI 生成新增行数、人工新增行数、AI 代码贡献率');

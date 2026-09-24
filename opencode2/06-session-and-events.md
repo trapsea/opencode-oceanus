@@ -142,6 +142,7 @@ interface EventDomain extends Pick<EventApi, "subscribe"> {}
 - **2.0.3**：`CompactionCompleted`/`CompactionFailed` 事件新增 optional `cost: Money.USD` 与 `tokens: { input, output, reasoning, cache: { read, write } }`——压缩成本/用量可观测（`session-message.d.ts`/`session-transfer.d.ts`）。
 - **2.0.6**：新事件 `location.shutdown`（`LocationEvent.Shutdown`，ephemeral；新 schema 文件 `location-event.d.ts`，event-manifest 同步登记）——"location 的缓存服务已关闭，客户端必须重新验证其读取"，与宿主 location 级配置热重载机制配套（2.0.7 补全 `opencode reload` CLI 命令）。`FileSystem.Write` schema（`{ path: AbsolutePath }`）新增，为 HTTP API fs.write 端点载荷。
 - **2.0.7**：`session.step.started` 事件新增 required `started: Int`（"Request dispatch time, before waiting for provider output."；运行时 schema 为 `NonNegativeInt`）——step 耗时统计口径从事件时间戳改为请求分发时间（client `solid/data.js` 同步改用 `event.data.started`）。事件构造方需提供该字段；只读消费方不受影响。注意 shell 两事件的 `data.time.started: Finite` 为 2.0.5 起既有，2.0.7 未变。
+- **2.0.15**：新事件 `session.metadata.updated`（`MetadataUpdated`，durable 事件；`session-event.d.ts`/`event-manifest.d.ts` 登记）——载荷 `data: { sessionID, metadata: Record<String, Json> }`；`session-metadata.d.ts` 的 `SessionMetadata` JSDoc 同步由 "durable from creation" 改为 "durable"，继承语义由 "inherit the parent's metadata" 改为 "inherit the parent's **current** metadata"，即 session metadata 由「创建时固化」升级为「运行时可更新并广播变更」（commit `5c53cfc342 feat(session): allow metadata updates (#50025)`）。
 
 ## 5. RpcDomain（beta-18721 全新）
 

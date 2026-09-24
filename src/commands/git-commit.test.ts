@@ -10,7 +10,10 @@ import { buildGitCommitInstruction, createGitCommitCommand } from './git-commit'
 describe('git-commit command', () => {
   test('指令正文包含核心流程、[AI] 前缀与 question 决策环节，且不包含 plan_state 归因体系', () => {
     const text = buildGitCommitInstruction('');
-    expect(text).toContain('扫描变更');
+    expect(text).toContain('一次性扫描');
+    expect(text).toContain('禁止逐文件循环');
+    expect(text).toContain('--unified=0');
+    expect(text).toContain('默认把所有变更合并为一次提交');
     expect(text).toContain('[需求]');
     expect(text).toContain('[缺陷]');
     expect(text).toContain('[通用]');

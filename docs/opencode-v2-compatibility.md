@@ -8,10 +8,10 @@
 
 | 项目 | 当前值 | 证据 |
 |---|---|---|
-| 插件包 | `opencode-oceanus@1.0.5` | `package.json:2-4` |
+| 插件包 | `opencode-oceanus@1.0.6` | `package.json:2-4` |
 | OpenCode 插件 API | `@opencode/plugin@2.0.10`，精确锁定 | `package.json`、`bun.lock` |
 | OpenCode schema | `@opencode/schema@2.0.10`，精确锁定 | `package.json`、`bun.lock` |
-| 正式版包族 | `@opencode/{plugin,schema}@2.0.10` 已核实；npm 最新 stable 为 2.0.14（2026-09-22 发布；plugin 2.0.12→2.0.14 dist 三版全等，schema 唯一变化 `Connection.CredentialInfo.method` 不在本插件消费面，见下方 2.0.12 → 2.0.14 审查）；本机宿主已升级 `opencode v2.0.14` 并隔离 serve + 会话内实测插件 active。旧 `@opencode-ai/*` 仍是 v1 线；CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。 | npm tarball 与官方 tags（2026-09-22/23），详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) 2.0.10 → 2.0.12 与 2.0.12 → 2.0.14 条目 |
+| 正式版包族 | `@opencode/{plugin,schema}@2.0.10` 已核实；npm 最新 stable 为 2.0.15（2026-09-23 发布；plugin 2.0.14→2.0.15 dist 逐字节全等，schema 变化为新增 durable 事件 `session.metadata.updated` 与 `Project.Time.active`，均不在本插件消费面，见下方 2.0.14 → 2.0.15 审查）；本机宿主已升级 `opencode v2.0.15` 并隔离 serve + 会话内实测插件 active。旧 `@opencode-ai/*` 仍是 v1 线；CLI bin 双名 `opencode`（主）+ `opencode2`（别名）。 | npm tarball 与官方 tags（2026-09-23/24），详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) 2.0.12 → 2.0.14 与 2.0.14 → 2.0.15 条目 |
 | 实测宿主 | `@opencode/cli@2.0.5`：升级前发布包在 `skill.transform` 报 `SchemaError: Missing key at ["path"]`，宿主将插件标为 `failed`；修复后在隔离 Host 加载本仓库 `dist`，`/api/plugin` 返回 `opencode-oceanus: active`（server+tui），`/api/skill` 返回全部 10 个 Oceanus skills，均有 `path`。 | `~/.local/share/opencode/log/opencode.log`、隔离 `opencode serve` + `/api/{plugin,skill}`（2026-09-17） |
 | 2.0.3 → 2.0.5 类型面差异（对本插件） | `Skill.Info.location` → 必填 `path`【本插件受影响，已迁移】；`catalog` 拆为 `provider`/`model`、`Session.rename` → `update`、`Vcs.branches` → `Vcs.branch.list`、`PermissionDomain.rules` 移除、`websocket` → `transport`。其余均未被本插件消费。 | plugin/schema 2.0.3/2.0.5 tarball 全量 diff，见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md) |
 | 可选 peer | `@opentui/solid >=0.5.10`、`solid-js >=1.9.0`、`zod ^4.0.0`；前两者 optional | `package.json:47-59`（对齐 `@opencode/plugin@2.0.3` peerDeps 的 `@opentui/* >=0.5.10`；正式版 plugin 另有 optional `@opencode/theme` 与 `@opentui/core`，本插件不消费不声明） |
@@ -27,6 +27,13 @@
 - 运行时实证（证据形态升级，补上 2.0.12 条目遗留的隔离 serve 缺口）：临时 XDG 目录 + 固定密码起隔离 `opencode serve`——`/api/plugin` 返回 `opencode-oceanus: active`（server+tui，local dist）；9 个 oceanus agents 全注册（prometheus `mode: primary`）；11 个 Oceanus skills 全注册；setup 阶段 fail-open 路径正常（agent-browser 探测、auto_update、CBM 预热）。另：当前 oceanus 会话本身运行于 2.0.14 宿主（会话内实测）。TUI 侧栏进程内渲染端到端仍属未复测项（口径同前）。首查 `/api/plugin` 空快照的惰性加载时序复现，二次查询即得完整状态。
 - 宿主行为项：Console-managed policies 叠加层（#49729，不改变本地 `evaluate` 语义，启用环境的权限面只会更收紧）；subagent prompt cache 亲和共享（#50495，派发性能利好）；codemode 运行时大修仅影响 `codemode: true` 工具（本插件全部工具 `codemode: false`）。均无需插件改动。
 - 依赖锁定决策：**维持 `@opencode/{plugin,schema}@2.0.10` 精确锁定**（2.0.14 无本插件必需的新能力）；plugin 包自 2.0.12 起零变化使未来升级风险趋近于零，升级锁定为可选维护动作，不阻塞交付。
+
+## 2.0.14 → 2.0.15 兼容性审查（2026-09-24）
+
+- 宿主 OpenCode 已升级到 `opencode v2.0.15`（npm `@opencode/{plugin,schema}` latest 同为 2.0.15，2026-09-23 发布）。三版 tarball dist 全量 diff + GitHub compare（42 commits / 250 文件）结论：**plugin 2.0.14 → 2.0.15 dist 逐字节全等（继 2.0.12→2.0.14 之后第二个连续零变化区间，仅 package.json 版本号与 `@opencode/*` 依赖/peer 跟随 bump）**；schema 两处变化为新增 durable 事件 `session.metadata.updated`（#50025，session metadata 由「创建时固化」升级为「运行时可更新」）与 `Project.Time` 新增 required `active: Int`（#50790，项目按近期活动排序）；client 类型面同源同步、`SessionStatus` 未变、`pty-handoff-*` chunk 重组为 `service-*`。均不在本插件消费面（`Tool`/`SessionStatus`/plugin 全域未变），零命中。详见 [`../opencode2/versions/changelog.md`](../opencode2/versions/changelog.md)。
+- 编译实证：全量 src（含 `tui.tsx`）在 `@opencode/{plugin,schema,client}@2.0.15` 下 `tsc --noEmit` 零错误（typescript 7.0.2，与项目 `^7.0.0` 同基线；临时目录验证，未改动本仓库依赖）。
+- 运行时实证：临时 XDG 目录 + `OPENCODE_CONFIG` 指向本仓库 `dist` + 独立端口起隔离 `opencode serve`——`/api/plugin` 返回 `opencode-oceanus: active`（server+tui，local dist）；14 个 agent（oceanus 系 9 个全注册）、12 个 skill 全注册；setup 阶段 fail-open 路径正常（agent-browser 探测 available、auto_update skipped、CBM 未安装 fail-open）。另：当前 oceanus 会话本身运行于 2.0.15 宿主（会话内实测）。首查 `/api/plugin` 空快照的惰性加载时序复现，二次查询即得完整状态。TUI 侧栏进程内渲染端到端仍属未复测项（口径同前）。
+- 依赖锁定决策：**维持 `@opencode/{plugin,schema}@2.0.10` 精确锁定**（2.0.15 无本插件必需的新能力）；plugin 包自 2.0.12 起零变化使升级锁定为可选维护动作，不阻塞交付。
 
 ## 2.0.10 → 2.0.12 兼容性审查（2026-09-22）
 

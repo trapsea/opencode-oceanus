@@ -32,7 +32,70 @@
 | 2.0.7 → 2.0.10 | ✅ 已核实（plugin/schema/client tarball 全量 diff + GitHub compare；尚未真实 Host 实测，2026-09-20） |
 | 2.0.10 → 2.0.12 | ✅ 已核实（plugin/schema 三版 tarball 全量 diff + GitHub compare + `opencode v2.0.12` 宿主会话内实测，2026-09-22） |
 | 2.0.12 → 2.0.14 | ✅ 已核实（plugin/schema/client 三版 tarball 全量 diff + GitHub compare（本地 clone tags）+ `@opencode/*@2.0.14` 编译实证 + `opencode v2.0.14` 隔离 serve 与会话内实测，2026-09-23） |
+| 2.0.14 → 2.0.15 | ✅ 已核实（plugin/schema/client tarball 全量 diff + GitHub compare（本地 clone tags）+ `@opencode/*@2.0.15` 编译实证 + `opencode v2.0.15` 隔离 serve 与会话内实测，2026-09-24） |
 | 更早历史版本 | 未回溯（build 数百个，按需增量补录） |
+
+---
+
+## 2.0.14 → 2.0.15
+
+- 日期：2026-09-24（记录）；发布时间线：v2.0.14 tag 2026-09-22 13:13 UTC、v2.0.15 tag 2026-09-23 07:15 UTC（npm plugin/schema/cli 同步发布，2.0.15 为 latest）。本机宿主已升级 `opencode v2.0.15`（2026-09-24 确认）。
+- 证据源类型：`@opencode/{plugin,schema,client}@2.0.14` / `2.0.15` tarball 的 dist 全量 diff（权威口径）+ GitHub `anomalyco/opencode` compare v2.0.14...v2.0.15（本地 clone `git fetch origin tag v2.0.15` 后 `git log`/`git diff`，边界 `0846214`（v2.0.14 tag）→ `6f3639d`（v2.0.15 tag）：42 commits、250 文件、+6782/−2549）+ 编译实证（全量 src 含 `tui.tsx` 置于 `@opencode/{plugin,schema,client}@2.0.15` 下 `tsc --noEmit` 零错误，typescript 7.0.2 与项目 `^7.0.0` 同基线）+ 隔离 serve 运行时实测（2026-09-24）。
+- 可复现性：空目录 `npm pack @opencode/{plugin,schema,client}@2.0.14` 与 `@2.0.15`，解压后 `diff -rq` 比对 dist。npm dist.shasum：2.0.15 plugin `c3ccf30f28713479f6dc404ebc8a4d32da02a92b`、schema `5494f6e4d97e36659f5f88e021ab2f41e60a439b`、client `4007c9867986cd92bde55ce76699428de447ad10`（2.0.14 的 shasum 见上一条目）。
+- 影响分级：**plugin dist 逐字节全等（零差异）**；schema 变化为「新增 durable 事件 + 给 `Project.Time` 增加 required 字段」——对事件构造方/Project.Time 构造方是 breaking，对只读消费方与本插件均无关；client 类型面同源同步 + 运行时 chunks 重组，`SessionStatus` 未变。
+
+### 1. plugin：零差异【无】
+
+`@opencode/plugin` 2.0.14 → 2.0.15 dist `diff -rq` 逐字节全等；唯一文件差异 `package.json`（`version` 2.0.14→2.0.15，`dependencies` 的 `@opencode/{ai,client,protocol,schema,util}` 与 `peerDependencies`/`devDependencies` 的 `@opencode/theme` 由 2.0.14 跟随 bump 到 2.0.15）。`Plugin.define`、全部注册域、session hooks、TUI context、promise/effect 双层契约在 2.0.14 → 2.0.15 完全不变。这是继 2.0.12 → 2.0.14 之后**第二个连续零变化的 plugin 区间**。
+
+### 2. schema：新增 durable 事件 `session.metadata.updated` + session metadata 语义更新【新增；本插件未消费】
+
+- `session-event.d.ts` 新增 `MetadataUpdated`（`type: "session.metadata.updated"`，`durability: "durable"`），`event-manifest.d.ts` 双侧（定义 + 联合）同步登记；载荷 `data: { sessionID: SessionID; metadata: Record<String, Json> }`，带 `durable: { aggregateID, seq, version }` 与 optional `location`（结构同其它 durable session 事件）。
+- `session-metadata.d.ts` 的 `SessionMetadata` JSDoc 由 "durable **from creation** and opaque to core" 改为 "durable and opaque to core"，继承语义由 "Children and forks inherit the parent's metadata" 改为 "inherit the parent's **current** metadata"——session metadata 从「创建时固化」升级为「运行时可更新并广播变更」。
+- 归属 commit `5c53cfc342 feat(session): allow metadata updates (#50025)`。
+- 影响评估：新事件为纯新增，未订阅零影响；`SessionMetadata` 类型（`Record<String, Json>`）本身未变，仅语义/文档更新。本插件对 `@opencode/schema` 唯一 import 是 `Tool` 类型（`src/runtime/types.ts`，`@opencode/schema/tool`），`tool.d.ts` 本区间零变化。
+
+### 3. schema：`Project.Time` 新增 required `active: Int`【breaking（对构造方）；本插件未消费】
+
+- `project.d.ts` 的 `Time` struct（及 `Project.Info` 全部内联副本）在 `created`/`updated` 之外新增 required `readonly active: Schema.Int`；`event-manifest.d.ts` 内联副本同步。
+- 归属 commit `53179daefa feat(core): order projects by recent activity (#50790)`——project 增至三段计时（created/updated/active），用于「按近期活动排序项目」。
+- 影响评估：构造该 struct 的代码（宿主内部）必须提供 `active`；仅读取的消费方不受影响。本插件不消费 Project 面，零命中。
+
+### 4. client：类型面同源同步 + 运行时 chunks 重组 + 行为修复【无关；本插件仅类型消费 `SessionStatus`】
+
+- `promise/generated/types.d.ts` 与 `effect/{client,generated/client,api/api}.d.ts` 的变化全部同源：新增 `SessionMetadataUpdated` 事件类型、`V2Event`/`SessionEventDurable` 联合新增 `SessionMetadataUpdated`、project `time.active: number`、session metadata 相关字段。`SessionStatus`（本插件 `src/tui.tsx` 唯一消费的 client 类型）声明逐字节未变。
+- 运行时层（`.js`）：`dist/chunks/` 中 `pty-handoff-*.js`（2.0.14 共 24 个）与 `service-*.js`（2.0.15 共 24 个）为 chunk **重命名/重组**（同名 hash 后缀可对位，如 `1tbj6z39`、`4tveyqeh` 两版共有）；`rpc-runtime`/`service-contender`/`service-timing`/`solid/*` 等内部实现更新——均为宿主内部实现，插件不做运行时 import。
+- 行为修复：`d56ce74373 fix(client): throw declared API errors as Error instances (#50788)`（已声明 API 错误抛 Error 实例）、`10aa949f43 fix(client): preserve base URL path prefix in promise client (#50428)`（promise client 保留 base URL 路径前缀）——改善 client 消费方行为，本插件不消费 client 运行时。
+
+### 5. GitHub commit 口径宿主行为项（core/cli/tui/app/ai 层）【行为级】
+
+- **codemode 运行时**：`68b28bdb98 fix(codemode): coerce match/search patterns, allow any for...in target, bind the last duplicate parameter (#50802)`、`17abc5906b feat(codemode): add tagged templates and String.raw (#50791)`——仅影响 `codemode: true` 工具的 JS 运行时；本插件全部工具显式 `codemode: false`，不受影响（宿主 `execute` 运行时能力增强，利好 Code Mode 调用纪律）。
+- **ai 包**：`60c78ed8ab feat(ai): add media foundation with Media assets and Image rewrite (#49181)`、`f2bdee6726 feat(ai): add gateway evaluation providers (#50665)`、`067a528b1d refactor(ai): rename evaluation action to run (#50529)`、`ddeb19790a fix(ai): replay Kimi reasoning details without the streaming index (#50383)`、`8656838a5b fix(ai): ignore bare null SSE frames (#50793)`——provider/media 面，插件不直接消费。
+- **core**：`f0381e5da3 fix(core): normalize AI SDK fragment boundaries (#50685)`、`43f1dad8e1 fix(core): log error messages for MCP OAuth and credential failures (#50767)`、`3a2203eaac fix(core): install git plugins from branch subdirectories (#50754)`（git 插件支持从分支子目录安装）、`ad1a4a6539 fix(core): simplify shell output notices (#50676)`、`53179daefa`（见条目 3）、`5c53cfc342`（见条目 2）。
+- **cli**：`8ce629be22 fix(cli): keep Windows upgrades and uninstalls from fighting the running binary (#50819)`、`740072694d fix: show API error messages in remaining CLI and TUI paths (#50783)`、`788f0affcb feat(cli): pair with direct server links (#49971)`——升级可靠性 + 错误可见性 + server 直连配对。
+- **tui**：`2e4abeb25d`/`740072694d`（toast 展示 API 错误信息）、`cf4b4c2312 fix(tui): export complete session transcript (#50733)`、`fe0d1682ca fix(tui): show latest step in turn token summary (#50765)`、`3584eca0eb fix(tui): show canonical projects in open dialog (#50674)`、`cdccde7408 refactor(tui): derive bright terminal palette (#50433)`、`54fbf6d14d`、`18eeb3201d`——不触及插件 TUI sidebar API（plugin 包 dist 全等，`SlotClaim`/slot input 契约不变）。
+- **theme**：`8683406690 feat(theme): support dynamic hue names (#50728)`——主题动态色相；plugin 包 peerDep `@opencode/theme` 跟随 bump，无 API 面变化。
+- **app**：`3bf8a5a8cf fix(app): keep Console sign-in visible when a Zen API key is stored (#50763)`、`51d2b66760`、`ad756ef09b`/`94df7a812d`/`7af65eff37`（测试去 flaky）——desktop/app 面，无关。
+- 其余为 `chore`/`docs`/`test`/nix hash 与 www Console 文档同步，不触及插件 API 面。
+
+### 6. 宿主实测注记（opencode v2.0.15，2026-09-24）
+
+- **隔离 serve API 级实测**：临时 XDG 目录 + `OPENCODE_CONFIG` 指向本仓库 `dist` + 独立端口（41234，未触碰用户运行中的共享服务）+ `OPENCODE_PASSWORD` 固定密码起 `opencode serve`。`/api/plugin` 返回 `opencode-oceanus`，`source: {type: "local", path: ".../dist/index.js"}`，`features: {server: true, tui: true}`，`state.status: "active"`；插件总数 87（86 builtin + 本插件）。`/api/agent` 14 个（oceanus 系 9 个全部注册：oceanus/sisyphus/prometheus + explorer/librarian/oracle/designer/fixer/observer，另有 5 内置）；`/api/skill` 12 个（本插件 10 个 + 宿主 OpenCode/Report）。serve 日志显示 setup 阶段 fail-open 正常：agent-browser 探测 `available: true`（source path，version 0.26.0）、`auto_update` 决策 `skipped/no_entry`、CBM mcp 注册 `registered: false`（隔离环境 CBM 未安装，fail-open，口径同既往条目）。首查 `/api/plugin` 返回 `data: []` 的惰性加载现象复现（与 2.0.3/2.0.14 条目一致），数秒后二查即得完整状态。实测后已关闭隔离服务，端口释放、用户服务未受影响。
+- **会话内实测**：本机宿主 `opencode --version` → `opencode v2.0.15`；当前 oceanus 会话（按 `@opencode/*@2.0.10` 构建的插件）运行于该宿主，shell/read/grep/glob 等工具调用正常。
+- TUI 侧栏（`tui.js`）进程内渲染端到端仍未复测（serve 实测覆盖注册面与 `features.tui` 声明，与既往口径一致）。
+
+### 7. 本插件验证结论
+
+- **类型面零破坏**：plugin dist 全等 + schema 两处变化（新事件 `session.metadata.updated`、`Project.Time.active`）均不命中本插件消费面（`@opencode/schema/tool` 的 `Tool` 未变）+ client `SessionStatus` 未变；编译实证——全量 src（含 `tui.tsx`）在 `@opencode/{plugin,schema,client}@2.0.15` 下 `tsc --noEmit` 零错误。
+- **运行时零回归**：隔离 serve 注册面全绿（plugin active、14 agent、12 skill）+ 会话内实测（2.0.10 依赖构建的插件运行于 2.0.15 宿主）。
+- 结论：**无需升级依赖即可运行于 2.0.15 宿主**（当前精确锁定 2.0.10 继续有效）；升级锁定至 2.0.15 为可选维护动作（收益与既往条目同构：消除独立安装场景 peer 版本告警；plugin 包自 2.0.12 起零变化使升级风险趋近于零）。
+
+### 8. negative_findings
+
+- GitHub Release 正文未复查（v2 线既往一贯仅含标题）；本次 commit 序列以本地 clone `git fetch origin tag v2.0.15` 后 `git log v2.0.14..v2.0.15` / `git diff --stat` 获得（42 commits / 250 files / +6782 −2549），为可靠等价证据源（GitHub REST API 匿名限流既往 403）。
+- 无 plugin/schema 包导出结构、注册域、hooks 契约的任何变化；`session.metadata.updated` 是区间内唯一新增事件，`Project.Time.active` 是唯一 required 字段新增，且均非本插件消费面。
+- npm 版本历史在 2.0.14 → 2.0.15 之间无中间 stable 版本（仅 `0.0.0-dev-*`）。
+- client 的 `pty-handoff-*` → `service-*` chunk 重组为构建产物形态变化，未在 `.d.ts` 类型面产生对应差异，不对插件构成契约变化。
 
 ---
 
