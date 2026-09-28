@@ -11,7 +11,7 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 ## 兼容性
 
 - 需要 **OpenCode 2.0+**（`@opencode/cli` ≥ 2.0.10，安装：`npm install -g @opencode/cli`）
-- 依赖 `@opencode/plugin@2.0.10` + `@opencode/schema@2.0.10`（精确锁定；2.0 起包族已迁 `@opencode/*` 新 scope，旧 `@opencode-ai/*` 无 2.x 版本。已核实至 `opencode v2.0.14` 宿主：隔离 serve + 会话内实测插件 active，零适配项——plugin 2.0.12→2.0.14 dist 全等，详见 `docs/opencode-v2-compatibility.md`）
+- 依赖 `@opencode/plugin@2.0.10` + `@opencode/schema@2.0.10`（精确锁定；2.0 起包族已迁 `@opencode/*` 新 scope，旧 `@opencode-ai/*` 无 2.x 版本。已核实至 `opencode v2.0.18` 宿主：四版 tarball 全量 diff + 编译实证 + 隔离 serve（`dist` 目录，server+tui）+ 会话内实测插件 active，零适配项——详见 `docs/opencode-v2-compatibility.md`）
 - 入口为 v2 的 `Plugin.define({ id, setup })`，通过 `ctx.agent.transform` 注册 agent
 - beta-18743 API 面在 2.0.3 宿主实测零回归（注册链路 + MCP connected）；详见 [`docs/opencode-v2-compatibility.md`](docs/opencode-v2-compatibility.md)
 
@@ -29,7 +29,7 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 | `fixer` | 逃生舱执行（大批量并行机械实现，需满足逃生舱三条件） | subagent |
 | `observer` | 视觉 / 多媒体分析（**默认启用**，需要视觉模型） | subagent |
 
-`explorer`、`librarian`、`oracle` **只读**，不写任何文件、不委派、不执行 task（调研结果在回复中以七字段结构返回，不落盘）；`observer` 默认启用（需要视觉模型；无视觉模型时可经 `disabled_agents` 显式禁用）。`prometheus` 是受限主 agent：用户直接切换开启研究/规划会话，产出喂给执行的研究结论与可执行方案；不进入 preset 模型分层（跟随会话模型，可用 `agents.prometheus.model` 单独指定）。
+`explorer`、`librarian`、`oracle` **只读**，不写任何文件、不委派、不执行 task（调研结果在回复中以七字段结构返回，不落盘）；`observer` 默认启用（需要视觉模型；无视觉模型时可经 `disabled_agents` 显式禁用）。`prometheus` 是受限主 agent：用户直接切换开启研究/规划会话，产出喂给执行的研究结论与可执行方案；与 `oceanus`/`sisyphus`/`oracle` 同属 preset 主力档（内置厂商 blueprint 会为其分配主力模型；未配置 preset 时跟随会话模型，可用 `agents.prometheus.model` 单独指定）。
 
 ### Oracle：正式 Review 审查与按需顾问
 
@@ -54,7 +54,7 @@ CBM 沿六阶段工作流形成三阶段主线。**Intake 首次初始化**：�
 
 opencode v2 有两种加载插件的方式。注意配置字段是 **`plugins`（复数）**，v1 的 `plugin`（单数）已废弃。
 
-### 方式 1：放入插件目录（推荐，本地使用）
+### 方式 1：放入插件目录（仅 CLI 入口，本地使用）
 
 构建后把产物放入插件目录，启动时自动加载：
 
@@ -70,7 +70,9 @@ bun run build
 
 `.opencode/plugins/`（v2 规范，复数）目录下的文件在启动时自动加载。
 
-### 方式 2：`plugins` 数组（opencode.jsonc）
+> **限制**：单文件形式没有包结构（无 `exports["./tui"]` 声明），宿主只能发现 CLI 入口，**TUI sidebar 不会加载**；该自动加载形式也未纳入本仓库的宿主验证台账（台账实测的是方式 2 的 `dist` 目录形式）。需要 TUI sidebar 或已验证路径时请使用方式 2。
+
+### 方式 2：`plugins` 数组（opencode.jsonc，推荐）
 
 在 `opencode.jsonc`（或 `~/.config/opencode/opencode.jsonc`）的 `plugins` 数组加入：
 
@@ -207,6 +209,7 @@ Agent 负责路由、委派和阶段推进；Skill 负责阶段契约、输入/�
 | `ast_grep_replace` | 按 AST 语法模式替换 | **默认 dry-run**（只预览不改写）；显式 `dryRun: false` 才真正写入；只改写工作区内的文件 |
 | `clipboard_image` | 读取剪贴板图片并保存为文件 | 优先 PNG，返回绝对路径；用于把用户粘贴/截图的图片交给 @observer 做视觉分析 |
 | `oceanus_config_generate` | 把内置厂商 blueprint 生成（或覆盖）为用户级 preset | `/oceanus-config` 对话流程的确定性写入端 |
+| `cbm_*` 系列（7 个） | CBM 代码知识库包装工具：`cbm_index`（索引触发）、`cbm_search_graph`（符号定位）、`cbm_trace`（调用链）、`cbm_code`（符号源码）、`cbm_query`（只读 Cypher）、`cbm_detect_changes`（影响面）、`cbm_status`（索引状态） | codebase-memory-mcp direct MCP 工具的兜底通道，受配置门控，与 direct 工具参数名不混用；详见 [`docs/codebase-memory-mcp.md`](docs/codebase-memory-mcp.md) |
 
 ### 内置 Hook
 
@@ -314,6 +317,7 @@ CBM 缓存根优先级为 `codebaseMemory.cacheDir` → 外部 `CBM_CACHE_DIR` �
 - `disabled_agents`：禁用的 agent 名称；默认 `[]`（全部 agent 启用；`oceanus` 受保护，不可禁用）。
 - `disabled_tools`：禁用的工具名称数组，对工具拥有最终禁用权。
 - `disabled_hooks`：禁用的 Hook 名称数组，对 Hook 拥有最终禁用权。
+- `orchestratorVision`：主 agent 的图片附件行为：`'auto'`（默认，保留图片附件并物化兜底）、`'true'`（明确按支持视觉处理）、`'false'`（主模型不支持视觉，prompt 阶段移除图片附件）。
 - `tools`：按工具名深合并的结构化配置（见上方「新增工具与运行时保护」）。
 - `hooks`：按 Hook 名深合并的结构化配置（见上方「新增工具与运行时保护」）。
 - 文件编辑使用宿主原生 `edit` / `write` / `apply_patch`（原生 diff 渲染与模型通用心智）。详见 `docs/tooling-and-runtime.md`。
@@ -372,7 +376,26 @@ Sisyphus 执行时还会为每个计划维护任务级进度 ledger：`.oceanus/
 /git-commit 只分析已暂存变更   # 附加补充要求
 ```
 
-对话式命令：把「扫描变更 → 归类意图（`[需求]`/`[缺陷]`/`[通用]`/`[紧急]`）→ 判断拆分策略 → 生成 `[AI][标签][模块名] 简短描述` 格式建议 → 用 question 工具询问用户是否提交」的工作流指令注入当前会话，由当前 agent 执行。固定选项：**确认提交**（自动按顺序执行各组 `git add` + `git commit`，任一组失败立即停止并报告现场）、**继续拆分**（细化粒度后再次询问）、**不提交**。仅在用户明确选择提交后才执行 git 写操作，绝不执行 `git push`。命令经 `session.prompt` 注入并触发 LLM turn（宿主能力缺失时降级为 synthetic 回执提示）。
+对话式命令：把「扫描变更 → 归类意图（`[需求]`/`[缺陷]`/`[通用]`/`[紧急]`）→ 判断拆分策略 → 生成 `[AI][标签][模块名] 简短描述` 格式建议 → 用 question 工具询问用户是否提交」的工作流指令注入当前会话，由当前 agent 执行。默认把全部变更合并为**一次提交**（速度优先，直接给出唯一建议；需要更细粒度时通过「继续拆分」选项细化后再次询问）。固定选项：**确认提交**（执行 `git add` + `git commit`，失败立即停止并报告现场）、**继续拆分**（细化粒度后再次询问）、**不提交**。仅在用户明确选择提交后才执行 git 写操作，绝不执行 `git push`。命令经 `session.prompt` 注入并触发 LLM turn（宿主能力缺失时降级为 synthetic 回执提示）。
+
+### `/ai-ratio`：AI 代码占比统计
+
+```text
+/ai-ratio                              # 批问统计范围后分析
+/ai-ratio --since 2026-03-01           # 预指定起始日期，跳过对应询问
+/ai-ratio --branch feat/merchant-F01   # 预指定分支
+```
+
+对话式命令：把「批量询问统计范围（时间范围 + 分支）→ 只读采集提交 → 判定 AI/人工（`[AI]` 前缀为最高优先判定依据，兼容 author 名 `AI-Gen(...)`、`ai-gen@company.com` 等旧格式）→ 按开发者/模块统计 → 输出 Markdown 报告」的工作流指令注入当前会话。全程只读（`git log` / `git show --numstat`），隐藏目录与 Markdown 文档不计入代码产出，统计必须基于真实命令输出。命令经 `session.prompt` 注入并触发 LLM turn（宿主能力缺失时降级为 synthetic 回执提示）。
+
+### `/oceanus-config`：模型厂商 preset 初始化
+
+```text
+/oceanus-config            # 列出内置厂商，多选生成 preset
+/oceanus-config 全部生成    # 附加补充要求
+```
+
+对话式命令：把「列出内置厂商 blueprint → question 多选 → 逐个生成用户级 preset → 可选激活」的工作流指令注入当前会话。写入动作由 `oceanus_config_generate` 工具确定性完成（原子写 + 临时文件 rename），不让 LLM 手写 JSON；无配置文件时默认按维护者常用厂商组合（`zai`、`openai`、`deepseek`、`ollama-cloud`、`opencode-go`）生成，其余内置 blueprint 可通过补充要求显式指定。
 
 
 ## 开发
@@ -390,14 +413,20 @@ bun run typecheck # 类型检查
 ├── package.json        # npm 包定义，main 指向 dist/index.js
 ├── tsconfig.json
 ├── src/
-│   ├── index.ts        # v2 插件入口：Plugin.define + ctx.agent/skill/command/tool/hook 注册
-│   ├── config/         # jsonc 配置加载与 schema（paths / loader / schema / utils / constants）
-│   ├── agents/         # 各 agent 定义（oceanus / sisyphus + 6 个子 agent）
-│   ├── tools/          # 新增工具（ast-grep / clipboard-image / cbm）
+│   ├── index.ts        # v2 CLI 插件入口：Plugin.define + ctx.agent/skill/command/tool/hook 注册
+│   ├── tui.tsx         # TUI sidebar 插件入口（exports["./tui"]）与会话/模型展示
+│   ├── agents/         # 各 agent 定义（oceanus / sisyphus / prometheus + 6 个子 agent）
+│   ├── skills/         # sisyphus 六个阶段与支持型 skill（插件注入，安装无需拷贝）
+│   ├── tools/          # 核心工具（ast-grep / clipboard-image / oceanus-config-generate）；cbm/ 下另有 7 个 CBM 工具
 │   ├── hooks/          # 运行时保护 Hook（apply-patch / json-error-recovery / tool-output-truncator / tool-loop-guard / secret-read-guard / planning-write-guard / cbm-guidance / image 处理）
+│   ├── config/         # jsonc 配置加载与 schema（paths / loader / schema / utils / constants / presets / vendor-blueprints / tool-matrix）
+│   ├── commands/       # 插件命令（/preset、/git-commit、/ai-ratio、/oceanus-config）
+│   ├── review/         # Oracle 审查场景注册表与 graded 协议（scenes / protocol）
 │   ├── runtime/        # 宿主桥接、setup 阶段编排、workspace 解析与会话能力契约
 │   ├── smoke/          # ast-grep CLI 探测与 setup/CBM 接线 smoke
-│   └── skills/         # sisyphus 六个阶段与支持型 skill（插件注入，安装无需拷贝）
+│   ├── cbm/            # CBM 下载、校验、进程、索引、MCP、CLI 与 wiring
+│   ├── browser/        # agent-browser 浏览器能力层（三级探测、确认门安装）
+│   └── update/         # npm 版本检查、OpenCode 安装上下文、staging 与原子更新
 └── dist/               # 构建产物
 ```
 

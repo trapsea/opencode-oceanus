@@ -64,6 +64,7 @@ storage.memory(key, { initial })  // ephemeral：热重载共享、TUI 退出即
 - **dialog**：`show(render, onClose?)/set(options)/clear` + 快捷 `alert/confirm/prompt/select`。（beta-19271 变化：`DialogSelectOption` 新增 optional `footer?: string`）
 - **toast**：`show({title?, message, variant: info|success|warning|error, duration?})`。
 - **attention**：`notify({title?, message, notification?, sound?}) → {ok, notification, sound, skipped?}`（声音名：default/question/permission/error/done/subagent_done）。
+- **model**（**2.0.17 新增**）：`current() → { providerID, modelID, variant? } | undefined`（Solid computation 内响应式；无选中模型返回 undefined，`variant` 为 undefined 表示模型默认）+ `variant.list() → readonly string[]` + `variant.set(variant: string | undefined) → boolean`（无选中模型或 variant 不可用返回 false；传 `undefined` 回模型默认）。官方 `cli.mdx` 给出绑定命令替换内置 variant 循环的示例。本插件 `tui.tsx` 未消费（可选接入）。
 
 配套：`PluginContextProvider` / `usePlugin()`（`tui/solid.d.ts`）在 Solid 组件树注入 Context。
 
@@ -92,7 +93,7 @@ storage.memory(key, { initial })  // ephemeral：热重载共享、TUI 退出即
 
 ## 6. 版本兼容锚点（18230 → 2.0.3）
 
-- `tui/context.d.ts`：beta-18721 等价类型重构；beta-19242 `session.panel` + `ui.panel`；beta-19507 tabs 语义调整 + `move`（本节 §1.4）——其余 TUI 面至 2.0.3 无变化。
+- `tui/context.d.ts`：beta-18721 等价类型重构；beta-19242 `session.panel` + `ui.panel`；beta-19507 tabs 语义调整 + `move`（本节 §1.4）；**2.0.17** 新增 `ui.model` 域（本节 §1.4）——其余 TUI 面至 2.0.3 无变化。
 - `persistent-pty.d.ts` 有细节差异（18721 调整）。
 - TUI Definition、solid 工具、SlotMap 无变化。
 - 2.0.3 宿主对双入口插件识别 `features: { server: true, tui: true }`（实测）。

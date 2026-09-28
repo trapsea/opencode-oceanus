@@ -33,7 +33,90 @@
 | 2.0.10 → 2.0.12 | ✅ 已核实（plugin/schema 三版 tarball 全量 diff + GitHub compare + `opencode v2.0.12` 宿主会话内实测，2026-09-22） |
 | 2.0.12 → 2.0.14 | ✅ 已核实（plugin/schema/client 三版 tarball 全量 diff + GitHub compare（本地 clone tags）+ `@opencode/*@2.0.14` 编译实证 + `opencode v2.0.14` 隔离 serve 与会话内实测，2026-09-23） |
 | 2.0.14 → 2.0.15 | ✅ 已核实（plugin/schema/client tarball 全量 diff + GitHub compare（本地 clone tags）+ `@opencode/*@2.0.15` 编译实证 + `opencode v2.0.15` 隔离 serve 与会话内实测，2026-09-24） |
+| 2.0.15 → 2.0.18 | ✅ 已核实（plugin/schema/client/opentui 四版 tarball 全量 diff + GitHub compare（本地 clone tags，三段）+ `@opencode/*@2.0.18` 编译实证 + `opencode v2.0.18` 隔离 serve 与会话内实测，2026-09-28） |
 | 更早历史版本 | 未回溯（build 数百个，按需增量补录） |
+
+---
+
+## 2.0.15 → 2.0.18
+
+- 日期：2026-09-28（记录）；发布时间线：v2.0.15 tag 2026-09-23 07:15 UTC → v2.0.16 2026-09-24 06:34 UTC → v2.0.17 2026-09-25 21:09 UTC → v2.0.18 2026-09-25 23:57 UTC（npm plugin/schema/cli 同步发布；2.0.16→2.0.17 间隔约 1.5 天，2.0.17→2.0.18 仅约 2.8 小时，2.0.18 为 latest）。本机宿主 `opencode --version` → `opencode v2.0.18`。
+- 证据源类型：`@opencode/{plugin,schema,client}@2.0.15`/`2.0.16`/`2.0.17`/`2.0.18` 四版 tarball dist 全量 diff（权威口径）+ GitHub `anomalyco/opencode` 本地 clone `git fetch origin tag v2.0.{16,17,18}` 三段 compare（边界 `6f3639d`（v2.0.15）→`3a103fe`（v2.0.16）→`04f4b06`（v2.0.17）→`cd9a14a`（v2.0.18）：63 commits/561 files/+54585−4330、73 commits/371 files/+10558−4106、4 commits/52 files/+278−114）+ 编译实证（全量 src 含 `tui.tsx` 置于 `@opencode/{plugin,schema,client}@2.0.18` + `@opentui/{core,solid}@0.5.12` 下 `tsc --noEmit` 零错误，typescript 7.0.2 与项目 `^7.0.0` 同基线）+ 隔离 serve 运行时实测（2026-09-28）。
+- 可复现性：空目录 `npm pack @opencode/{plugin,schema,client}@<v>`（v ∈ `2.0.15`/`2.0.16`/`2.0.17`/`2.0.18`，另 `@opentui/{core,solid}@0.5.12`），解压后 `diff -rq` 比对 dist。npm dist.shasum：plugin 2.0.16 `871a8078d8dae084eee7656f69e1219ec0d2cada`、2.0.17 `31052757b84fa2187d8ee214c5b1fbc936b98e98`、2.0.18 `db7d45d4e66b3a28f9ec3a99028983a713bfc246`（2.0.15 `c3ccf30f…` 见上一条目）；schema 2.0.16 `00ceab976c0f3eb58e2b097cbd09109d03671b98`、2.0.17 `dcb90722e66ea6398005a6138692c009c10c427d`、2.0.18 `373c190ef96ba8fe49fdeb047e1f59dd63e5234d`；client 2.0.16 `3107e63ea382e95647bb384276105cc585ac3a4e`、2.0.17 `885ef31d198f76cbf5b8b29a5eb8a273161a1d89`、2.0.18 `621dd36be9a03ce507d5d38a48b697b46310083a`。
+- 影响分级：**零 breaking、零必需适配**。plugin 区间内仅 2.0.17 一处新增（TUI `ui.model` 域，本插件未消费）；schema 区间内仅 2.0.17 一处新增（`Shell.Info.signal`，本插件未消费）；client 2.0.16 一处构造器增强 + 2.0.17 新增 server 一次性配对 API（本插件对 client 仅类型消费 `SessionStatus`，未命中）；2.0.18 无任何类型面变化。
+
+### 1. plugin：2.0.15→2.0.16 与 2.0.17→2.0.18 dist 逐字节全等；2.0.16→2.0.17 新增 TUI `ui.model` 域【新增；本插件未消费】
+
+- `@opencode/plugin` 2.0.15→2.0.16 与 2.0.17→2.0.18 两段 `diff -rq dist` 逐字节全等（仅 `package.json` 版本号与 `@opencode/*` 依赖/peer 跟随 bump）。这是继 2.0.12→2.0.14、2.0.14→2.0.15 之后的**第三、第四个 plugin 零变化区间**；2.0.16→2.0.17 为区间内唯一 plugin 变动。
+- 归属 commit `c35c211460 feat(tui): expose model variant selection to plugins (#51101)`，改动 `packages/plugin/src/tui/context.ts` 的 `UI` 接口新增 `model` 域：
+
+```diff
+ export interface UI {
+   readonly tabs: { … }
++  readonly model: {
++    /** The prompt's selected model; variant is undefined for the model default. Reactive when read in a Solid computation. */
++    current(): { readonly providerID: string; readonly modelID: string; readonly variant?: string } | undefined
++    readonly variant: {
++      /** Variant IDs of the selected model. Reactive when read in a Solid computation. */
++      list(): readonly string[]
++      /** Selects a variant of the selected model, or the model default when undefined. Returns false when no model is selected or the variant is unavailable. */
++      set(variant: string | undefined): boolean
++    }
++  }
+   readonly slot: (claim: SlotClaim) => () => void
+ }
+```
+
+- 官方文档同步新增 “Model” 一节（`docs/content/build/plugins/cli.mdx`）：`ui.model.current()` / `variant.list()` 在 Solid computation 内响应式；`variant.set(undefined)` 回模型默认；示例将 `variant.cycle` 命令绑定到 `tab` 以替换内置 variant 循环。
+- 对本插件影响：`src/tui.tsx` 消费 TUI `Context` 的 `data`/`location`/`ui.slot`/`theme`/`renderer` 等，未触及新增的 `ui.model`，**零命中**；这是可选的 TUI 侧栏能力，未来如需展示/切换 variant 可接入。
+
+### 2. schema：`Shell.Info` 新增 optional `signal`【新增；本插件未消费】
+
+- 归属 commit `e22c1622e0 fix(core): report shell commands killed by a signal (#51145)`。`schema/src/shell.ts` 的 `Shell.Info` 在 `pid?`/`exit?` 之后新增 `signal?: String`（`session-event.d.ts`、`event-manifest.d.ts` 内联副本同步，共 5 处 schema 定义 + 全部事件内联副本），语义为 shell 命令被信号终止时记录信号名（官方亦同步 `core/src/tool/plugin/shell.ts` 的插件工具 shell 记录）。
+- 区间内 schema **无新增/删除事件、无事件联合变化、无 required 字段新增**；`Shell.Info` 的 `signal` 是唯一 schema 结构变化。
+- 对本插件影响：本插件对 `@opencode/schema` 唯一 import 是 `Tool` 类型（`src/runtime/types.ts`，`@opencode/schema/tool`），`tool.d.ts` 区间内零变化；不消费 `Shell.Info`，**零命中**。
+
+### 3. client：`ClientError` detail、server 一次性配对 API、shell signal【新增/行为；本插件仅类型消费 `SessionStatus`】
+
+- **2.0.16 `a117ebb408 fix(client): include the detail in client error messages (#50929)`**：`promise/generated/client-error` 的 `ClientError` 构造器第二参由 `ErrorOptions` 放宽为 `ErrorOptions & { readonly detail?: string | null }`，并把 `detail`（或 `cause.message`）拼入 `super()` 的 message（`${reason}: ${detail}`）。这是 2.0.15→2.0.16 段内**唯一 client `.d.ts` 变化**；区间内其余 client dist 差异全为运行时 `.js` 与 chunk 重组（`service-*` → `service-timing-*`）。
+- **2.0.17 `eccf0b3b7b feat(server): pair with one-time connect links (#50970)`**：client 三轨（`effect/api/api.d.ts`、`effect/generated/client.d.ts`、`promise/generated/{client,types}.d.ts`）新增 `ServerApi.pair()`/`connect(input)`——`pair() → { code, expires_in }`、`connect({ code }) → { token }`；promise 轨导出 `PairingCode`/`PairingSession` 类型与 `ServerPairOutput`/`ServerConnectInput`/`ServerConnectOutput` 别名。配套 `app` 用一次性链接替换密码配对（`2caba90a63 feat(app): replace password pairing with one-time links (#50972)`）。区间内 `SessionStatus` 声明逐字节未变。
+- **2.0.17**：shell `signal` 同步进 client 事件类型（`ShellCreated`/`ShellExited`/`ShellDeleted` 的 `data.signal?: string`），与 schema 条目同源。
+- **2.0.18**：client `.d.ts` 零变化，仅运行时 `.js` 与 chunk 重组（`service-timing-*` → `contract-*`）。
+- 对本插件影响：本插件对 `@opencode/client` 仅类型消费 `SessionStatus`（`src/tui.tsx`），声明未变，**零命中**；不消费 client 运行时。
+
+### 4. 包元数据：2.0.17 起 plugin peer `@opentui/* >=0.5.10 → >=0.5.12`【本插件 peerDeps 需评估】
+
+- `@opencode/plugin` 2.0.16→2.0.17 的 `package.json` 将 `peerDependencies` 的 `@opentui/core`/`@opentui/solid` 由 `>=0.5.10` 提升到 `>=0.5.12`（devDependencies 同步 `0.5.12`），`@opencode/theme` 与 `@opencode/{ai,client,protocol,schema,util}` 依赖跟随 bump；对应宿主 `917d904f18 tui: update OpenTUI v0.5.12 (#50567)`。
+- 对本插件影响：`package.json` 当前声明 `@opentui/solid >=0.5.10`（optional peer，devDep `^0.5.10`），若将插件锁定版本升至 2.0.17+，为消除独立安装场景 peer 告警应同步把 `@opentui/*` 基线抬到 `>=0.5.12`。当前维持 2.0.10 锁定时无需改动；编译实证已在 0.5.12 下通过。
+
+### 5. GitHub commit 口径宿主行为项（core/cli/tui/app/ai/desktop 层）【行为级】
+
+- **2.0.15 → 2.0.16（63 commits）**：codemode 运行时大修（`318a8c1aba` Object.freeze/seal/create/getPrototypeOf + structuredClone、`dc48655743` `==` 改 IsLooselyEqual、`14a3311a61` Uint8Array 回调与 indexOf 强制转换、`33b686feb9` 资源以 codemode 工具列出/读取）——仅影响 `codemode: true` 工具，本插件全部工具 `codemode: false`；core 侧 MCP Code Mode 默认值（`ff6b8c21e7`）、GitLab workflow 发现 + OAuth 登录（`f0aff6cfe8`）、read 长度/行数上限（`683d470fe4`）、带引号/重音变体的读取恢复（`b47824fb63`）、V1 会话迁移时提示重命名旧工具（`2c369a21c9`）、忽略空 subagent options（`757e565c23`）；ai 侧新增图片/转写/语音/视频生成路由（`56db9053e8`/`dbaa57a21b`/`f526727178`/`cc8886c8bb`）；app/desktop 侧 Console 设备码登录（`b7d707cd64`）与设置精简（`bee5014f89`）——插件 API 面无关。
+- **2.0.16 → 2.0.17（73 commits）**：core 注册 Console 托管 MCP server（`6cd938e1e9`）、shell 被信号终止的记录（`e22c1622e0`，见条目 2/3）、工具名上限放宽至 128 字符（`03be7f385b`）、截断输出补行数（`8118690839`）、从普通 AI SDK stream error 读取 provider 错误（`e796f2f9a5`）；prompt 队列回退（`beeb14e910`）；app provider 账号切换（`684721efb8`）与一次性配对链接（`2caba90a63`）；tui OpenTUI 0.5.12（`917d904f18`）、transcript 详细度（`c1f50659a7`/`bbbac2507b`）、向插件暴露 model variant（`c35c211460`，见条目 1）；ai 侧大量 thinking-budget / media facade 修复。均不触及插件注册域与 hooks 契约。
+- **2.0.17 → 2.0.18（4 commits / 52 files）**：`cd9a14a6b6 release: v2.0.18`、`00738c5b2d sync release versions for v2.0.17`、`041885d838 fix(core): decode legacy media in compaction checkpoints (#51409)`、`29ce49db0f refactor(util): share a browser opener across cli, tui, and core (#51412)`——仅 core/util 内部与发布同步，plugin/schema/client 源码路径无 commit，故 dist 零类型变化。
+
+### 6. 宿主实测注记（opencode v2.0.18，2026-09-28）
+
+- **隔离 serve API 级实测**：临时 XDG 目录 + 独立端口（41238，未触碰用户运行中的共享服务，用户服务 pid 4548 全程未受影响）+ `OPENCODE_PASSWORD` 固定密码起 `opencode serve`；`OPENCODE_CONFIG` 的 `plugin` 指向本仓库 **`dist` 目录**（含 `index.js` 入口，与 README 安装写法一致）。`/api/plugin` 返回 `opencode-oceanus`，`source: {type: "local", path: ".../dist/index.js"}`，`features: {server: true, tui: true}`，`state.status: "active"`；插件总数 89；`/api/agent` 14 个（oceanus 系 9 个全部注册：oceanus/sisyphus/prometheus + explorer/librarian/oracle/designer/fixer/observer，另有 5 内置）；`/api/skill` 12 个（本插件 10 个 + 宿主 OpenCode/Report）。serve 日志显示 setup 阶段 fail-open 正常：agent-browser 探测 `available: true`（version 0.26.0）、`auto_update` 走到决策、CBM mcp 注册 `registered: false`（隔离环境 CBM 未安装，fail-open，口径同既往条目）。首查 `/api/plugin` 返回 `data: []` 的惰性加载现象复现（与既往条目一致），数秒后二查即得完整状态。加载方式附注：单文件路径仍被拒（WARN `configured plugin path must be a directory`），不含 `index` 入口的目录（如仓库根）亦不加载——与既有口径一致，非新差异；另可用 `.opencode/plugin/*.js` 自动发现 re-export 入口（本次亦验证可加载，但该路径只出 `features: {server: true}`，TUI 入口需包式 `dist` 目录加载才有）。实测后已关闭隔离服务，端口 41238 已释放。
+- **会话内实测**：本机宿主 `opencode --version` → `opencode v2.0.18`；当前 oceanus 会话（按 `@opencode/*@2.0.10` 构建的插件）运行于该宿主，shell/read/grep/glob 等工具调用正常。
+- TUI 侧栏（`tui.js`）进程内渲染端到端仍未复测（口径同既往条目）。
+
+### 7. 本插件验证结论
+
+- **类型面零破坏**：plugin 逐字节全等（2.0.15→2.0.16、2.0.17→2.0.18）+ 2.0.16→2.0.17 仅新增 TUI `ui.model`（本插件 TUI 未消费）；schema 仅 `Shell.Info.signal`（本插件不消费 `Shell.Info`，唯一 import `Tool` 未变）；client 仅 `ClientError` 增强 / server 配对 API / shell signal，`SessionStatus` 未变。编译实证——全量 src（含 `tui.tsx`）在 `@opencode/{plugin,schema,client}@2.0.18` + `@opentui/{core,solid}@0.5.12` 下 `tsc --noEmit` 零错误（typescript 7.0.2）。
+- **运行时零回归**：隔离 serve 注册面全绿（plugin active、14 agent、12 skill）+ 会话内实测（2.0.10 依赖构建的插件运行于 2.0.18 宿主）。
+- 结论：**无需升级依赖即可运行于 2.0.18 宿主**（当前精确锁定 2.0.10 继续有效）。升级锁定至 2.0.18 为可选维护动作（收益与既往条目同构：消除独立安装场景 peer 版本告警；plugin 包自 2.0.12 起零变化使升级风险趋近于零）；若升级，需同时把 `@opentui/*` peer/devDep 基线抬至 `>=0.5.12`，并可选择性接入 TUI `ui.model`（variant 展示/切换）——均非必需。
+
+### 8. negative_findings
+
+- **区间内无新增/删除事件**：与 2.0.15 条目（新增 `session.metadata.updated`）不同，2.0.15→2.0.18 的 `event-manifest`/`session-event` 仅因 `Shell.Info.signal` 内联副本同步而变动，无事件联合成员变化；`V2Event` 联合成员数不变。
+- 无 plugin 注册域、hooks、`Plugin.define`、`Plugin.Info`、promise/effect 双层契约变化；`tui/plugin.d.ts`、`schema/tool.d.ts` 逐字节未变。
+- client/server 配对 API（`pair`/`connect`）为纯新增，未改变既有 `server.info`；`ClientError` message 拼接为行为修复（message 文本变化），不影响类型消费方。
+- **未覆盖项（诚实口径）**：`@opencode/{protocol,ai,util,core}` 四包本次未做 tarball 全量 diff（本插件 src 不直接 import 这些包，仅 `@opencode/plugin` 传递依赖）；如需对传递依赖做完整性证明，应另行 diff。
+- GitHub Release 正文未复查（v2 线既往一贯仅含 bare tags）；commit 序列以本地 clone `git fetch origin tag v2.0.{16,17,18}` 后 `git log <a>..<b>` / `git diff --stat` 获得，为可靠等价证据源（GitHub REST API 匿名限流既往 403）。
+- npm 版本历史在 2.0.15 → 2.0.18 之间无中间 stable 版本（仅 `0.0.0-dev-*`）。
+- client chunk 命名三段变化（`service-*` → `service-timing-*` → `contract-*`）为构建产物形态变化，未在 `.d.ts` 类型面产生对应差异，不对插件构成契约变化。
+- 宿主 2.0.18 的本地插件加载仍遵循既有口径：`dist` 目录（含 `index.js` 入口）可加载并声明 `server+tui`；单文件路径与不含 `index` 入口的目录均不加载（见条目 6）。此为跨版本既有行为，非 2.0.15 → 2.0.18 引入的差异。
 
 ---
 

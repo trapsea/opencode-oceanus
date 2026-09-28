@@ -40,6 +40,15 @@
     "plugin"
   ],
   "license": "MIT",
+  "author": "trapsea",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/trapsea/opencode-oceanus.git"
+  },
+  "homepage": "https://github.com/trapsea/opencode-oceanus#readme",
+  "bugs": {
+    "url": "https://github.com/trapsea/opencode-oceanus/issues"
+  },
   "dependencies": {
     "@opencode/plugin": "2.0.10",
     "@opencode/schema": "2.0.10"
@@ -64,6 +73,5 @@
     "solid-js": "^1.9.0",
     "typescript": "^7.0.0",
     "zod": "^4.4.3"
-  },
-  "author": ""
+  }
 }

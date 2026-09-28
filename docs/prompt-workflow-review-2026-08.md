@@ -2,7 +2,7 @@
 
 - 日期：2026-08-29
 - 审查范围：`src/agents/oceanus.ts`、`src/agents/sisyphus.ts`、`src/agents/orchestrator-context.ts`、`src/agents/momus.ts`、`src/agents/metis.ts`、六个 `sisyphus-*` skills、`src/skills/opencode-oceanus.ts`
-- 对比基准：`oh-my-opencode-slim`（本地 `/apple/workspace/ocean/oh-my-opencode-slim`，oceanus 直接上游）与 `oh-my-openagent`（code-yeongyu/oh-my-openagent，omo 主系通用版，基于远端调研）
+- 对比基准：`oh-my-opencode-slim`（本地克隆，oceanus 直接上游）与 `oh-my-openagent`（code-yeongyu/oh-my-openagent，omo 主系通用版，基于远端调研）
 - 状态（P15，2026-08-29）：P1-P14 已落地并通过对应测试（全量 1021 pass/8 skip/0 fail）；下表区分代码/测试行为与真实 OpenCode Host、CBM daemon、ast-grep 环境验证，不把 mock、fake 或静态证据记为真实成功。
 
 ---
@@ -196,6 +196,6 @@ index_status_failed:
 
 ## 六、复核与证据状态
 
-- slim 侧结论基于本地源码一手核对（`/apple/workspace/ocean/oh-my-opencode-slim/src/agents/orchestrator.ts`、`architect.ts`、`src/skills/architect-*/SKILL.md`）。
+- slim 侧结论基于本地源码一手核对（slim 仓库 `src/agents/orchestrator.ts`、`architect.ts`、`src/skills/architect-*/SKILL.md`）。
 - openagent 侧结论基于 @librarian 远端调研（工厂签名、配置 schema、team-mode 类型、README），**具体提示词正文未获取**；涉及 openagent 的校准动作（问题 6 措辞）在实施前建议再定向抓取 `packages/omo-opencode/src/agents/` 下 prompt 文件。
 - 本文档已按 P1-P14 更新；问题 1-16 均有代码/测试证据，问题 17 已完成 CLI 兼容实现但真实版本矩阵未验证，问题 18 已完成 starting/stale 降级实现但真实 daemon/Host 冷启动路径仍需验证；问题 10 同样未宣称真实 Host 全链路成功。
