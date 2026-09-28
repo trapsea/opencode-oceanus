@@ -8,6 +8,26 @@ Oceanus 不只是增加一个聊天 Agent：它提供从代码侦察、外部资
 
 > **重要说明**：Sisyphus 六阶段流程和 Oracle 审查属于 prompt / skill 层约定，不是运行时自动 supervisor；实际能力仍取决于 OpenCode v2 宿主及所配置的模型。
 
+## 快速开始
+
+```bash
+# 1. 前置：OpenCode 2.0+（@opencode/cli ≥ 2.0.10）
+npm install -g @opencode/cli
+```
+
+在项目根目录的 `opencode.jsonc`（全局则用 `~/.config/opencode/opencode.jsonc`）中启用插件：
+
+```json
+{
+  "plugins": ["opencode-oceanus"]
+}
+```
+
+启动 `opencode`，agent 列表出现 `oceanus` / `sisyphus` 等即安装成功；TUI 侧边栏会显示 Oceanus 面板。
+
+- 完整分步安装（含本地源码构建、插件目录复制、验证清单与故障排查）：见 [`docs/installation.md`](docs/installation.md)。
+- **让 AI 助手自动安装**：把 [`docs/installation.md`](docs/installation.md) 提供给你的 AI 编码助手（OpenCode / Claude Code / Cursor 等），文档内置「LLM 自动安装协议」，可被直接解析执行。
+
 ## 兼容性
 
 - 需要 **OpenCode 2.0+**（`@opencode/cli` ≥ 2.0.10，安装：`npm install -g @opencode/cli`）
@@ -51,6 +71,8 @@ Oracle 承担两类职责（均为 prompt/skill 层约定）：
 CBM 沿六阶段工作流形成三阶段主线。**Intake 首次初始化**：在任何代码调研开始之前基于请求预判代码相关性并立即触发首次 `cbm_index`（唯一索引入口，项目名自动取 workspace 目录名；预判非代码不触发），正式分类后修正偏差（漏判补触发、误判记录不回滚），失败、超时或 in-progress 均 fail-open 并记录；同会话重复触发由运行时拦截（hook guard + 工具级冷却）；discuss/Plan 不重复首次初始化。**Plan 自查**：Plan 根据 spec 自查修改文件、公共符号、依赖和验证方式；复杂架构或高风险业务仍有关键未知时，Sisyphus 可按需咨询 Oracle advisory。**Review 影响面复查**：按最终 diff 需要时用 `cbm_index` 刷新，再用 direct `trace_path`/`detect_changes` 排查并记录证据（wrapper 兜底）；CBM 不可用时记录 `cbm: stale`、降级工具、覆盖范围和残余风险。查询型工具可由需要的 agent 使用，finish 阶段不调用 CBM。详见 `docs/codebase-memory-mcp.md`。
 
 ## 安装
+
+> 完整分步安装、LLM 自动安装协议、验证清单与故障排查见 [`docs/installation.md`](docs/installation.md)；本节聚焦各加载方式的细节与差异。
 
 opencode v2 有两种加载插件的方式。注意配置字段是 **`plugins`（复数）**，v1 的 `plugin`（单数）已废弃。
 
